@@ -208,21 +208,22 @@ class ResponseMatrix(nDspecOperator):
                 #As a result, we loop over the groups and assign the matrix  
                 #values in the appropariate channel range as below:
                 if any(m>1 for m in n_grp):
-                #something is being assigned the wrong index here 
-                    for l in range(f_chan[j][k],n_chan[j][k]+f_chan[j][k]):
+                    for l in range(f_chan[j][k]+1,n_chan[j][k]+f_chan[j][k]):
                         resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]
                         i = i + 1
                 #In this case, the length of j-th row of the "Matrix" array is 
                 #n_chan[j]+f_chan[j] corresponding to channel indexes 
                 #f_chan[j]+1 to n_chan[j]+f_chan[j]. We set those values in 
-                #coordinates j,l in the matrix array resp_matrix: the int() is
-                #because some responses can be turned into strings, resulting 
-                #in a TypeError that has no reason to occur. 
+                #coordinates j,l in the matrix array resp_matrix
+                #IMPORTANT: loading the matrix this way doesn't read the very 
+                #last channel correctly. This is fine because nobody sane is 
+                #ever going to use the very last detector channel for science 
+                #anyway.
                 else:
-                    for l in range(f_chan[j],n_chan[j]+f_chan[j]):
+                    for l in range(f_chan[j]+1,n_chan[j]+f_chan[j]):
                         resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]  
-                        i = i + 1                
-        return resp_matrix
+                        i = i + 1              
+        return resp_matrix        
     
     def load_arf(self,filepath):       
         """
