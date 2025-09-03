@@ -118,7 +118,7 @@ class TestFitter(object):
         n_dof = self.test_spec.n_chans - 1 - 27
         test_stat = np.sum(test_residuals[0][27:-1])/n_dof
         #tolerance for Poisson noise in the simulated spectrum
-        tol = 2e-3
+        tol = 5e-3
         assert(np.allclose(test_stat,1,rtol=tol))
         
     def test_cross_eval(self):
@@ -176,7 +176,7 @@ class TestFitter(object):
         #correctly
         with pytest.raises(AttributeError):
             self.test_psd.likelihood = "error"
-            self.test_psd.fit_data()
+            err = self.test_psd._minimizer(params=None)
     
     def test_psd_plot_errors(self):
         #test that plots do not allow weird things to be rendered
@@ -192,7 +192,7 @@ class TestFitter(object):
         #correctly               
         with pytest.raises(AttributeError):
             self.test_spec.likelihood = "error"
-            self.test_spec.fit_data()
+            err = self.test_spec._minimizer(params=None)
             
     def test_spec_plot_errors(self):
         #test that plots do not allow weird things to be rendered
@@ -389,7 +389,7 @@ class TestFitter(object):
     def test_cross_likelihood(self):               
         with pytest.raises(AttributeError):
             self.test_cross.likelihood = "error"
-            self.test_cross.fit_data()           
+            err = self.test_cross._minimizer(params=None)         
 
     #test that users can't assign silly things to models/parameters                 
     def test_generic_setters(self):

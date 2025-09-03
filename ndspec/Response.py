@@ -208,7 +208,7 @@ class ResponseMatrix(nDspecOperator):
                 #As a result, we loop over the groups and assign the matrix  
                 #values in the appropariate channel range as below:
                 if any(m>1 for m in n_grp):
-                    for l in range(f_chan[j][k]+1,n_chan[j][k]+f_chan[j][k]):
+                    for l in range(f_chan[j][k],n_chan[j][k]+f_chan[j][k]):
                         resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]
                         i = i + 1
                 #In this case, the length of j-th row of the "Matrix" array is 
@@ -220,7 +220,7 @@ class ResponseMatrix(nDspecOperator):
                 #ever going to use the very last detector channel for science 
                 #anyway.
                 else:
-                    for l in range(f_chan[j]+1,n_chan[j]+f_chan[j]):
+                    for l in range(f_chan[j],n_chan[j]+f_chan[j]):
                         resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]  
                         i = i + 1              
         return resp_matrix        

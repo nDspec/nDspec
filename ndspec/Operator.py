@@ -155,13 +155,13 @@ class nDspecOperator(object):
             #find out how many bins to sum together by checking whether we're 
             #reaching the end of the (final) grid 
             if (i < len(rebin_array)-1):
-                upper_bin = index_hi[i]+1
+                upper_bin = index_hi[i]
             else:
                 upper_bin = len(start_lo)
             #In this case, we assume the bin edges are aligned before calling 
             #the rebinning, so we do not need to care about edge effects
             counter = 0
-            for k in range(index_lo[i],upper_bin): 
+            for k in range(index_lo[i]-1,upper_bin): 
                 rebin_array[i] = rebin_array[i] + array[k] 
                 counter = counter + 1
             if (renorm == True):
@@ -222,13 +222,13 @@ class nDspecOperator(object):
             #find out how many bins to sum together by checking whether we're 
             #reaching the end of the (final) grid 
             if (i < len(rebin_array)-1):
-                upper_bin = indexes[i+1]
+                upper_bin = indexes[i]
             else:
                 upper_bin = len(start_lo)
             counter = 0
             #In this case, we assume the bin edges are aligned before calling 
             #the rebinning, so we do not need to care about edge effects
-            for k in range(indexes[i],upper_bin): 
+            for k in range(indexes[i]-1,upper_bin): 
                 rebin_array[i] = rebin_array[i] + array[k] 
                 counter = counter + 1
             if (renorm == True):
