@@ -6,21 +6,21 @@ from .SimpleFit import SimpleFit
 
 class JointFit():
     """
-    Generic joint inference class. Use this class if you have multiple 
+    Generic joint fitting class. Use this class if you have multiple 
     non-simultaneous observations that you wish to share parameters 
     between or mutliple simultaneous observations that share a single model.
 
     Users can simply add other Fit...Objs from ndspec to this structural class
     and this will handle evaluating the model, sharing parameters between 
-    models, sharing whole models between observations, and perform inference
-    and/or optimization of models. There is no restriction on the type of
+    models, sharing whole models between observations, and perform optimization 
+    of an appropriate fit statistic. There is no restriction on the type of
     Fit...Objs that can be added, nor the number of Fit...Objs, which 
     technically allows for extremely numerous joint inference of observations.
     
     Note that JointFit does not perform extra performance enhancements to make
     evaluations run faster, so optimization and joint inference on many 
     parameters is still subject to the usual computational problems that come
-    with such scenario. 
+    in this case. 
     
     Attributes:
     ------------
@@ -62,9 +62,9 @@ class JointFit():
         Parameters
         ----------
         fitobj : Fit... object or list of Fit... objects
-            the Fit... object of the observation and model. In the case of
-            multiple fit objects, they must all share the same underlying model
-            as all of their parameters will be linked.
+            the Fit... object(s) containing the dataset(s) and model(s) to be 
+            fit. In the case of multiple fit objects, they must all share the 
+            same underlying model as all of their parameters will be tied.
         
         name: str
             name of the model
@@ -80,8 +80,10 @@ class JointFit():
                 pass
             else:
                 raise TypeError("Invalid object passed")
-        #if simultaneous observations (so same underlying model)
+
         if type(fitobj) == list: 
+            #In this case we are passing multiple observations assumed to have   
+            #the same underlying model 
             self.joint[name] = fitobj
             if len(fitobj) > 1: #check if actually multiple models
                 first_fitobj = fitobj[0]
@@ -115,11 +117,15 @@ class JointFit():
                 self.joint_params[name] = params
             else:
                 raise TypeError("""
-                                Unnecessary list of models due to single entry,
-                                either add other simultaneous observations
-                                or only add the model as a single entry.
+                                The list of fit objects contains only a
+                                single entry, either add other fit objects 
+                                containing simultaneous observations to the 
+                                list or only add the fit object as a single
+                                entry.
                                 """)
-        else: #single observation case
+        else: 
+            #we are passing a single fit object that may or may not share 
+            #models/parameters with the other objects 
             self.joint[name] = fitobj
             #if first added object, add model params
             if self.model_params == None:
@@ -152,7 +158,7 @@ class JointFit():
 
         Parameters
         ----------
-        model: lmfit.compositemodel
+        model: lmfit.CompositeModel
             composite model to be decomposed
 
         Returns
@@ -165,15 +171,15 @@ class JointFit():
             return [model] 
         
         if type(model) != lmfit.CompositeModel:
-            raise TypeError("Not a lmfit composite model")
-        models = []
+            raise TypeError("Not an lmfit composite model")
         
+        models = []
         if type(model.left) == lmfit.Model:
             models.append(model.left)
         else:
             models.extend(self.model_decompose(model.left))
         
-        if type(model.right) ==  lmfit.Model:
+        if type(model.right) == lmfit.Model:
             models.append(model.right)
         else:
             models.extend(self.model_decompose(model.right))
@@ -183,8 +189,8 @@ class JointFit():
     def share_params(self,first_fitobj,second_fitobj,param_names=None):
         """
         Shares parameters between models and links the parameters of individual 
-        models that compose the joint fit to the parameters inferred in the 
-        optimization process.
+        models that compose the joint model to the parameter object passed 
+        to the optimizer during the fitting process.
 
         Parameters
         ----------
@@ -193,8 +199,8 @@ class JointFit():
         second_fitobj : Fit... object 
             secondary fit object that is linked to the primary.
         param_names : str or list(str), optional
-            Names of parameters (with the same name) to share between models. The default 
-            is to share all parameters together
+            Names of parameters (with the same name) to share between models. 
+            The default is to share all parameters together.
 
         """
         #checks that both models are correctly specified
@@ -228,7 +234,8 @@ class JointFit():
                 continue
             else:
                 #if parameters are not shared, soft error
-                print("Not all parameters inputted are in models")
+                print("""Not all parameters inputted are in the models of both 
+                         fitter objects""")
                 return
         
         for name in param_names:
@@ -238,7 +245,7 @@ class JointFit():
     def eval_model(self,params=None,names=None):
         """
         This method is used to evaluate and return the model values of models 
-        in the hierarchy.
+        stored in the joint fitter object.
         
         Parameters:
         ------------
@@ -374,7 +381,7 @@ class JointFit():
         #the object passed contains the same parameters?
         if type(params) != lmfit.Parameters:  
             raise AttributeError("The parameters input must be an LMFit Parameters object")
-        #updates the individually linked parameters rather than overwrites them.
+        #updates the individually linked parameters rather than overwriting them.
         for par in self.model_params:
             self.model_params[par] = params[par]
             for key in self.joint:
@@ -386,8 +393,6 @@ class JointFit():
                     if par in list(self.joint[key].model_params.keys()):
                         self.joint[key].model_params[par] = params[par]
         return 
-
-
 
     def print_models(self,names=None):
         """

@@ -360,7 +360,6 @@ class EnergyDependentFit():
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
     """
-    #changing response here for the sake of testing stuff
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
         self.energ_bounds = self.response.energ_hi-self.response.energ_lo
