@@ -388,7 +388,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #if we're also plotting data, get the data in the same units
         #as well as the residuals
         if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals)
+            model_res,res_errors = self.get_residuals(residuals,model=model)
             if residuals == "delchi":
                 reslabel = "$\\Delta\\chi$"
             elif residuals == "ratio":
