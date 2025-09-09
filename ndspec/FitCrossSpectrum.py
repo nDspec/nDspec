@@ -1390,7 +1390,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         model = self.eval_model(params=params)
         
         if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals)
+            model_res,res_errors = self.get_residuals(residuals,model=model)
             if residuals == "delchi":
                 reslabel = "$\\Delta\\chi$"
             else:
