@@ -96,6 +96,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
                
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
         channels,  as stored in the instrument response provided. Only contains 
@@ -130,6 +135,10 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class. 
+        
+    _xspec_models: bool, default False 
+        A bool to track whether we're going to use xspec models in the fit, in 
+        which case some internal book-keeping for the energy grids is required  
 
     Attributes inherited from FrequencyDependentFit:
     ------------------------------------------------
@@ -236,7 +245,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         already been read in and will not be read again.
     """
     
-    def __init__(self):
+    def __init__(self,use_xspec_models=False):
         SimpleFit.__init__(self)
         self.ref_band = None
         self.freqs = None 
@@ -248,6 +257,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         self.renorm_phase = False
         self.renorm_modulus = False
         self.needbkg = True
+        self._xspec_models = use_xspec_models  
         pass
 
     def set_product_dependence(self,depend):
@@ -407,7 +417,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                               "energy bin instead")                                
                 
         self.ref_band = ref_bounds
-        EnergyDependentFit.__init__(self)  
+        EnergyDependentFit.__init__(self,self._xspec_models)  
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size
         
         if self.dependence == "frequency":
@@ -761,7 +771,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         #evaluate the model for the chosen parameters
         if params is None:
             params= self.model_params
-        model_eval = self.model.eval(params,freqs=self.freqs,energs=self.energs,times=self._times)
+        model_eval = self.model.eval(params,ear=self.ear,energs=self.energs,
+                                     freqs=self.freqs,,times=self._times)
         #store the model in the cross spectrum, depending on the type
         #transposing is required to ensure the units are correct 
         if self.model_type == "irf":
@@ -778,8 +789,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         #fold the instrument response:
         if fold is True:
             model_eval = self.response.convolve_response(self.crossspec,
-                                                          units_in="rate",
-                                                          units_out="channel")
+                                                         units_in="rate",
+                                                         units_out="channel")
         else:
             model_eval = self.crossspec 
             

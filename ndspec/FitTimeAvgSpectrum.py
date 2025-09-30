@@ -66,6 +66,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
                
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
         channels,  as stored in the instrument response provided. Only contains 
@@ -93,17 +98,22 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
 
+    _xspec_models: bool, default False 
+        A bool to track whether we're going to use xspec models in the fit, in 
+        which case some internal book-keeping for the energy grids is required  
+
     Other attributes:
     -----------------
     response: nDspec.ResponseMatrix
         The instrument response matrix corresponding to the spectrum to be 
         fitted. It is required to define the energy grids over which model and
-        data are defined.   
+        data are defined. 
     """ 
     
-    def __init__(self):
+    def __init__(self,use_xspec_models=False):
         SimpleFit.__init__(self)
         self.response = None
+        self._xspec_models = use_xspec_models        
         pass
 
     def set_data(self,response,data):
@@ -129,7 +139,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         bounds_lo, bounds_hi, counts, error, exposure = load_pha(data,response)
         self.response = response.rebin_channels(bounds_lo,bounds_hi)   
-        EnergyDependentFit.__init__(self)  
+        EnergyDependentFit.__init__(self,self._xspec_models)  
         #this loads the spectrum in units of counts/s/keV
         self.data = counts/exposure/self.ewidths
         self.data_err = error/exposure/self.ewidths
@@ -157,7 +167,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         EnergyDependentFit.__init__(self)  
         return
 
-    def eval_model(self,params=None,energ=None,fold=True,mask=True):    
+    def eval_model(self,params=None,energ=None,ear=None,fold=True,mask=True):    
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters,  over a given model energy grid. By default it  
@@ -172,9 +182,16 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             provided, the model_params attribute is used.
             
         energ: np.array(float), default None
-            The the photon energies over which to evaluted the model. If 
-            none are provided, the same grid contained in the instrument response  
-            is used. 
+            The array of photon energy bin centers over which to evalute the 
+            model. If none are provided, the same grid contained in the 
+            instrument response is used. Only one between energ and ear (below)
+            should be passed. 
+            
+        ear: np.array(float), default None
+            The array of photon energy bin edges over which to evaluate the  
+            model. If none are provided, the same grid contained in the 
+            instrument response is used. Only one between energ and ear (above)
+            should be passed. 
             
         fold: bool, default True
             A boolean switch to choose whether to fold the evaluated model 
@@ -193,17 +210,23 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             The model evaluated over the given energy grid, for the given input 
             parameters.  
         """    
-    
+        
+        if energ is not None and ear is not None:
+            raise ValueError("Both energy grid midpoints and bounds provided")
+
         if energ is None:
             energ = self.energs
             energ_bounds = self.energ_bounds
         else:
             energ_bounds = np.diff(energ)
+            
+        if ear is None and self._xspec_models is True: 
+            ear = self.ear
 
         if params is None:
-            model = self.model.eval(self.model_params,energ=energ)*energ_bounds
+            model = self.model.eval(self.model_params,energ=energ,ear=ear)*energ_bounds
         else:
-            model = self.model.eval(params,energ=energ)*energ_bounds
+            model = self.model.eval(params,energ=energ,ear=ear)*energ_bounds
 
         if fold is True:
             model = self.response.convolve_response(model) 

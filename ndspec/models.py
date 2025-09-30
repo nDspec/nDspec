@@ -14,7 +14,7 @@ plt.rcParams.update({'font.size': fi-5})
 
 colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 
-def lorentz(array, params):
+def lorentz(array,params,grid_edges=False):
     """
     This model is a Lorentzian function, defined identically to Uttley and Malzac
     2023. The input parameters are:
@@ -22,8 +22,12 @@ def lorentz(array, params):
     array: the array over which the Lorentzian is to be computed \n
     f_pk: the peak frequency of the Lorentzian \n   
     q: the q-factor of the Lorentzian \n    
-    rms: the normalization of the Lorentzian 
+    rms: the normalization of the Lorentzian \n
+    grid_edges: specifies whether the input array contains all the edges of a 
+    binned grid (identically to xspec), or the grid midpoints
     """
+    if grid_edges is True:
+        array = 0.5*(array[1:]+array[:-1])    
     if params.ndim == 1:
         f_pk = params[0]
         q = params[1]
@@ -41,7 +45,7 @@ def lorentz(array, params):
     model = np.divide(lorentz_num,np.square(f_res)+lorentz_den)
     return np.nan_to_num(model)
 
-def cross_lorentz(array1,array2,params):
+def cross_lorentz(array1,array2,params,grid_edges=False):
     """
     This model is a complex Lorentzian function, defined identically to Uttley 
     and Malzac 2023, and shifted by a fixed phase, defined identically to Mendez
@@ -72,7 +76,7 @@ def cross_lorentz(array1,array2,params):
     twod_lorentz = np.transpose(twod_lorentz)
     return twod_lorentz
 
-def powerlaw(array, params):
+def powerlaw(array,params,grid_edges=False):
     """
     This model is a standard power-law. The input parameters are: 
     
@@ -93,7 +97,7 @@ def powerlaw(array, params):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model
 
-def brokenpower(array,params):
+def brokenpower(array,params,grid_edges=False):
     """
     This model is a smoothly broken powerlaw, defined identically to eq. 10 in 
     Ghisellini and Tavecchio 2009. The input parameters are:
@@ -126,7 +130,7 @@ def brokenpower(array,params):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model 
 
-def gaussian(array, params):
+def gaussian(array,params,grid_edges=False):
     """
     This model is a Gaussian function. The input parameters are: 
     
@@ -150,7 +154,7 @@ def gaussian(array, params):
     line = gauss_norm*shape/norm 
     return line
 
-def bbody(array, params):
+def bbody(array,params,grid_edges=False):
     """
     This model is a constant black body. The input parameters are:
     
@@ -176,7 +180,7 @@ def bbody(array, params):
     model = renorm*np.power(array,2.)/planck
     return model
     
-def varbbody(array, params):
+def varbbody(array,params,grid_edges=False):
     """
     This model is a variable black body, defined identically to Uttley and 
     Malzac 2023. The input parameters are:
@@ -205,7 +209,7 @@ def varbbody(array, params):
     model = renorm*np.power(array,3.)/denom**2
     return model     
     
-def gauss_fred(array1,array2,params,return_full=False):
+def gauss_fred(array1,array2,params,return_full=False,grid_edges=False):
     """
     This is a two-dimensional model for an impulse response function. The time 
     dependence is a fast rise, exponential decay pulse. The dependence over the 

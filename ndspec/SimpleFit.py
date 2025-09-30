@@ -38,7 +38,7 @@ class SimpleFit():
     _data_unmasked, _data_err_unmasked: np.array(float)
         The arrays of every data bin and its error, regardless of which ones are
         ignored or noticed during the fit. Used exclusively to enable book 
-        keeping internal to the fitter class.          
+        keeping internal to the fitter class.               
     """ 
 
     def __init__(self):
@@ -322,6 +322,11 @@ class EnergyDependentFit():
         The array of energy bin widths, for each bin over which the model is 
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
+        
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
                
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
@@ -359,10 +364,16 @@ class EnergyDependentFit():
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
+
+    _xspec_models: bool, default False 
+        A bool to track whether we're going to use xspec models in the fit, in 
+        which case some internal book-keeping for the energy grids is required  
     """
-    def __init__(self):   
+    def __init__(self,use_xspec_models):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
         self.energ_bounds = self.response.energ_hi-self.response.energ_lo
+        if use_xspec_models is True:
+            self.ear = np.append(self.response.energ_lo,self.response.energ_hi[-1])        
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
         self.ebounds_mask = np.full((self.response.n_chans), True)
