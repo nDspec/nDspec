@@ -67,7 +67,7 @@ class JointFit():
             same underlying model as all of their parameters will be tied.
         
         name: str
-            name of the model
+            Key assigned to call each fitter stored in the joint fitter object.
         """
         if type(fitobj) == list:
             for obj in fitobj:
@@ -150,7 +150,7 @@ class JointFit():
                 params.append(key)
             self.joint_params[name] = params
     
-    def model_decompose(self,model):
+    def _model_decompose(self,model):
         """
         Decomposes lmfit composite models into their base Models.
         Mainly useful for retrieving parameter names from complex
@@ -177,20 +177,20 @@ class JointFit():
         if type(model.left) == lmfit.Model:
             models.append(model.left)
         else:
-            models.extend(self.model_decompose(model.left))
+            models.extend(self._model_decompose(model.left))
         
         if type(model.right) == lmfit.Model:
             models.append(model.right)
         else:
-            models.extend(self.model_decompose(model.right))
+            models.extend(self._model_decompose(model.right))
         
         return models
 
     def share_params(self,first_fitobj,second_fitobj,param_names=None):
         """
-        Shares parameters between models and links the parameters of individual 
-        models that compose the joint model to the parameter object passed 
-        to the optimizer during the fitting process.
+        Shares parameters between models, and links the parameters of individual 
+        models that compose the joint model to a parameter object. This object 
+        is what is passed to the optimizer during the fitting process.
 
         Parameters
         ----------
@@ -201,7 +201,6 @@ class JointFit():
         param_names : str or list(str), optional
             Names of parameters (with the same name) to share between models. 
             The default is to share all parameters together.
-
         """
         #checks that both models are correctly specified
         if (((type(first_fitobj.model) != lmfit.CompositeModel)&(type(first_fitobj.model) != lmfit.Model))|
@@ -211,9 +210,9 @@ class JointFit():
         #adds all base models into list (decomposes CompositeModels into Models)
         models = []
         #adds all models from first fit object as a list of models
-        models.append(self.model_decompose(first_fitobj.model))
+        models.append(self._model_decompose(first_fitobj.model))
         #adds all models from second fit object as a list of models
-        models.append(self.model_decompose(second_fitobj.model))
+        models.append(self._model_decompose(second_fitobj.model))
 
         if param_names == None: #defaults to all parameters (models are identical)
             #iterates through all fit objects
@@ -288,10 +287,10 @@ class JointFit():
         else:
             model = np.array([])
             for key in model_hierarchy:
-                model = np.concat([model,model_hierarchy[key]])
+                model = np.concatenate([model,model_hierarchy[key]])
             return model
         
-    def _minimizer(self,params,names = None):
+    def _minimizer(self,params,names=None):
         """
         This method is used exclusively when running a minimization algorithm.
         It evaluates the models for an input set of parameters, and then returns 
@@ -330,7 +329,7 @@ class JointFit():
             for name in names:
                 model = model_dict[name]
                 resids = (self.joint[name].data-model)/self.joint[name].data_err
-                residuals = np.concat([residuals,np.asarray(resids).flatten()])
+                residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals
     
