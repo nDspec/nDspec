@@ -619,7 +619,11 @@ def load_pha(path,response):
         present) systematic errors
         
     exposure: float
-        The exposure time contained in the spectrum file.        
+        The exposure time contained in the spectrum file.   
+        
+    backscal: float 
+        The background scaling factor. Typically used by imaging instruments to 
+        account for different extraction region size for the source and background.    
     '''
     from astropy.io import fits
     from astropy.io.fits.card import Undefined, UNDEFINED
@@ -644,6 +648,16 @@ def load_pha(path,response):
                 counts = spectrum_data['RATE']*exposure
             except KeyError:
                 raise FileNotFoundError("Fits file format incompatible, ensure it is OGIP compliant")        
+        try:
+            backscal = spectrum['PRIMARY'].header['BACKSCAL']
+        except KeyError:
+            try:
+                backscal = spectrum['PRIMARY'].header['BACKSCAL']
+            except KeyError:
+                backscal = 1.
+                warnings.warn("WARNING: backscal keyword not found, check file format",
+                              UserWarning)     
+        
         #check that the spectrum and response have the same mission and channel 
         #number         
         mission_spectrum = hdr["TELESCOP"]
@@ -700,7 +714,7 @@ def load_pha(path,response):
             bin_bounds_hi = response.emax
             counts_per_group = counts
             spectrum_error = counts_err
-        return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure
+        return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure, backscal
 
 def load_lc(path):
     '''
