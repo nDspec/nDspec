@@ -607,7 +607,7 @@ class JointFit():
             for name in names:
                 model = model_dict[name]
                 resids = (self.joint[name].data-model)/self.joint[name].data_err
-                residuals = np.concat([residuals,np.asarray(resids).flatten()])
+                residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals
     

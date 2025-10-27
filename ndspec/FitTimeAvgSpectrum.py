@@ -106,7 +106,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         self.response = None
         pass
 
-    def set_data(self,response,data):
+    def set_data(self,response,data,background=None):
         """
         This method sets the data to be fitted, its error, and the  energy and 
         channel grids given an input spectrum and its associated response matrix. 
@@ -125,11 +125,27 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             A string pointing to the path of an X-ray spectrum file, stored in 
             a type 1 OGIP-formatted file (such as a pha file produced by a
             typical instrument reduction pipeline).
+            
+        background: str, default None 
+            a string pointing to the path of an X-ray spectrum background file, 
+            stored in a type 1 OGIP-formatted file. If not provided, the software 
+            assumes the data is either already background-subtracted, or that 
+            the user wants to ignore or model the background themselves. 
         """
 
-        bounds_lo, bounds_hi, counts, error, exposure = load_pha(data,response)
-        self.response = response.rebin_channels(bounds_lo,bounds_hi)   
+        bounds_lo, bounds_hi, counts, error, exposure, src_backsc = load_pha(data,response)
+        self.response = response.rebin_channels(bounds_lo,bounds_hi) 
         EnergyDependentFit.__init__(self)  
+        
+        if background is not None:
+            bounds_bkg_lo, bounds_bkg_hi, bkg_counts, _, _, bkg_backsc = load_pha(background,response)       
+            backfac = src_backsc/bkg_backsc
+            self.noise = self.response._rebin_sum(bkg_counts,
+                                                  [bounds_bkg_lo, bounds_bkg_hi],
+                                                  [bounds_lo, bounds_hi])
+            #for imaging instruments, this factor acconuts for cases when the 
+            #area of extracted spectra+backgrounds is different. 
+            self.noise = self.noise*backfac/exposure/self.ewidths
         #this loads the spectrum in units of counts/s/keV
         self.data = counts/exposure/self.ewidths
         self.data_err = error/exposure/self.ewidths
@@ -157,7 +173,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         EnergyDependentFit.__init__(self)  
         return
 
-    def eval_model(self,params=None,energ=None,fold=True,mask=True):    
+    def eval_model(self,params=None,energ=None,ear=None,fold=True,mask=True):    
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters,  over a given model energy grid. By default it  
@@ -172,9 +188,16 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             provided, the model_params attribute is used.
             
         energ: np.array(float), default None
-            The the photon energies over which to evaluted the model. If 
-            none are provided, the same grid contained in the instrument response  
-            is used. 
+            The array of photon energy bin centers over which to evalute the 
+            model. If none are provided, the same grid contained in the 
+            instrument response is used. Only one between energ and ear (below)
+            should be passed. 
+            
+        ear: np.array(float), default None
+            The array of photon energy bin edges over which to evaluate the  
+            model. If none are provided, the same grid contained in the 
+            instrument response is used. Only one between energ and ear (above)
+            should be passed. 
             
         fold: bool, default True
             A boolean switch to choose whether to fold the evaluated model 
@@ -193,17 +216,20 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             The model evaluated over the given energy grid, for the given input 
             parameters.  
         """    
-    
+
         if energ is None:
             energ = self.energs
             energ_bounds = self.energ_bounds
-        else:
+        else:#THIS IS COMPLETELY WRONG 
             energ_bounds = np.diff(energ)
-
+            
+        if ear is None:
+            ear = self.ear
+            
         if params is None:
-            model = self.model.eval(self.model_params,energ=energ)*energ_bounds
-        else:
-            model = self.model.eval(params,energ=energ)*energ_bounds
+            params = self.model_params
+
+        model = self.model.eval(params,energ=energ,ear=ear)*energ_bounds
 
         if fold is True:
             model = self.response.convolve_response(model) 
@@ -234,14 +260,16 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """
     
         if self.likelihood is None:
-            model = self.eval_model(params,energ=self.energs)
-            #convolve = np.extract(self.ebounds_mask,model)
-            residuals = (self.data-model)/self.data_err
+            model = self.eval_model(params)
+            if self.noise is None:
+                residuals = (self.data-model)/self.data_err
+            else:
+                residuals = (self.data-self.noise-model)/self.data_err
         else:
             raise AttributeError("custom likelihood not implemented yet")
         return residuals
 
-    def plot_data(self,units="data",return_plot=False):
+    def plot_data(self,units="data",plot_bkg=False,return_plot=False):
         """
         This method plots the spectrum loaded by the user as a function of 
         energy. It is possible to plot both in detector and ``unfolded'' space, 
@@ -272,6 +300,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             For instance, units="eeunfold" plots units of kev^2 counts/s/keV/cm^2,
             i.e. units of nuFnu. 
             
+        plot_bkg; str, default="False:
+            A boolean to choose whether you want to plot the background
+        
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
             the plot or not.
@@ -289,6 +320,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             data = self.data
             yerror = self.data_err
             ylabel = "Folded counts/s/keV"
+            if plot_bkg is True:
+                bkg = self.noise
         elif units.count("unfold"):
             power = units.count("e")            
             data = self.response.unfold_response(self._data_unmasked)* \
@@ -297,6 +330,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                     self._ebounds_unmasked**power  
             data = np.extract(self.ebounds_mask,data)
             yerror = np.extract(self.ebounds_mask,error)
+            if plot_bkg is True:
+                bkg = self.response.unfold_response(self._noise_unmasked)* \
+                      self._ebounds_unmasked**power
+                bkg = np.extract(self.ebounds_mask,bkg)       
             if power == 0:
                 ylabel = "Counts/s/keV/cm$^{2}$"
             elif power == 1:
@@ -313,6 +350,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         
         ax1.errorbar(energies,data,yerr=yerror,xerr=xerror,
                      linestyle='',marker='o')
+        if plot_bkg is True: 
+            ax1.errorbar(energies,bkg,xerr=xerror,
+                         linestyle='',marker='o')    
+                     
         ax1.set_ylabel(ylabel)
         ax1.set_xlabel("Energy (keV)")          
         ax1.set_xscale("log",base=10)
@@ -325,8 +366,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         else:
             return 
 
-    def plot_model(self,plot_data=True,plot_components=False,params=None,
-                   units="data",residuals="delchi",return_plot=False):
+    def plot_model(self,plot_data=True,plot_components=False,plot_bkg=False,
+                   params=None,units="data",residuals="delchi",return_plot=False):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
@@ -357,6 +398,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             not. Only additive model components will display their values 
             correctly. 
             
+        plot_bkg; str, default="False:
+            A boolean to choose whether you want to plot the background
+
         params: lmfit.parameters, default=None 
             The parameters to be used to evaluate the model. If False, the set 
             of parameters stored in the class is used 
@@ -389,7 +433,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
         
         #first; get the model in the correct units
-        model_fold = self.eval_model(params=params,energ=self.energs,mask=False)
+        model_fold = self.eval_model(params=params,mask=False)
         if units == "data":   
             model = np.extract(self.ebounds_mask,model_fold)   
             ylabel = "Folded counts/s/keV"
@@ -425,6 +469,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                 data = self.data
                 yerror = self.data_err
                 ylabel = "Folded counts/s/keV"
+                if plot_bkg is True:
+                    bkg = self.noise
             elif units.count("unfold"):        
                 data = self.response.unfold_response(self._data_unmasked)* \
                        self._ebounds_unmasked**power
@@ -432,6 +478,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                         self._ebounds_unmasked**power  
                 data = np.extract(self.ebounds_mask,data)
                 yerror = np.extract(self.ebounds_mask,error)
+                if plot_bkg is True:
+                    bkg = self.response.unfold_response(self._noise_unmasked)* \
+                          self._ebounds_unmasked**power
+                    bkg = np.extract(self.ebounds_mask,bkg) 
             
         if plot_data is False:
             fig, (ax1) = plt.subplots(1,1,figsize=(6.,4.5))   
@@ -442,7 +492,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if plot_data is True:
             ax1.errorbar(energies,data,yerr=yerror,xerr=xerror,
-                         ls="",marker='o')       
+                         ls="",marker='o')
+            if plot_bkg is True: 
+                ax1.errorbar(energies,bkg,xerr=xerror,
+                             linestyle='',marker='o')        
 
         ax1.plot(energies,model,lw=3,zorder=3)
 

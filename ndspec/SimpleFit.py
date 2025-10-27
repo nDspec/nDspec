@@ -35,10 +35,14 @@ class SimpleFit():
         stored as a one-dimensional array regardless of the type or dimensionality 
         of the initial data.   
         
-    _data_unmasked, _data_err_unmasked: np.array(float)
-        The arrays of every data bin and its error, regardless of which ones are
-        ignored or noticed during the fit. Used exclusively to enable book 
-        keeping internal to the fitter class.          
+    noise: np.array(float) or None
+        If loaded, an array containing the background spectrum, including only 
+        the channels noticed in the fit.
+
+    _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
+        The arrays of every data bin, its error and (if loaded) the backgruond, 
+        regardless of which ones are ignored or noticed during the fit.
+        Used exclusively to enable book keeping internal to the fitter class.            
     """ 
 
     def __init__(self):
@@ -48,6 +52,7 @@ class SimpleFit():
         self.fit_result = None
         self.data = None
         self.data_err = None
+        self.noise = None 
     pass
 
     def _set_unmasked_data(self):
@@ -58,7 +63,12 @@ class SimpleFit():
         """
 
         self._data_unmasked = self.data
-        self._data_err_unmasked = self.data_err
+        self._data_err_unmasked = self.data_err        
+        #if our fit object has a background (e.g. a spectral background, or 
+        #Poisson noise) we also must store it to subtract it correctly from the 
+        #data
+        if self.noise is not None:
+            self._noise_unmasked = self.noise
 
         if isinstance(self,EnergyDependentFit) is True:
             self._emin_unmasked = self.response.emin
@@ -196,18 +206,23 @@ class SimpleFit():
             range for each contribution to the residuals.           
         """
 
+        if self.noise is None:
+            noise = self.zeroes(len(data))
+        else:
+            noise = self.noise
+
         if model is None:
             model = self.eval_model()
-        
+      
         if mask is True:
-            data = self.data
+            data = self.data - noise 
             error = self.data_err
         elif mask is False:
-            data = self._data_unmasked
+            data = self._data_unmasked - self._noise_unmasked
             error = self._data_err_unmasked
 
         if res_type == "ratio":
-            residuals = data/model
+            residuals = (data)/model
             bars = error/model
         elif res_type == "delchi":
             residuals = (data-model)/error
@@ -261,9 +276,9 @@ class SimpleFit():
             choices are detailed on the LMFit documentation page:
             https://lmfit.github.io/lmfit-py/fitting.html#fit-methods-table.
         """
-        if self.data == None:
+        if np.all(self.data) == None:
             raise ValueError("No data to fit. Please set the data using the .set_data() method.")
-        elif self.data_err == None:
+        elif np.all(self.data_err) == None:
             raise ValueError("No data error to fit. Please set the data error using the .set_data() method.")
 
         if self.model == None:
@@ -322,6 +337,11 @@ class EnergyDependentFit():
         The array of energy bin widths, for each bin over which the model is 
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
+        
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
                
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
@@ -360,10 +380,10 @@ class EnergyDependentFit():
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
     """
-    #changing response here for the sake of testing stuff
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
         self.energ_bounds = self.response.energ_hi-self.response.energ_lo
+        self.ear = np.append(self.response.energ_lo,self.response.energ_hi[-1])        
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
         self.ebounds_mask = np.full((self.response.n_chans), True)
@@ -403,7 +423,10 @@ class EnergyDependentFit():
             self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
         else:
             self.data = np.extract(self.ebounds_mask,self._data_unmasked)
-            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)          
+            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)    
+            #if we have a background we need to mask that too 
+            if self.noise is not None:
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)      
         return
    
     def notice_energies(self,bound_lo,bound_hi):
@@ -444,6 +467,8 @@ class EnergyDependentFit():
         else:
             self.data = np.extract(self.ebounds_mask,self._data_unmasked)
             self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)              
+            if self.noise is not None:
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
         return
 
 class FrequencyDependentFit():
@@ -538,6 +563,8 @@ class FrequencyDependentFit():
         else:
             self.data = np.extract(self.freqs_mask,self._data_unmasked)
             self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
+            if self.noise is not None:
+                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
         return
 
     def notice_frequencies(self,bound_lo,bound_hi):
@@ -580,6 +607,8 @@ class FrequencyDependentFit():
         else:
             self.data = np.extract(self.freqs_mask,self._data_unmasked)
             self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
+            if self.noise is not None:
+                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
         return
 
 
