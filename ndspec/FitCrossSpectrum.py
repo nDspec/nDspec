@@ -30,7 +30,7 @@ from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit, loa
 pyfftw.interfaces.cache.enable()
 
 class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
- """
+    """
     Least-chi squares fitter class for the cross spectrum. The class supports 
     both one-dimensional data between a reference and subject band as a function 
     of Fourier frequency, and two-dimensional data between many subjects bands 
