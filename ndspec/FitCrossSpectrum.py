@@ -30,7 +30,7 @@ from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit, loa
 pyfftw.interfaces.cache.enable()
 
 class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
-    """
+ """
     Least-chi squares fitter class for the cross spectrum. The class supports 
     both one-dimensional data between a reference and subject band as a function 
     of Fourier frequency, and two-dimensional data between many subjects bands 
@@ -96,6 +96,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
                
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
         channels,  as stored in the instrument response provided. Only contains 
@@ -727,7 +732,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             raise UserWarning("Power spectrum weights not needed, skipping")
         return 
     
-    def eval_model(self,params=None,energ=None,freq=None,fold=True,mask=True):
+    def eval_model(self,params=None,fold=True,mask=True):
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters, over the internal energy and frequency grids. By 
@@ -741,16 +746,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         params: lmfit.Parameters, default None
             The parameter values to use in evaluating the model. If none are 
             provided, the model_params attribute is used.
-
-        freq: np.array(float), default None
-            The the Fourier frequencies over which to evaluted the model. If 
-            none are provided, the same frequencies over which the data is 
-            defined are used. 
-        
-        energ: np.array(float), default None
-            The the photon energies over which to evaluted the model. If 
-            none are provided, the same grid contained in the instrument response  
-            is used. 
             
         fold: bool, default True
             A boolean switch to choose whether to fold the model through the 
@@ -771,11 +766,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         #evaluate the model for the chosen parameters
         if params is None:
             params= self.model_params
-        if freq is None:
-            freqs = self.freqs
-        if energ is None:
-            energs = self.energs
-        model_eval = self.model.eval(params,freqs=freqs,energs=energs,times=self._times)
+        model_eval = self.model.eval(params,ear=self.ear,energs=self.energs,
+                                     freqs=self.freqs,times=self._times)
         #store the model in the cross spectrum, depending on the type
         #transposing is required to ensure the units are correct 
         crossspec = self._to_cross_spec(model_eval)

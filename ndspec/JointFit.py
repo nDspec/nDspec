@@ -16,17 +16,17 @@ class JointFit():
     non-simultaneous observations that you wish to share parameters 
     between or mutliple simultaneous observations that share a single model.
 
-    Users can simply add other Fit...Objs from ndspec to this structural class
-    and this will handle evaluating the model, sharing parameters between 
-    models, sharing whole models between observations, and perform inference
-    and/or optimization of models. There is no restriction on the type of
-    Fit...Objs that can be added, nor the number of Fit...Objs, which 
-    technically allows for extremely numerous joint inference of observations.
+    Users can add other Fit...Objs from ndspec to an instance of this class, and
+    that instance this will handle evaluating the model, sharing parameters 
+    and/or whole models between Fit....Objs objects, and perform inference
+    and/or optimization. There is no restriction on the type or number of 
+    Fit...Objs that can be added. 
     
     Note that JointFit does not perform extra performance enhancements to make
     evaluations run faster, so optimization and joint inference on many 
     parameters is still subject to the usual computational problems that come
     with such scenario. 
+    (note: this is not true, need to figure out the grid stuff and mention it here)
     
     Attributes:
     ------------
@@ -712,3 +712,101 @@ class JointFit():
         the class.
         """
         return self.joint[key]
+
+    def joint_plot(self,plot_units,plot_bkg=None,xrange=None,yrange=None,return_plot=False):
+        """
+        Loops over all fitter objects and plots the data+model for all the data together.
+        Only useful if the data stored is of the same type (e.g. all time-averaged spectra)
+        """
+
+        fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,gridspec_kw={'height_ratios': [2., 1]})
+
+        if xrange is not None:
+            ax1.set_xlim(xrange)
+            ax2.set_xlim(xrange)
+        
+        if yrange is not None:
+            ax1.set_ylim(yrange)
+        
+        i=0
+        for key in self.joint:
+            if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
+                raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
+            else:
+                plot = self.joint[key].plot_model(units=plot_units,return_plot=True,plot_bkg=plot_bkg)
+            plot.axes[0].set_title(str(key))
+            plot.tight_layout()
+            
+            ax1_data, ax2_data = plot.axes
+            
+            # Extract data points and errors from Collection 0 (horizontal errorbars and y data)
+            segments_x = ax1_data.collections[0].get_segments()
+            x_midpoints = np.mean([[seg[0, 0], seg[1, 0]] for seg in segments_x], axis=1)
+            y_data = np.array([seg[0, 1] for seg in segments_x])  
+            x_errors = np.abs(np.array([[seg[0, 0], seg[1, 0]] for seg in segments_x]).T - x_midpoints)
+        
+            # Extract data points and errors from Collection 1 (vertical errorbars and x data)
+            segments_y = ax1_data.collections[1].get_segments()
+            y_midpoints = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
+            x_data = np.array([seg[0, 0] for seg in segments_y])  
+            y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_midpoints)
+        
+            col="C"+str(i)
+            i = i+1
+            ax1.errorbar(x_data, y_data, xerr=x_errors, yerr=y_errors, fmt='o',alpha=0.1, color=col)
+            lines = ax1_data.get_lines()
+            line = lines[1]
+            ax1.plot(line.get_xdata(), line.get_ydata(),
+                     linestyle=line.get_linestyle(),
+                     linewidth=line.get_linewidth(),
+                     color=col,
+                     zorder=10)
+            
+            ax1.set_xscale("log",base=10)
+            ax1.set_yscale("log",base=10)    
+        
+            #now extract the residuals as above
+            segments_y = ax2_data.collections[0].get_segments()
+            residuals = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
+            x_data = np.array([seg[0, 0] for seg in segments_y])  
+            y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - residuals)
+            
+            ax2.errorbar(x_data, residuals, xerr=x_errors, yerr=y_errors, fmt='o',alpha=0.35, color=col)
+        
+        ax2.plot(x_data,np.zeros(len(x_data)),ls=":",lw=2,color='black',zorder=10)
+        ax2.set_xscale("log",base=10)
+        
+        ax1.set_xlabel(ax1_data.get_xlabel())
+        ax1.set_ylabel(ax1_data.get_ylabel())
+        ax2.set_xlabel(ax2_data.get_xlabel())
+        ax2.set_ylabel(ax2_data.get_ylabel())
+
+        fig.tight_layout()
+
+        if return_plot is True:
+            return fig 
+        else:
+            return   
+        
+    def all_plots(self,plot_units,plot_bkg=None,return_plot=False):
+        """
+        Loops over all fitter objects and plots the data+model for each separately
+        """   
+        
+        if return_plot is not False:
+            figs = []
+        
+        for key in self.joint:
+            if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
+                plot = self.joint[key].plot_model_1d(return_plot=True)
+            else:
+                plot = self.joint[key].plot_model(units=plot_units,return_plot=True,plot_bkg=plot_bkg)
+            plot.axes[0].set_title(str(key))
+            plot.tight_layout()
+            if return_plot is True:
+                figs = np.append(figs,plot)
+        
+        if return_plot is True:
+            return figs 
+        else:
+            return         
