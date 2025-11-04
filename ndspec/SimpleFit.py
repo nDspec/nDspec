@@ -261,9 +261,9 @@ class SimpleFit():
             choices are detailed on the LMFit documentation page:
             https://lmfit.github.io/lmfit-py/fitting.html#fit-methods-table.
         """
-        if self.data == None:
+        if np.all(self.data) == None:
             raise ValueError("No data to fit. Please set the data using the .set_data() method.")
-        elif self.data_err == None:
+        elif np.all(self.data) == None:
             raise ValueError("No data error to fit. Please set the data error using the .set_data() method.")
 
         if self.model == None:
