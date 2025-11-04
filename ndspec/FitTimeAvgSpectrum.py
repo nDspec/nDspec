@@ -361,7 +361,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """           
                                      
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
+        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)    
+        
+        if params is None:
+            params = self.model_params   
         
         #first; get the model in the correct units
         model_fold = self.eval_model(params=params,energ=self.energs,mask=False)
@@ -388,7 +391,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #if we're also plotting data, get the data in the same units
         #as well as the residuals
         if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals,model=model)
+            model_res,res_errors = self.get_residuals(residuals)
             if residuals == "delchi":
                 reslabel = "$\\Delta\\chi$"
             elif residuals == "ratio":

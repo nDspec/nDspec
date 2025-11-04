@@ -430,11 +430,12 @@ class ResponseMatrix(nDspecOperator):
             or b) a CrossSpectrum object from nDspec, containing the model cross
             spectrum to be folded with the instrument response.
             
-        units_in: string, default="rate"
+        units_in: string, default="xspec"
             A string detailing the normalization of the iinput model. The base 
-            "xspec" normalization assumes the input is in units of count rate
-            times energy bin width in each bin; "rate" normalization assumes the
-            input is in units of count rate in each bin. 
+            "xspec" normalization assumes the input is in units of integrated 
+            counts per unit time in each energy bin; "rate" normalization assumes
+            the input is in units of integrated count rate per unit time and 
+            energy in each bin. 
             
         units_out: string, default="kev"
             A string setting the normalization of the output model. The default 

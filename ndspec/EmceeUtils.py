@@ -8,7 +8,6 @@ import matplotlib.pylab as pl
 from matplotlib import rc, rcParams
 from matplotlib.colors import TwoSlopeNorm
 
-from .JointFit import JointFit
 from .SimpleFit import SimpleFit
 
 rc('text',usetex=True)
@@ -70,8 +69,6 @@ def set_emcee_model(fitobj):
     """
     
     global emcee_model
-    if type(fitobj) == JointFit:
-        fitobj.flatten = True
     emcee_model = fitobj.eval_model
     return 
     
@@ -90,20 +87,8 @@ def set_emcee_data(fitobj):
     
     global emcee_data
     global emcee_data_err
-    if type(fitobj) == JointFit:
-        emcee_data = np.array([])
-        emcee_data_err = np.array([])
-        for obs in fitobj.joint:
-            if type(fitobj.joint[obs]) == list:
-                for m in fitobj.joint[obs]:
-                    emcee_data = np.concat([emcee_data,m.data])
-                    emcee_data_err = np.concat([emcee_data_err,m.data_err])
-            else:
-                emcee_data = np.concat([emcee_data,fitobj.joint[obs].data])
-                emcee_data_err = np.concat([emcee_data_err,fitobj.joint[obs].data_err])
-    else:
-        emcee_data = fitobj.data 
-        emcee_data_err = fitobj.data_err
+    emcee_data = fitobj.data 
+    emcee_data_err = fitobj.data_err
     return
 
 def set_emcee_parameters(params):
@@ -163,9 +148,8 @@ def initialise_mcmc(fitobj,priors):
     theta: np.array 
         A numpy array containing the values of the free parameters in the model.
     """
-    if type(fitobj) == JointFit:
-        pass
-    elif issubclass(type(fitobj),SimpleFit):
+
+    if issubclass(type(fitobj),SimpleFit):
         pass
     else:
         raise TypeError("Invalid fit object passed")
