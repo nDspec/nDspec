@@ -263,7 +263,7 @@ class SimpleFit():
         """
         if np.all(self.data) == None:
             raise ValueError("No data to fit. Please set the data using the .set_data() method.")
-        elif np.all(self.data) == None:
+        elif np.all(self.data_err) == None:
             raise ValueError("No data error to fit. Please set the data error using the .set_data() method.")
 
         if self.model == None:
