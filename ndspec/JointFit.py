@@ -25,14 +25,14 @@ class JointFit():
     evaluations run faster, so optimization and joint inference on many 
     parameters is still subject to the usual computational problems that come
     with such scenario. 
-    (note: this is not true, need to figure out the grid stuff and mention it here)
     
     Attributes:
     ------------
     joint : dict{Fit... objects and/or list(Fit... objects)}
         Dictionary containing named Fit... objects to be joint fitted. By
         default, datasets that share parameters completely (simultaneous 
-        observations, or different data products of observations) are packaged together in lists.
+        observations, or different data products of observations) are packaged 
+        together in lists.
         
     joint_params: dict{lists(str)}
         Dictionary containing the names of model parameters for each distinct
@@ -47,58 +47,25 @@ class JointFit():
         the fit.  
     """
     
-    def __init__(self,flatten=False):
+    def __init__(self):
         self.joint = {}
         self.joint_params = {}
         self.fit_result = None
         self.model_params = None
-        #defines whether model results should be returned in a dictionary or
-        #simply as a flat 1-d numpy array
-        self.flatten = flatten 
 
-    def add_fitobj(self,fitobj,name,grids=None,interpolate=False):
+    def add_fitobj(self,fitobj,name):
         """
-        Adds a model to the joint fitting hierarchy. If a list of 
-        fitting objects is added, it is assumed that the objects are intended
-        as simultaneous observations (i.e. a NuSTAR and XMM-Newton observation)
-        which share a model. These simultaneous observations can consist of
-        multiple data products (i.e time-averaged spectra and power spectra).
+        Adds one or more fitters to the joint fit. 
 
         Parameters
         ----------
         fitobj : Fit... object or list of Fit... objects
-            the Fit... object of the observation and model. In the case of
-            multiple fit objects, they must all share the same underlying model
-            as all of their parameters will be linked.
+            the Fit... object(s) being included in the joint fit.
         
         name: str
-            name of the model
-
-        grids: dict(str: np.ndarray), default None
-            Dictionary of energy or frequency grids that will be used for simultaneous
-            evaluations of models. This exists to reduce computation time by
-            evaluating the model only once per data product for simultaneous
-            observations which is then interpolated to the appropriate instrument. 
-            
-            This is particularly helpful for computationally expensive models. 
-            If no grid is provided, a grid is automatically generated consisting 
-            of 1000 log spaced bins between the minimum and maximum values of the
-            energy and frequency grids of all simultaneous observations of the same
-            data product. It is advised that users provide their own grids whenever
-            possible to ensure optimal performance and resolution.
-
-            Follows the format of:
-            {
-                "TimeAvg": timeavg_grid,
-                "Power": power_grid,
-                "Cross_energs": cross_energy_grid,
-                "Cross_freqs": cross_freq_grid
-            }
-        
-        interpolate: bool, default False
-            Flag indicating whether to interpolate the models from the grids to the instrument
-            responses or to evaluate the models directly on the instrument responses in the
-            case where adding multiple data products with the same model.
+            name(s) to be assigned to the fitter objects loaded. These will be 
+            used as keys of a dictionary to retrieve the individual fitter 
+            objects and their methods. 
         """
         if type(fitobj) == list:
             for obj in fitobj:
@@ -113,17 +80,36 @@ class JointFit():
                 raise TypeError("Invalid object passed")
             
         if type(fitobj) == list: 
-            #simultaneous observations with same underlying model
-            self._add_simultaneous_fitobjs(fitobj,name,grids,interpolate)
+            #multiple observations loaded at the same time 
+            for fitter_name, counter in enumerate(name):
+                self._add_single_fitobj(fitobj[counter],fitter_name)  
         else: 
-            #single observation case with separate model
+            #single observation loaded each time 
             self._add_single_fitobj(fitobj,name)
         return 
     
     def _add_single_fitobj(self,fitobj,name):
         """
-        Adds a single fit object to the JointFit instance.
+        Adds a single fit object to the JointFit instance, and looks through the 
+        model parameters stored in the fit for all the parameters that will be 
+        used in the joint fit. 
+
+        Note that if two fitter objects have models with parameters that happen 
+        to have identical names (e.g. temperature), then the joint fitter will 
+        assumme these two parameters are meant to be identical, and therefore 
+        the joint fit will forcefully tie them. Use different names for your 
+        individual fitter parameters (e.g. temperature_high and temperature_low)
+        to avoid this behavior.        
+
+        Parameters
+        ----------
+        fitobj : Fit... object 
+            the individual Fit... object being included.
+        
+        name: str
+            name to be assigned to the fitter objects fitobj.     
         """
+        
         #we are passing a single fit object that may or may not share 
         #models/parameters with the other objects 
         self.joint[name] = fitobj
@@ -150,243 +136,8 @@ class JointFit():
             params.append(key)
         self.joint_params[name] = params
         return 
-    
-    def _add_simultaneous_fitobjs(self,fitobj,name,grids=None,interpolate=False):
-        """
-        Adds a list of fit objects that are part of a single or simultaneous
-        observations.
-
-        Parameters
-        ----------
-        fitobj: Fit...Obj
-            The fit object to be added.
-
-        name: str
-            The name of the data product.
-
-        grids: dict, optional
-            A dictionary containing grid information for the fit object.
-
-        interpolate: bool, default False
-            Whether to interpolate the models from the grids to the instrument
-            response or to evaluate the models directly on the instrument response.
-        """
-        self.joint[name] = {}
-        self.joint[name]["Grids"] = {}
-        if len(fitobj) > 1: #check if actually multiple models
-            #Split objects into dataproducts
-            timeavg = []
-            power = []
-            cross = []
-            for obj in fitobj:
-                if type(obj) == FitTimeAvgSpectrum:
-                    timeavg.append(obj)
-                elif type(obj) == FitPowerSpectrum:
-                    power.append(obj)
-                elif type(obj) == FitCrossSpectrum:
-                    cross.append(obj)
-                else: # add new types of data products above
-                    raise TypeError(f"{type(obj)} is not supported in a simultaneous fit.")
-
-            #Assign objects to simultaneous observation dictionary
-            if timeavg != []:
-                self._assign_grids(timeavg, grids, self.joint[name], "TimeAvg",
-                                   interpolate)
-            if power != []:
-                self._assign_grids(power, grids, self.joint[name], "Power",
-                                   interpolate)
-            if cross != []:
-                self._assign_grids(cross, grids, self.joint[name], "Cross",
-                                   interpolate)
-
-            #collects all objects
-            objects = []
-
-            for name, dataproducts in self.joint[name].items():
-                if name == "Grids": #skip the grids
-                    continue
-                objects.extend(dataproducts["objects"])
-                #if first added object, add model params
-                if self.model_params == None:
-                    self.model_params = Parameters()
-                #links all model parameters to first model in list
-                for i in range(1,len(dataproducts)): 
-                    self.share_params(dataproducts[0], dataproducts[i])
-                #pulls parameters names and saves to dictionary for model
-                #evaluation later
-                params = []
-                for key in dataproducts[0].model_params.valuesdict().keys():
-                    #iterates through current fit objects
-                    param_flag = True #add parameter flag
-                    for joint_obs in self.joint_params:
-                        if key in self.joint_params[joint_obs]:
-                            param_flag = False #don't add parameter if already present
-                    if param_flag == True:
-                        self.model_params.add_many(dataproducts[0].model_params[key])
-                    params.append(key)
-                    
-            self.joint_params[name] = params
-        else:
-            raise TypeError("""
-                            Unnecessary list of models due to single entry,
-                            either add other simultaneous observations
-                            or only add the model as a single entry.
-                            """)
-
-    def _assign_grids(self,objs,grids,obs_dict,name,interpolate):
-        """
-        Internal method that assigns a grid for model evaluation of
-        simultaneous model evaluations. This method either sets the grid
-        to a provided grid, creates a new dummy grid to interpolate to
-        the original instrument responses, or concatenates together
-        instrument grids to evaluate the models on the combined grid.
-
-        Parameters
-        ----------
-        objs: list(Fit...Obj)
-            List of fit objects that the grid will be assigned to.
-        grid: dict
-            Dictionary containing the grid information.
-        obs_dict: dict
-            Dictionary containing the simultaneous observations
-        name: str
-            Name of the data product.
-        """
-        #Specify observation dictionary of simultaneous observations
-        #of same data products
-        obs_dict[name] = {"objects": objs,
-                          "model":objs[0].model,
-                          "interp":interpolate} 
-        #Specify grids for frequency dependent fits
-        if issubclass(type(objs[0]),FrequencyDependentFit):
-            self._assign_grid_dependent(name,objs,grids,obs_dict,interpolate,"freqs")
-        #Specify grids for energy dependent fits
-        if issubclass(type(objs[0]),EnergyDependentFit):
-            self._assign_grid_dependent(name,objs,grids,obs_dict,interpolate,"energs")
-        #Add as needed for new dependencies
-        return
-    
-    def _assign_grid_dependent(self,name,objs,grids,
-                               obs_dict,interpolate,
-                               dependency):
-        """
-        Internal method that assigns a grid for model evaluation of
-        simultaneous model evaluations. This method either sets the grid
-        to a provided grid, creates a new dummy grid to interpolate to
-        the original instrument responses, or concatenates together
-        instrument grids to evaluate the models on the combined grid.
-        """
-        # Change name if 2D to be dependent else use original name
-        dependentname = name+f"_{dependency}" if len(objs[0].__bases__)>2 else name
-        if dependentname in grids:
-            grid = grids[dependentname]
-        else:
-            obj_grid = [getattr(obj,dependency) for obj in objs]
-            if interpolate == True:
-                #case where you use dummy grid and interpolate model
-                grid = np.logspace(np.log10(min([obj_grid.min() for obj in objs])),
-                                        np.log10(max([obj_grid.max() for obj in objs])),
-                                        1000)
-                obs_dict["Grids"][dependentname] = grid
-            else:
-                #case where you evaluate on all instrument responses 
-                # (assumes model is not in xspec units)
-                grid = np.unique(np.concatenate([depend_grid for depend_grid in obj_grid]))
-                grid_masks = [np.isin(grid, depend_grid) for depend_grid in obj_grid]
-                obs_dict["Grids"][dependentname] = [grid, grid_masks]
-        return
-
-    def model_decompose(self,model):
-        """
-        Decomposes lmfit composite models into their base Models.
-        Mainly useful for retrieving parameter names from complex
-        composite models, and is only for internal model use.
-
-        Parameters
-        ----------
-        model: lmfit.compositemodel
-            composite model to be decomposed
-
-        Returns
-        -------
-        models: list(lmfit.model)
-            list of component lmfit.model objects.
-        """
-        #catches and returns inputted lmfit.models as list
-        if type(model) == lmfit.Model:
-            return [model] 
-        
-        if type(model) != lmfit.CompositeModel:
-            raise TypeError("Not a lmfit composite model")
-        models = []
-        
-        if type(model.left) == lmfit.Model:
-            models.append(model.left)
-        else:
-            models.extend(self.model_decompose(model.left))
-        
-        if type(model.right) ==  lmfit.Model:
-            models.append(model.right)
-        else:
-            models.extend(self.model_decompose(model.right))
-        
-        return models
-
-    def share_params(self,first_fitobj,second_fitobj,param_names=None):
-        """
-        Shares parameters between models and links the parameters of individual 
-        models that compose the joint fit to the parameters inferred in the 
-        optimization process.
-
-        Parameters
-        ----------
-        first_fitobj : Fit... object 
-            primary fit object that the secondary fit object is linked to.
-        second_fitobj : Fit... object 
-            secondary fit object that is linked to the primary.
-        param_names : str or list(str), optional
-            Names of parameters (with the same name) to share between models. The default 
-            is to share all parameters together
-
-        """
-        #checks that both models are correctly specified
-        if (((type(first_fitobj.model) != lmfit.CompositeModel)&(type(first_fitobj.model) != lmfit.Model))|
-           ((type(second_fitobj.model) != lmfit.CompositeModel)&((type(second_fitobj.model) != lmfit.Model)))):  
-            raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
-        
-        #adds all base models into list (decomposes CompositeModels into Models)
-        models = []
-        #adds all models from first fit object as a list of models
-        models.append(self.model_decompose(first_fitobj.model))
-        #adds all models from second fit object as a list of models
-        models.append(self.model_decompose(second_fitobj.model))
-
-        if param_names == None: #defaults to all parameters (models are identical)
-            second_fitobj.model_params = first_fitobj.model_params
-        elif type(param_names) == list: #correct format
-            pass
-        elif type(param_names) == str: #translates to correct format
-            param_names = [param_names]
-        else:
-            raise TypeError("Input parameter name or list of parameter names")
-
-        #first check that all specified parameters are present in both fit objects
-        for fit_obj in models:
-            check = set(param_names)
-            for m in fit_obj: #iterates through all basic models
-                check = check - set(m.param_names)
-            if check == set(): #if check is an empty set, all parameter names are present in object
-                continue
-            else:
-                #if parameters are not shared, soft error
-                print("Not all parameters inputted are in models")
-                return
-        
-        for name in param_names:
-            #find parameter name in first fit objects models
-            second_fitobj.model_params[name] = first_fitobj.model_params[name]
-    
-    def eval_model(self,params=None,names=None):
+     
+    def eval_model(self,params=None,names=None,flatten=True):
         """
         This method is used to evaluate and return the model values of models 
         in the hierarchy.
@@ -398,15 +149,23 @@ class JointFit():
             none are provided, the model_params attribute is used.
 
         names: list(str), default None
-            names of the models that should be evalualated. Defaults to
-            evaluating all models.
-        
+            Names of the fitters that should evalualate their models. Defaults 
+            to evaluating the models of all fitters.
+            
+        flatten: bool, default True 
+            A boolean to switch between returning model evaluations as a 
+            dictionary or numpy array (see below). 
         Returns:
         --------
-        model_hierarchy: dict(np.array(float))
-            All models are evaluated and returned as a dictionary, corresponding
-            to the top-level hierarchy.
+        model_hierarchy: either dict(np.array(float)) or np.array(float)
+            Models are evaluated and returned either as a dictionary, with keys 
+            defined by the fitter names, or by flattened numpy arrays. The 
+            former allows easy access to the evaluated model for each fitter, 
+            the latter is necessary for lmfit optimzers and/or likelihood \
+            calculations. 
+        
         """
+        
         if names == None: #retrieves all models
             names = self.joint.keys()
         if params == None:
@@ -416,165 +175,26 @@ class JointFit():
         
         for name in names:
             if name not in self.joint.keys():
-                raise AttributeError(f"{name} is not in model hierarchy")
+                raise AttributeError(f"{name} is not among the stored fitters")
             #retrieves model or models based on dictionary name
             fitobjs = self.joint[name] 
-            if type(fitobjs) == dict: #if simultaneous, evaluate each one.
-                model_results = np.array([])
-                for dname, dataproduct in fitobjs.items():
-                    if dname == "Grids":
-                        pass
-                    model_data_product_result = self._simultaneous_eval_model(
-                                                                dataproduct["model"],
-                                                                dataproduct["objects"],
-                                                                params,
-                                                                fitobjs["Grids"],
-                                                                dname,
-                                                                dataproduct["interp"])
-                    model_results = np.concatenate([model_results, model_data_product_result])
+            #tbd: grid stuff here 
+            if type(fitobjs) == list: 
+                model_results = []
+                for fit_obj in fitobjs:
+                    model_results.append(fit_obj.eval_model(params))
             else:
                 model_results = fitobjs.eval_model(params)
             model_hierarchy[name] = model_results
         
-        if self.flatten == False:
+        if flatten == False:
             return model_hierarchy
         else:
             model = np.array([])
             for key in model_hierarchy:
-                model = np.concatenate([model, model_hierarchy[key]])
-            return model.flatten()
-        
-    def _simultaneous_eval_model(self,model,objs,params,grids,name,interp):
-        """
-        This method evaluates a model simultaneously across multiple objects
-        of a particular data product. 
-
-        Parameters:
-        -----------
-        model: lmfit.Model or lmfit.CompositeModel
-            The model to evaluate.
-
-        objs: list(Fit...Objs)
-            The objects containing instrument and data-product information.
-
-        params: lmfit.Parameters
-            The parameters to use for the model evaluation.
-
-        grids: dict(str: np.ndarray), default None
-            Dictionary of energy or frequency grids that will be used for simultaneous
-            evaluations of models. This exists to reduce computation time by
-            evaluating the model only once per data product for simultaneous
-            observations which is then interpolated to the appropriate instrument. 
-            
-            This is particularly helpful for computationally expensive models. 
-            If no grid is provided, a grid is automatically generated consisting 
-            of 1000 log spaced bins between the minimum and maximum values of the
-            energy and frequency grids of all simultaneous observations of the same
-            data product. It is advised that users provide their own grids whenever
-            possible to ensure optimal performance and resolution.
-
-            Follows the format of:
-            {
-                "TimeAvg": timeavg_grid,
-                "Power": power_grid,
-                "Cross_Energy": cross_energy_grid,
-                "Cross_Freq": cross_freq_grid
-            }
-
-        name: str
-            The name of the data product.
-
-        interp: bool
-            Whether to perform interpolation onto the instrument grids from
-            a dummy grid, either provided by the user or automatically generated
-            by _assign_grids when objects are added to the JointFit object.
-
-        Returns:
-        -------
-        model_results: np.ndarray
-            The model results for the given objects. This is returned as a
-            1D array containing the results for each object.
-        """
-        energ_dependent = False
-        freq_dependent = False
-
-        two_d = True if len(objs[0].__bases__)>2 else False
-        grid_kwargs = {}
-        grid_masks = {}
-        if issubclass(type(objs[0]),FrequencyDependentFit):
-            freq_dependent = True
-            # Change name if 2D to be dependent else use original name
-            freqname = name+"_Freq" if two_d == True else name
-            grid_kwargs["freq"] = grids[freqname] if interp == True else grids[freqname][0]
-            if interp == True:
-                grid_masks["freq"] = grids[freqname][1]
-        #Specify grids for energy dependent fits
-        if issubclass(type(objs[0]),EnergyDependentFit):
-            energ_dependent = True
-            # Change name if 2D to be dependent else use original name
-            energname = name+"_Energy" if two_d == True else name
-            grid_kwargs["energ"] = grids[energname] if interp == True else grids[energname][0]
-            if interp == True:
-                grid_masks["energ"] = grids[energname][1]
-
-        if interp is True: #if interpolation is performed
-            results = model.eval(params,**grid_kwargs)
-            if two_d == True: #2-D case
-                grid = [grid_kwargs[key] for key in grid_kwargs]
-                model_interpolator = RegularGridInterpolator(grid,results,fill_value="extrapolate")
-            else: #1-D case
-                model_interpolator = interp1d(list(grid_kwargs.values())[0],
-                                              results,kind='linear',fill_value="extrapolate")
-        else:
-            results = model.eval(params,**grid_kwargs)
-        
-        model_results = np.array([])
-        for ind, obj in enumerate(objs):
-            if interp is True: #Interpolation case
-                keys = grid_kwargs.keys()
-                if two_d == True: #2-D case
-                    grid = [getattr(obj,k) for k in keys] #retrieves grids
-                    xg, yg = np.meshgrid(*grid,indexing='ij',sparse=True)
-                    obj_result = model_interpolator(xg, yg)
-                    obj._to_cross_spec(obj_result)
-
-                    if energ_dependent == True: #fold with response
-                        obj_result = obj.response.convolve_response(obj_result,
-                                                            units_in="rate",
-                                                            units_out="channel")  
-                    
-                    obj_result = self._return_dependent_model(obj_result,params)
-
-                else: #1-D case
-                    grid = getattr(obj,keys[0]) #retrieves grid
-                    obj_result = model_interpolator(grid)
-                    if energ_dependent == True: #fold with response
-                        obj_result = obj.response.convolve_response(obj_result,
-                                                            units_in="rate",
-                                                            units_out="channel")  
-            else: #Extraction case
-                keys = grid_kwargs.keys()
-                if two_d == True: #2-D case
-                    grid = [grid_masks[k] for k in keys] #retrieves grid masks
-                    xg, yg = np.meshgrid(*grid,indexing='ij',sparse=True) #Constructs mesh 
-                    obj_result = results[xg, yg] #extracts model values
-                    if energ_dependent == True: #fold with response
-                        obj_result = obj.response.convolve_response(obj_result,
-                                                            units_in="rate",
-                                                            units_out="channel")  
-                    
-                    obj_result = self._return_dependent_model(obj_result,params)
-                else: #1-D case
-                    grid = grid_masks[keys[0]] #retrieves grid
-                    obj_result = results[grid]
-                    if energ_dependent == True: #fold with response
-                        obj_result = obj.response.convolve_response(obj_result,
-                                                            units_in="rate",
-                                                            units_out="channel")  
-            model_results = np.concatenate([model_results,obj_result])
-
-        return model_results
-    
+                model = np.concatenate([model,model_hierarchy[key]])
+            return model
+ 
     def _minimizer(self,params,names = None):
         """
         This method is used exclusively when running a minimization algorithm.
@@ -719,6 +339,98 @@ class JointFit():
         the class.
         """
         return self.joint[key]
+
+   #these methods are banished to the shadow realm down here while I figure out what to do 
+   #with the multiple loading/shared grid etc 
+   def _model_decompose(self,model):
+        """
+        Decomposes lmfit composite models into their base Models.
+        Mainly useful for retrieving parameter names from complex
+        composite models, and is only for internal model use.
+
+        Parameters
+        ----------
+        model: lmfit.compositemodel
+            composite model to be decomposed
+
+        Returns
+        -------
+        models: list(lmfit.model)
+            list of component lmfit.model objects.
+        """
+        #catches and returns inputted lmfit.models as list
+        if type(model) == lmfit.Model:
+            return [model] 
+        
+        if type(model) != lmfit.CompositeModel:
+            raise TypeError("Not a lmfit composite model")
+        models = []
+        
+        if type(model.left) == lmfit.Model:
+            models.append(model.left)
+        else:
+            models.extend(self._model_decompose(model.left))
+        
+        if type(model.right) ==  lmfit.Model:
+            models.append(model.right)
+        else:
+            models.extend(self._model_decompose(model.right))
+        
+        return models
+
+    def _share_params(self,first_fitobj,second_fitobj,param_names=None):
+        """
+        Shares parameters between models and links the parameters of individual 
+        models that compose the joint fit to the parameters inferred in the 
+        optimization process.
+
+        Parameters
+        ----------
+        first_fitobj : Fit... object 
+            primary fit object that the secondary fit object is linked to.
+        second_fitobj : Fit... object 
+            secondary fit object that is linked to the primary.
+        param_names : str or list(str), optional
+            Names of parameters (with the same name) to share between models. The default 
+            is to share all parameters together
+
+        """
+        #checks that both models are correctly specified
+        if (((type(first_fitobj.model) != lmfit.CompositeModel)&(type(first_fitobj.model) != lmfit.Model))|
+           ((type(second_fitobj.model) != lmfit.CompositeModel)&((type(second_fitobj.model) != lmfit.Model)))):  
+            raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
+        
+        #adds all base models into list (decomposes CompositeModels into Models)
+        models = []
+        #adds all models from first fit object as a list of models
+        models.append(self._model_decompose(first_fitobj.model))
+        #adds all models from second fit object as a list of models
+        models.append(self._model_decompose(second_fitobj.model))
+
+        if param_names == None: #defaults to all parameters (models are identical)
+            second_fitobj.model_params = first_fitobj.model_params
+        elif type(param_names) == list: #correct format
+            pass
+        elif type(param_names) == str: #translates to correct format
+            param_names = [param_names]
+        else:
+            raise TypeError("Input parameter name or list of parameter names")
+
+        #first check that all specified parameters are present in both fit objects
+        for fit_obj in models:
+            check = set(param_names)
+            for m in fit_obj: #iterates through all basic models
+                check = check - set(m.param_names)
+            if check == set(): #if check is an empty set, all parameter names are present in object
+                continue
+            else:
+                #if parameters are not shared, soft error
+                print("Not all parameters inputted are in models")
+                return
+        
+        for name in param_names:
+            #find parameter name in first fit objects models
+            second_fitobj.model_params[name] = first_fitobj.model_params[name]
 
     def joint_plot(self,plot_units,plot_bkg=None,xrange=None,yrange=None,return_plot=False):
         """
