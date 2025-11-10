@@ -207,7 +207,7 @@ class SimpleFit():
         """
 
         if self.noise is None:
-            noise = self.zeroes(len(data))
+            noise = np.zeroes(len(data))
         else:
             noise = self.noise
 

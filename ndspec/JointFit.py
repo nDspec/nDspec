@@ -13,8 +13,7 @@ from .FitPowerSpectrum import FitPowerSpectrum
 class JointFit():
     """
     Generic joint inference class. Use this class if you have multiple 
-    non-simultaneous observations that you wish to share parameters 
-    between or mutliple simultaneous observations that share a single model.
+    datasets that you want to fit jointly in some way. 
 
     Users can add other Fit...Objs from ndspec to an instance of this class, and
     that instance this will handle evaluating the model, sharing parameters 
@@ -32,8 +31,8 @@ class JointFit():
     ------------
     joint : dict{Fit... objects and/or list(Fit... objects)}
         Dictionary containing named Fit... objects to be joint fitted. By
-        default, observations that share parameters completely (simultaneous or
-        different data products of observations) are packaged together in lists.
+        default, datasets that share parameters completely (simultaneous 
+        observations, or different data products of observations) are packaged together in lists.
         
     joint_params: dict{lists(str)}
         Dictionary containing the names of model parameters for each distinct
@@ -119,11 +118,14 @@ class JointFit():
         else: 
             #single observation case with separate model
             self._add_single_fitobj(fitobj,name)
+        return 
     
     def _add_single_fitobj(self,fitobj,name):
         """
         Adds a single fit object to the JointFit instance.
         """
+        #we are passing a single fit object that may or may not share 
+        #models/parameters with the other objects 
         self.joint[name] = fitobj
         #if first added object, add model params
         if self.model_params == None:
@@ -134,15 +136,20 @@ class JointFit():
         #evaluation later
         params = []
         for key in fitobj.model_params.valuesdict().keys():
-            #iterates through current fit objects
-            param_flag = True #add parameter flag
             for joint_obs in self.joint_params:
                 if key in self.joint_params[joint_obs]:
-                    param_flag = False #don't add parameter if already present
-            if param_flag == True:
-                self.model_params.add_many(fitobj.model_params[key])
+                    print(f"""
+                          Caution: {key} is already a model parameter.
+                          Do you intend for these parameters to be linked?
+                          If not, give it a different name to differentiate
+                          between multiple instances of the same type for
+                          different models.
+                          """)
+                else:
+                    self.model_params.add_many(fitobj.model_params[key])
             params.append(key)
         self.joint_params[name] = params
+        return 
     
     def _add_simultaneous_fitobjs(self,fitobj,name,grids=None,interpolate=False):
         """
