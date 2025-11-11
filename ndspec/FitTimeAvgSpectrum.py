@@ -390,7 +390,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             not. Only additive model components will display their values 
             correctly. 
             
-        plot_bkg; str, default="False:
+        plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
 
         params: lmfit.parameters, default=None 
