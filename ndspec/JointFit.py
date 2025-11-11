@@ -2,6 +2,14 @@ import numpy as np
 import lmfit
 from lmfit import fit_report, minimize
 from lmfit import Parameters
+from scipy.interpolate import interp1d
+
+import matplotlib.pyplot as plt
+import matplotlib.pylab as pl
+from matplotlib import rc, rcParams
+rc('text',usetex=True)
+rc('font',**{'family':'serif','serif':['Computer Modern']})
+plt.rcParams.update({'font.size': 17})
 
 from scipy.interpolate import interp1d, RegularGridInterpolator
 
@@ -52,6 +60,7 @@ class JointFit():
         self.joint_params = {}
         self.fit_result = None
         self.model_params = None
+        self.energy_grid = None
 
     def add_fitobj(self,fitobj,name):
         """
@@ -81,7 +90,7 @@ class JointFit():
             
         if type(fitobj) == list: 
             #multiple observations loaded at the same time 
-            for fitter_name, counter in enumerate(name):
+            for counter, fitter_name  in enumerate(name):
                 self._add_single_fitobj(fitobj[counter],fitter_name)  
         else: 
             #single observation loaded each time 
@@ -172,7 +181,9 @@ class JointFit():
             params = self.model_params
         #creates structure to return model results
         model_hierarchy = {}
-        
+
+        #when we use a custom grid, need to check that we're grabbing the right 
+        #parameters - ugh. We can't grab the fit parameters from each fitter either.        
         for name in names:
             if name not in self.joint.keys():
                 raise AttributeError(f"{name} is not among the stored fitters")
@@ -229,11 +240,14 @@ class JointFit():
         if type(names) != list:
             raise TypeError("Inputted names are not valid type")
         else:
-            model_dict = self.eval_model(params,names)
+            model_dict = self.eval_model(params,names,flatten=False)
             residuals = np.array([])
             for name in names:
                 model = model_dict[name]
-                resids = (self.joint[name].data-model)/self.joint[name].data_err
+                if self.joint[name].noise is None:
+                    resids = (self.joint[name].data-model)/self.joint[name].data_err
+                else:
+                    resids = (self.joint[name].data-self.joint[name].noise-model)/self.joint[name].data_err    
                 residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals
@@ -255,8 +269,8 @@ class JointFit():
             https://lmfit.github.io/lmfit-py/fitting.html#fit-methods-table.
         
         names: list(str), default None
-            names of the models that should be evalualated. Defaults to
-            evaluating all models.
+            names of the fit objects that should be part of the fit. Defaults to
+            using all the fitters stored in the JointFit object instance.
         """
         if names == None:
             names = list(self.joint.keys())
@@ -266,6 +280,33 @@ class JointFit():
         print(fit_report(self.fit_result,show_correl=False))
         fit_params = self.fit_result.params
         self.set_params(fit_params)
+        return
+
+    def share_energy_grid(self,grid_bounds):
+        """
+        This method defines a custom energy grid over which to evaluate all 
+        loaded time-averaged spectra. The new grid MUST cover a wider energy 
+        range than all the ones in the time-averaged spectra loaded in the joint 
+        fitter instance. 
+        
+        Parameters:
+        -----------
+        grid_bounds: np.array(float)
+            An array of energy bounds, starting from the bottom edge of the 
+            first bin and finishing up to the top edge of the last bin in the 
+            new grid.
+        """
+        names = list(self.joint.keys())
+        for name in names:
+            if getattr(self.joint[name], '__module__', None) == "ndspec.FitTimeAvgSpectrum":
+                if grid_bounds[0] > self.joint[name].energs[0]:
+                    raise ValueError(f"Custom grid bound above the minimum energy of {name}")
+                if grid_bounds[-1] < self.joint[name].energs[-1]:
+                    raise ValueError(f"Custom grid bound below the maximum energy of {name}")    
+        
+        self.energy_grid = dict(ear=grid_bounds,
+                                energ=0.5*(grid_bounds[1:]+grid_bounds[:-1]),
+                                energ_bounds=grid_bounds.ear[1:]-grid_bounds.ear[:-1])
         return
 
     def set_params(self,params):
@@ -340,9 +381,9 @@ class JointFit():
         """
         return self.joint[key]
 
-   #these methods are banished to the shadow realm down here while I figure out what to do 
-   #with the multiple loading/shared grid etc 
-   def _model_decompose(self,model):
+    #these methods are banished to the shadow realm down here while I figure out what to do 
+    #with the multiple loading/shared grid etc 
+    def _model_decompose(self,model):
         """
         Decomposes lmfit composite models into their base Models.
         Mainly useful for retrieving parameter names from complex
@@ -432,10 +473,28 @@ class JointFit():
             #find parameter name in first fit objects models
             second_fitobj.model_params[name] = first_fitobj.model_params[name]
 
-    def joint_plot(self,plot_units,plot_bkg=None,xrange=None,yrange=None,return_plot=False):
+    def joint_plot(self,units,plot_bkg=False,xrange=None,yrange=None,return_plot=False):
         """
-        Loops over all fitter objects and plots the data+model for all the data together.
-        Only useful if the data stored is of the same type (e.g. all time-averaged spectra)
+        This method loops over all stored fitter objects and plots the data, 
+        model (given the parameters stored), and residuals for all the fits 
+        together. Note that this is useful only if the data you are trying to 
+        plot is of the same time (e.g. all time-averaged spectra).
+        
+        Parameters:
+        -----------
+        units: str
+            The units to use for the y axis. For more info, see the documentation 
+            of the individual fitter classes. 
+            
+        plot_bkg; str, default=False:
+            A boolean to choose whether you want to plot the background
+            
+        xrange, yrange: (float, float) 
+            The limits of the plot on the x and y axis 
+
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objected containing 
+            the plot or not.            
         """
 
         fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,gridspec_kw={'height_ratios': [2., 1]})
@@ -452,7 +511,7 @@ class JointFit():
             if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             else:
-                plot = self.joint[key].plot_model(units=plot_units,return_plot=True,plot_bkg=plot_bkg)
+                plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
             
@@ -507,9 +566,27 @@ class JointFit():
         else:
             return   
         
-    def all_plots(self,plot_units,plot_bkg=None,return_plot=False):
+    def all_plots(self,units,plot_bkg=None,return_plot=False):
         """
-        Loops over all fitter objects and plots the data+model for each separately
+        This method loops over all stored fitter objects and plots the data, 
+        model (given the parameters stored), and residuals for all the fits 
+        separately. For two-dimensional fits (like a cross spectrum), the method 
+        still plots one-dimensional plots. This method is meant for quick-look 
+        analysis of a joint fit.
+        
+        Parameters:
+        -----------
+        units: str
+            The units to use for the y axis. For more info, see the documentation 
+            of the individual fitter classes. Has no impact if the fitter being 
+            looked over is a cross spectrum. 
+            
+        plot_bkg; str, default=False:
+            A boolean to choose whether you want to plot the background
+
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objected containing 
+            the plot or not.           
         """   
         
         if return_plot is not False:
@@ -519,7 +596,7 @@ class JointFit():
             if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
                 plot = self.joint[key].plot_model_1d(return_plot=True)
             else:
-                plot = self.joint[key].plot_model(units=plot_units,return_plot=True,plot_bkg=plot_bkg)
+                plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
             if return_plot is True:
