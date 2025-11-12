@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("once", category=UserWarning) 
+
 import numpy as np
 import lmfit
 from lmfit import fit_report, minimize
@@ -13,10 +16,12 @@ plt.rcParams.update({'font.size': 17})
 
 from scipy.interpolate import interp1d, RegularGridInterpolator
 
+from lmfit import Model as LM_Model
+from lmfit import Parameters as LM_Parameters
+
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
-from .FitPowerSpectrum import FitPowerSpectrum
 
 class JointFit():
     """
@@ -86,7 +91,7 @@ class JointFit():
         self.fit_result = None
         self.model_params = None
         self.energy_grid = None
-        self.shared_energy_grid = True
+        self.shared_energy_grid = False
         self.shared_model = None
         self.spec_renorm_model = None
         self.renorm_spectra = False 
@@ -163,13 +168,8 @@ class JointFit():
         for key in fitobj.model_params.valuesdict().keys():
             for joint_obs in self.joint_params:
                 if key in self.joint_params[joint_obs]:
-                    print(f"""
-                          Caution: {key} is already a model parameter.
-                          Do you intend for these parameters to be linked?
-                          If not, give it a different name to differentiate
-                          between multiple instances of the same type for
-                          different models.
-                          """)
+                    print(f"""Caution: {key} is already a model parameter.vDo you intend for these parameters to be linked?
+                          If not, give it a different name to differentiate between multiple instances of the same type for different models.""")
                 else:
                     self.model_params.add_many(fitobj.model_params[key])
             params.append(key)
@@ -231,9 +231,9 @@ class JointFit():
             fitobjs = self.joint[name]     
             #if we are evaluating a fit on a shared grid, interpolate, fold and mask
             #otherwise evaluate normally      
-            if (self.shared_energy_grid is True and type(fitobj)==ndspec.FitTimeAvgSpectrum):
+            if (self.shared_energy_grid is True and type(fitobj)==FitTimeAvgSpectrum):
                 energ_bounds = fitobjs.ear[1:]-fitobjs.ear[:-1]
-                model_results = interp_obj(fitobjs.ear)*energ_bounds
+                model_results = model_interp(fitobjs.ear)*energ_bounds
                 model_results = fitobjs.response.convolve_response(model_results) 
                 model_results = np.extract(fitobjs.ebounds_mask,model_results) 
             else:
@@ -247,7 +247,7 @@ class JointFit():
                     renorm_pars.add('renorm',value=params[par_key].value,
                                     min=params[par_key].min,max=params[par_key].max,
                                     vary=params[par_key].vary)
-                    model_results = self._renorm_spectrum.eval(renorm_pars,array=model_results)      
+                    model_results = self.spec_renorm_model.eval(renorm_pars,array=model_results)      
             model_hierarchy[name] = model_results
         
         if flatten == False:
@@ -351,7 +351,7 @@ class JointFit():
         names = list(self.joint.keys())
         model_list = []
         for name in names:
-            if type(self.joint[name]) == ndspec.FitTimeAvgSpectrum:
+            if type(self.joint[name]) == FitTimeAvgSpectrum:
                 model_list = np.append(model_list,self.joint[name].model)
                 if grid_bounds[0] > self.joint[name].energs[0]:
                     raise ValueError(f"Custom grid bound above the minimum energy of {name}")
@@ -396,20 +396,20 @@ class JointFit():
         if self.renorm_spectra is True:
             #retrieve all time averaged spectra loaded
             if names is None:
-                searched_names = list(self.joint.keys())
+                searched_names = self.joint.keys()
             else:
                 searched_names = names 
             self.renorm_names = []
             for name in searched_names:
-                if type(self.joint[name]) == ndspec.FitTimeAvgSpectrum:
+                if type(self.joint[name]) == FitTimeAvgSpectrum:
                     self.renorm_names = np.append(self.renorm_names,name)        
             #add constant models to the selected fitters 
-            self.spec_renorm_model = LM_Model(self._renorm_modulus)
+            self.spec_renorm_model = LM_Model(self._renorm_spectrum)
             renorm_pars = LM_Parameters()
             for name in self.renorm_names:       
                 renorm_pars.add('renorm_'+str(name),
                                 value=1,min=0.7,max=1.3,vary=True)
-            self.model_params = self.model_params + renorm_pars            
+            self.model_params = self.model_params + renorm_pars          
         return
 
     def _renorm_spectrum(self,array,renorm):
@@ -625,6 +625,12 @@ class JointFit():
             the plot or not.            
         """
 
+        if self.renorm_spectra is True:
+            warnings.warn("Fit cross-calibration constants enabled! The plots of the "\
+                          "models in the single fit plots will be off from their "\
+                          "correct values by a factor qual to the cross calibration "\
+                          "constant! Reference the joint plot instead!",UserWarning)  
+
         fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,gridspec_kw={'height_ratios': [2., 1]})
 
         if xrange is not None:
@@ -636,13 +642,13 @@ class JointFit():
         
         i=0
         for key in self.joint:
-            if type(self.joint[key]) == ndspec.FitCrossSpectrum:
+            if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             else:
                 plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
-            
+                       
             ax1_data, ax2_data = plot.axes
             
             # Extract data points and errors from Collection 0 (horizontal errorbars and y data)
@@ -656,13 +662,16 @@ class JointFit():
             y_midpoints = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
             x_data = np.array([seg[0, 0] for seg in segments_y])  
             y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_midpoints)
-        
+            
             col="C"+str(i)
             i = i+1
             ax1.errorbar(x_data, y_data, xerr=x_errors, yerr=y_errors, fmt='o',alpha=0.1, color=col)
             lines = ax1_data.get_lines()
             line = lines[1]
-            ax1.plot(line.get_xdata(), line.get_ydata(),
+            model = line.get_ydata()
+            if (self.renorm_spectra is True):
+                model = model*self.model_params['renorm_'+str(key)].value            
+            ax1.plot(line.get_xdata(), model,
                      linestyle=line.get_linestyle(),
                      linewidth=line.get_linewidth(),
                      color=col,
@@ -700,7 +709,7 @@ class JointFit():
         model (given the parameters stored), and residuals for all the fits 
         separately. For two-dimensional fits (like a cross spectrum), the method 
         still plots one-dimensional plots. This method is meant for quick-look 
-        analysis of a joint fit.
+        analysis of a joint fit. 
         
         Parameters:
         -----------
@@ -715,13 +724,17 @@ class JointFit():
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
             the plot or not.           
-        """   
+        """
+        
+        if self.renorm_spectra is True:
+            warnings.warn("Fit cross-calibration constants enabled! The plots of the models will be off from their correct values by a facto equal to the cross calibration constant!",
+                           UserWarning)   
         
         if return_plot is not False:
             figs = []
         
         for key in self.joint:
-            if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
+            if type(self.joint[key]) == FitCrossSpectrum:
                 plot = self.joint[key].plot_model_1d(return_plot=True)
             else:
                 plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
