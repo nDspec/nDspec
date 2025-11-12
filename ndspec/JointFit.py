@@ -231,7 +231,7 @@ class JointFit():
             fitobjs = self.joint[name]     
             #if we are evaluating a fit on a shared grid, interpolate, fold and mask
             #otherwise evaluate normally      
-            if (self.shared_energy_grid is True and type(fitobj==ndspec.FitTimeAvgSpectrum):
+            if (self.shared_energy_grid is True and type(fitobj)==ndspec.FitTimeAvgSpectrum):
                 energ_bounds = fitobjs.ear[1:]-fitobjs.ear[:-1]
                 model_results = interp_obj(fitobjs.ear)*energ_bounds
                 model_results = fitobjs.response.convolve_response(model_results) 
