@@ -1005,7 +1005,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             raise AttributeError("Incorrect model units, set lags, cartesian or polar")                  
         return model
 
-    def renorm_phases(self,value):
+    def renorm_phases(self,switch):
         """
         Setter method to enable the phase renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -1018,13 +1018,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
+        switch: bool 
             A boolean to track whether phase renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency        
-        self.renorm_phase = value
+        self.renorm_phase = switch
         if self.renorm_phase is True:
             #if we choose to renormalize the phase, we need to modify the model 
             #definition and its parameters to include the phase renormalization 
@@ -1060,7 +1060,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     
         return array + renorm
 
-    def renorm_mods(self,value):
+    def renorm_mods(self,switch):
         """
         Setter method to enable the modulus renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -1072,13 +1072,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
-            A boolean to track whether phase renormalization is enabled or not.
+        switch: bool 
+            A boolean to track whether modulus renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency
-        self.renorm_modulus = value
+        self.renorm_modulus = switch
         if self. renorm_modulus is True:
             #if we choose to renormalize the modulus, we need to modify the model 
             #definition and its parameters to include the modulus renormalization 

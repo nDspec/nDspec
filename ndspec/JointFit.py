@@ -53,6 +53,19 @@ class JointFit():
     model_params: lmfit.Parameters
         The parameter values from which to start evalauting the model during
         the fit.  
+        
+    shared_energy_grid: np.array(float)
+        An optional array containing a user-defined grid of energy bounds over 
+        which to evaluate a model, instead of the grids defined by the instrument 
+        response(s) loaded in the individual fitter object. To be used only with 
+        time-averaged spectra for simplicity; can be used to optimize model 
+        evaluations if all loaded time-averaged fitter share the same spectral 
+        model and parameters. 
+        
+    spec_renorm_model: lmfit.Model 
+        An optional lmfit model object used to include a constant component in 
+        a set of chosen fitters for time-averaged spectra. Used to account for 
+        instrument flux cross-calibration.
     """
     
     def __init__(self):
@@ -61,6 +74,9 @@ class JointFit():
         self.fit_result = None
         self.model_params = None
         self.energy_grid = None
+        self.shared_energy_grid = True
+        self.spec_renorm_model = None
+        self.renorm_spectra = False 
 
     def add_fitobj(self,fitobj,name):
         """
@@ -196,6 +212,16 @@ class JointFit():
                     model_results.append(fit_obj.eval_model(params))
             else:
                 model_results = fitobjs.eval_model(params)
+            #if the fitter is in the list of spectra to re-normalize for 
+            #cross calibration, do so now
+            if self.renorm_spectra is True:
+                if name in self.searched_names:
+                    par_key = 'renorm_'+str(name)
+                    renorm_pars = LM_Parameters()
+                    renorm_pars.add('renorm',value=params[par_key].value,
+                                    min=params[par_key].min,max=params[par_key].max,
+                                    vary=params[par_key].vary)
+                    model_results = self._renorm_spectrum.eval(renorm_pars,array=model_results)      
             model_hierarchy[name] = model_results
         
         if flatten == False:
@@ -282,7 +308,7 @@ class JointFit():
         self.set_params(fit_params)
         return
 
-    def share_energy_grid(self,grid_bounds):
+    def set_energy_grid(self,grid_bounds):
         """
         This method defines a custom energy grid over which to evaluate all 
         loaded time-averaged spectra. The new grid MUST cover a wider energy 
@@ -298,7 +324,7 @@ class JointFit():
         """
         names = list(self.joint.keys())
         for name in names:
-            if getattr(self.joint[name], '__module__', None) == "ndspec.FitTimeAvgSpectrum":
+            if type(self.joint[name]) == ndspec.FitTimeAvgSpectrum:
                 if grid_bounds[0] > self.joint[name].energs[0]:
                     raise ValueError(f"Custom grid bound above the minimum energy of {name}")
                 if grid_bounds[-1] < self.joint[name].energs[-1]:
@@ -307,7 +333,72 @@ class JointFit():
         self.energy_grid = dict(ear=grid_bounds,
                                 energ=0.5*(grid_bounds[1:]+grid_bounds[:-1]),
                                 energ_bounds=grid_bounds.ear[1:]-grid_bounds.ear[:-1])
+        self.shared_energy_grid = True
         return
+
+    def renorm_timeavg(self,switch,names=None):
+        """
+        Setter method to enable the fitter objects passed with the "names" 
+        attribute to include an additional constant component, in other to 
+        account e.g. for the cross-calibration uncertainty between instruments.
+        Only applicable to time-averaged spectra.      
+        
+        Parameters:
+        -----------
+        switch: bool 
+            A boolean to track whether the spectra renormalization is enabled or 
+            not. If it is, the method modifies the defined model and its parameters 
+            automatically. 
+            
+        name: list(str) or str, default None
+            A list of strings with the name of the fitter objects to which users 
+            wish to apply a cross calibration constant. By default this is None 
+            and all the spectra receive the constant.
+        """
+        self.renorm_spectra = switch
+        if self.renorm_spectra is True:
+            #retrieve all time averaged spectra loaded
+            if names is None:
+                searched_names = list(self.joint.keys())
+            else:
+                searched_names = names 
+            self.renorm_names = []
+            for name in searched_names:
+                if type(self.joint[name]) == ndspec.FitTimeAvgSpectrum:
+                    self.renorm_names = np.append(self.renorm_names,name)        
+            #add constant models to the selected fitters 
+            self.spec_renorm_model = LM_Model(self._renorm_modulus)
+            renorm_pars = LM_Parameters()
+            for name in self.renorm_names:       
+                renorm_pars.add('renorm_'+str(name),
+                                value=1,min=0.7,max=1.3,vary=True)
+            self.model_params = self.model_params + renorm_pars            
+        return
+
+    def _renorm_spectrum(self,array,renorm):
+        """
+        This method contains a model function to renormalize an input array, 
+        assumed to be a model time averaged spectrum, by some constant number. 
+        This is to be used as a cross calibration constant for different 
+        instruments. 
+       
+        Parameters:
+        -----------
+        array: np.array(float)
+            The array of energy depdent time averaged spectrum to be 
+            renormalized 
+            
+        renorm: float 
+            The renormalization factor by which to multiply the model time 
+            averaged spectrum
+            
+        Returns:
+        --------
+        array*renorm 
+            The new, renormalized model array. 
+        """
+    
+        return renorm*array
 
     def set_params(self,params):
         """
@@ -508,7 +599,7 @@ class JointFit():
         
         i=0
         for key in self.joint:
-            if getattr(self, '__module__', None) == "ndspec.FitCrossSpectrum":
+            if type(self.joint[key]) == ndspec.FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             else:
                 plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
