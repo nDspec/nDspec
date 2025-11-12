@@ -54,7 +54,7 @@ class JointFit():
         The parameter values from which to start evalauting the model during
         the fit.  
         
-    shared_energy_grid: np.array(float)
+    energy_grid: np.array(float)
         An optional array containing a user-defined grid of energy bounds over 
         which to evaluate a model, instead of the grids defined by the instrument 
         response(s) loaded in the individual fitter object. To be used only with 
@@ -62,10 +62,22 @@ class JointFit():
         evaluations if all loaded time-averaged fitter share the same spectral 
         model and parameters. 
         
+    shared_energy_grid: bool 
+        A boolean that tracks whether the joint fitter object has a shared 
+        energy grid for evaluating time-averaged spectrum models or not. 
+        
+    shared_model: lmfit.CompositeModel
+        The model shared among all FitTimeAvgSpectrum objects to be evaluated on 
+        the same energy grid. 
+        
     spec_renorm_model: lmfit.Model 
         An optional lmfit model object used to include a constant component in 
         a set of chosen fitters for time-averaged spectra. Used to account for 
         instrument flux cross-calibration.
+        
+    renorm_names: list[str]
+        A list with the names of the time-averaged fitter objects to which the 
+        cross-calibration constants should be applied. 
     """
     
     def __init__(self):
@@ -75,8 +87,10 @@ class JointFit():
         self.model_params = None
         self.energy_grid = None
         self.shared_energy_grid = True
+        self.shared_model = None
         self.spec_renorm_model = None
         self.renorm_spectra = False 
+        self.renorm_names = None
 
     def add_fitobj(self,fitobj,name):
         """
@@ -197,25 +211,37 @@ class JointFit():
             params = self.model_params
         #creates structure to return model results
         model_hierarchy = {}
-
-        #when we use a custom grid, need to check that we're grabbing the right 
-        #parameters - ugh. We can't grab the fit parameters from each fitter either.        
+        
+        #check if we shared the energy grid. If yes, evalute the model on the 
+        #shared grid here. We then evaluate the model, with no folding or 
+        #masking of ignored bins
+        if self.shared_energy_grid is not False:
+            shared_energ = 0.5*(self.energy_grid[1:]+self.energy_grid[:-1])
+            joint_eval = self.shared_model.eval_model(params,
+                                                      energ=shared_energ,
+                                                      ear=self.energy_grid,
+                                                      fold=False,
+                                                      mask=False)
+            model_interp = interp1d(self.energy_grid,joint_eval,fill_value='extrapolate')
+    
         for name in names:
             if name not in self.joint.keys():
                 raise AttributeError(f"{name} is not among the stored fitters")
             #retrieves model or models based on dictionary name
-            fitobjs = self.joint[name] 
-            #tbd: grid stuff here 
-            if type(fitobjs) == list: 
-                model_results = []
-                for fit_obj in fitobjs:
-                    model_results.append(fit_obj.eval_model(params))
+            fitobjs = self.joint[name]     
+            #if we are evaluating a fit on a shared grid, interpolate, fold and mask
+            #otherwise evaluate normally      
+            if (self.shared_energy_grid is True and type(fitobj==ndspec.FitTimeAvgSpectrum):
+                energ_bounds = fitobjs.ear[1:]-fitobjs.ear[:-1]
+                model_results = interp_obj(fitobjs.ear)*energ_bounds
+                model_results = fitobjs.response.convolve_response(model_results) 
+                model_results = np.extract(fitobjs.ebounds_mask,model_results) 
             else:
                 model_results = fitobjs.eval_model(params)
             #if the fitter is in the list of spectra to re-normalize for 
             #cross calibration, do so now
             if self.renorm_spectra is True:
-                if name in self.searched_names:
+                if name in self.renorm_names:
                     par_key = 'renorm_'+str(name)
                     renorm_pars = LM_Parameters()
                     renorm_pars.add('renorm',value=params[par_key].value,
@@ -323,12 +349,23 @@ class JointFit():
             new grid.
         """
         names = list(self.joint.keys())
+        model_list = []
         for name in names:
             if type(self.joint[name]) == ndspec.FitTimeAvgSpectrum:
+                model_list = np.append(model_list,self.joint[name].model)
                 if grid_bounds[0] > self.joint[name].energs[0]:
                     raise ValueError(f"Custom grid bound above the minimum energy of {name}")
                 if grid_bounds[-1] < self.joint[name].energs[-1]:
                     raise ValueError(f"Custom grid bound below the maximum energy of {name}")    
+        
+        #check that all the models in the time averaged spectrum fitters are the 
+        #same, and assign the model ot be used if that is true
+        
+        fist_model = model_list[0]
+        if all(model == first_model for model in model_list):
+            self.shared_model = first_model
+        else:
+            raise AttributeError("Not all models in the fitters are identical!")
         
         self.energy_grid = dict(ear=grid_bounds,
                                 energ=0.5*(grid_bounds[1:]+grid_bounds[:-1]),
