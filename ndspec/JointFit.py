@@ -260,10 +260,10 @@ class JointFit():
  
     def _minimizer(self,params,names = None):
         """
-        This method is used exclusively when running a minimization algorithm.
-        It evaluates the models for an input set of parameters, and then returns 
-        the residuals in units of contribution to the total chi squared 
-        statistic.
+        This method is used (almost) exclusively when running a minimization 
+        algorithm. It evaluates the models for an input set of parameters, and 
+        then returns the residuals in units of contribution to the total chi 
+        squared statistic.
         
         Parameters:
         -----------                         
@@ -601,7 +601,7 @@ class JointFit():
             #find parameter name in first fit objects models
             second_fitobj.model_params[name] = first_fitobj.model_params[name]
 
-    def joint_plot(self,units,plot_bkg=False,xrange=None,yrange=None,return_plot=False):
+    def joint_plot(self,units,residuals="delchi",plot_bkg=False,xrange=None,yrange=None,return_plot=False):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -613,6 +613,12 @@ class JointFit():
         units: str
             The units to use for the y axis. For more info, see the documentation 
             of the individual fitter classes. 
+            
+        residuals: str, default="delchi"
+            The units to use for the residuals. If residuals="delchi", the plot 
+            shows the residuals in units of data-model/error; if residuals="ratio",
+            the plot instead uses units of data/model. For cross spectra this 
+            key word is ignored and only delta chi residuals can be shown.
             
         plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
@@ -645,7 +651,10 @@ class JointFit():
             if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             else:
-                plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
+                plot = self.joint[key].plot_model(residuals=residuals,
+                                                  units=units,
+                                                  plot_bkg=plot_bkg,
+                                                  return_plot=True)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
                        
@@ -682,13 +691,25 @@ class JointFit():
         
             #now extract the residuals as above
             segments_y = ax2_data.collections[0].get_segments()
-            residuals = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
+            y_res = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
             x_data = np.array([seg[0, 0] for seg in segments_y])  
-            y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - residuals)
+            y_reserr = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_res)
             
-            ax2.errorbar(x_data, residuals, xerr=x_errors, yerr=y_errors, fmt='o',alpha=0.35, color=col)
+            #if the spectra were renormalized, we have to over-write the residuals
+            if (self.renorm_spectra is True and residuals=="delchi"):
+                y_res = self._minimizer(self.model_params,names=key)
+            elif (self.renorm_spectra is True and residuals=="ratio"):
+                y_res = y_data/model 
+                y_reserr = y_errors/model 
+            elif (self.renorm_spectra is True):
+                raise ValueError("Residual type not regognized")                
+            
+            ax2.errorbar(x_data, y_res, xerr=x_errors, yerr=y_reserr, fmt='o',alpha=0.35, color=col)
         
-        ax2.plot(x_data,np.zeros(len(x_data)),ls=":",lw=2,color='black',zorder=10)
+        if residuals == "delchi":
+            ax2.plot(x_data,np.zeros(len(x_data)),ls=":",lw=2,color='black',zorder=10)
+        elif residuals == "ratio":
+            ax2.plot(x_data,np.ones(len(x_data)),ls=":",lw=2,color='black',zorder=10)
         ax2.set_xscale("log",base=10)
         
         ax1.set_xlabel(ax1_data.get_xlabel())
@@ -703,7 +724,7 @@ class JointFit():
         else:
             return   
         
-    def all_plots(self,units,plot_bkg=None,return_plot=False):
+    def all_plots(self,units,residuals="delchi",plot_bkg=None,return_plot=False):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -718,6 +739,12 @@ class JointFit():
             of the individual fitter classes. Has no impact if the fitter being 
             looked over is a cross spectrum. 
             
+        residuals: str, default="delchi"
+            The units to use for the residuals. If residuals="delchi", the plot 
+            shows the residuals in units of data-model/error; if residuals="ratio",
+            the plot instead uses units of data/model. For cross spectra this 
+            key word is ignored and only delta chi residuals can be shown.
+            
         plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
 
@@ -727,7 +754,9 @@ class JointFit():
         """
         
         if self.renorm_spectra is True:
-            warnings.warn("Fit cross-calibration constants enabled! The plots of the models will be off from their correct values by a facto equal to the cross calibration constant!",
+            warnings.warn("Fit cross-calibration constants enabled! The plots of "\
+                          "the models will be off from their correct values by "\
+                          "a factor equal to the cross calibration constant!",
                            UserWarning)   
         
         if return_plot is not False:
@@ -737,7 +766,10 @@ class JointFit():
             if type(self.joint[key]) == FitCrossSpectrum:
                 plot = self.joint[key].plot_model_1d(return_plot=True)
             else:
-                plot = self.joint[key].plot_model(units=units,return_plot=True,plot_bkg=plot_bkg)
+                plot = self.joint[key].plot_model(residuals=residuals,
+                                                  units=units,
+                                                  plot_bkg=plot_bkg,
+                                                  return_plot=True)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
             if return_plot is True:
