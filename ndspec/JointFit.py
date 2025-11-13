@@ -22,6 +22,7 @@ from lmfit import Parameters as LM_Parameters
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
+from .Utils import get_plot_info
 
 class JointFit():
     """
@@ -509,99 +510,7 @@ class JointFit():
         """
         return self.joint[key]
 
-    #these methods are banished to the shadow realm down here while I figure out what to do 
-    #with the multiple loading/shared grid etc 
-    def _model_decompose(self,model):
-        """
-        Decomposes lmfit composite models into their base Models.
-        Mainly useful for retrieving parameter names from complex
-        composite models, and is only for internal model use.
-
-        Parameters
-        ----------
-        model: lmfit.compositemodel
-            composite model to be decomposed
-
-        Returns
-        -------
-        models: list(lmfit.model)
-            list of component lmfit.model objects.
-        """
-        #catches and returns inputted lmfit.models as list
-        if type(model) == lmfit.Model:
-            return [model] 
-        
-        if type(model) != lmfit.CompositeModel:
-            raise TypeError("Not a lmfit composite model")
-        models = []
-        
-        if type(model.left) == lmfit.Model:
-            models.append(model.left)
-        else:
-            models.extend(self._model_decompose(model.left))
-        
-        if type(model.right) ==  lmfit.Model:
-            models.append(model.right)
-        else:
-            models.extend(self._model_decompose(model.right))
-        
-        return models
-
-    def _share_params(self,first_fitobj,second_fitobj,param_names=None):
-        """
-        Shares parameters between models and links the parameters of individual 
-        models that compose the joint fit to the parameters inferred in the 
-        optimization process.
-
-        Parameters
-        ----------
-        first_fitobj : Fit... object 
-            primary fit object that the secondary fit object is linked to.
-        second_fitobj : Fit... object 
-            secondary fit object that is linked to the primary.
-        param_names : str or list(str), optional
-            Names of parameters (with the same name) to share between models. The default 
-            is to share all parameters together
-
-        """
-        #checks that both models are correctly specified
-        if (((type(first_fitobj.model) != lmfit.CompositeModel)&(type(first_fitobj.model) != lmfit.Model))|
-           ((type(second_fitobj.model) != lmfit.CompositeModel)&((type(second_fitobj.model) != lmfit.Model)))):  
-            raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
-        
-        #adds all base models into list (decomposes CompositeModels into Models)
-        models = []
-        #adds all models from first fit object as a list of models
-        models.append(self._model_decompose(first_fitobj.model))
-        #adds all models from second fit object as a list of models
-        models.append(self._model_decompose(second_fitobj.model))
-
-        if param_names == None: #defaults to all parameters (models are identical)
-            second_fitobj.model_params = first_fitobj.model_params
-        elif type(param_names) == list: #correct format
-            pass
-        elif type(param_names) == str: #translates to correct format
-            param_names = [param_names]
-        else:
-            raise TypeError("Input parameter name or list of parameter names")
-
-        #first check that all specified parameters are present in both fit objects
-        for fit_obj in models:
-            check = set(param_names)
-            for m in fit_obj: #iterates through all basic models
-                check = check - set(m.param_names)
-            if check == set(): #if check is an empty set, all parameter names are present in object
-                continue
-            else:
-                #if parameters are not shared, soft error
-                print("Not all parameters inputted are in models")
-                return
-        
-        for name in param_names:
-            #find parameter name in first fit objects models
-            second_fitobj.model_params[name] = first_fitobj.model_params[name]
-
-    def joint_plot(self,units,residuals="delchi",plot_bkg=False,xrange=None,yrange=None,return_plot=False):
+    def joint_plot(self,units,residuals="delchi",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -628,16 +537,20 @@ class JointFit():
 
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
-            the plot or not.            
+            the plot or not.     
+            
+        names: list(str)
+            A list of the fitters to be included in the joint plot. By default, 
+            all the loaded fitters are included.        
         """
+       
+        if names is None:
+            names = list(self.joint.keys())
+        elif type(names) is str: 
+            names = [names]
 
-        if self.renorm_spectra is True:
-            warnings.warn("Fit cross-calibration constants enabled! The plots of the "\
-                          "models in the single fit plots will be off from their "\
-                          "correct values by a factor qual to the cross calibration "\
-                          "constant! Reference the joint plot instead!",UserWarning)  
-
-        fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,gridspec_kw={'height_ratios': [2., 1]})
+        fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,
+                                      gridspec_kw={'height_ratios': [2, 1]})
 
         if xrange is not None:
             ax1.set_xlim(xrange)
@@ -647,75 +560,64 @@ class JointFit():
             ax1.set_ylim(yrange)
         
         i=0
-        for key in self.joint:
+        for key in names:
             if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             else:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   plot_bkg=plot_bkg,
-                                                  return_plot=True)
-            plot.axes[0].set_title(str(key))
-            plot.tight_layout()
-                       
-            ax1_data, ax2_data = plot.axes
-            
-            # Extract data points and errors from Collection 0 (horizontal errorbars and y data)
-            segments_x = ax1_data.collections[0].get_segments()
-            x_midpoints = np.mean([[seg[0, 0], seg[1, 0]] for seg in segments_x], axis=1)
-            y_data = np.array([seg[0, 1] for seg in segments_x])  
-            x_errors = np.abs(np.array([[seg[0, 0], seg[1, 0]] for seg in segments_x]).T - x_midpoints)
-        
-            # Extract data points and errors from Collection 1 (vertical errorbars and x data)
-            segments_y = ax1_data.collections[1].get_segments()
-            y_midpoints = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
-            x_data = np.array([seg[0, 0] for seg in segments_y])  
-            y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_midpoints)
+                                                  return_plot=True)                       
+
+            plot_data = get_plot_info(plot)
             
             col="C"+str(i)
             i = i+1
-            ax1.errorbar(x_data, y_data, xerr=x_errors, yerr=y_errors, fmt='o',alpha=0.1, color=col)
-            lines = ax1_data.get_lines()
-            line = lines[1]
-            model = line.get_ydata()
+            ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
+                         xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
+                         fmt='o',alpha=0.1, color=col)
+            
+            model = plot_data["model_vals"]        
+            #renormalize if necessary 
             if (self.renorm_spectra is True):
                 model = model*self.model_params['renorm_'+str(key)].value            
-            ax1.plot(line.get_xdata(), model,
-                     linestyle=line.get_linestyle(),
-                     linewidth=line.get_linewidth(),
-                     color=col,
-                     zorder=10)
+            ax1.plot(plot_data["x_points"], model,
+                     linestyle=plot_data["linestyle"][0],
+                     linewidth= plot_data["linewidth"][0],
+                     color=col,zorder=10)
             
             ax1.set_xscale("log",base=10)
             ax1.set_yscale("log",base=10)    
-        
-            #now extract the residuals as above
-            segments_y = ax2_data.collections[0].get_segments()
-            y_res = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_y], axis=1)
-            x_data = np.array([seg[0, 0] for seg in segments_y])  
-            y_reserr = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_res)
+            
+            y_res = plot_data["resid"]
+            y_reserr = plot_data["reserr"]
             
             #if the spectra were renormalized, we have to over-write the residuals
             if (self.renorm_spectra is True and residuals=="delchi"):
                 y_res = self._minimizer(self.model_params,names=key)
+                y_reserr = plot_data["reserr"]
             elif (self.renorm_spectra is True and residuals=="ratio"):
-                y_res = y_data/model 
-                y_reserr = y_errors/model 
+                y_res = plot_data["y_points"]/model 
+                y_reserr = plot_data["y_bars"]/model 
             elif (self.renorm_spectra is True):
                 raise ValueError("Residual type not regognized")                
             
-            ax2.errorbar(x_data, y_res, xerr=x_errors, yerr=y_reserr, fmt='o',alpha=0.35, color=col)
+            ax2.errorbar(plot_data["x_points"], y_res, 
+                         xerr=plot_data["x_bars"], yerr=y_reserr, 
+                         fmt='o',alpha=0.35, color=col)
         
         if residuals == "delchi":
-            ax2.plot(x_data,np.zeros(len(x_data)),ls=":",lw=2,color='black',zorder=10)
+            ax2.plot(plot_data["x_points"],np.zeros(len(plot_data["x_points"])),
+                     ls=":",lw=2,color='black',zorder=10)
         elif residuals == "ratio":
-            ax2.plot(x_data,np.ones(len(x_data)),ls=":",lw=2,color='black',zorder=10)
+            ax2.plot(plot_data["x_points"],np.ones(len(plot_data["x_points"])),
+                     ls=":",lw=2,color='black',zorder=10)
         ax2.set_xscale("log",base=10)
         
-        ax1.set_xlabel(ax1_data.get_xlabel())
-        ax1.set_ylabel(ax1_data.get_ylabel())
-        ax2.set_xlabel(ax2_data.get_xlabel())
-        ax2.set_ylabel(ax2_data.get_ylabel())
+        ax1.set_xlabel(plot_data["ax1_data"].get_xlabel())
+        ax1.set_ylabel(plot_data["ax1_data"].get_ylabel())
+        ax2.set_xlabel(plot_data["ax2_data"].get_xlabel())
+        ax2.set_ylabel(plot_data["ax2_data"].get_ylabel())
 
         fig.tight_layout()
 
@@ -778,4 +680,4 @@ class JointFit():
         if return_plot is True:
             return figs 
         else:
-            return         
+            return            
