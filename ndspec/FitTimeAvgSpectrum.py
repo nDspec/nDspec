@@ -359,12 +359,29 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
         """           
-                                     
-        energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)    
         
         if params is None:
             params = self.model_params   
+        
+        #set up data arrays
+        energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
+        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked) 
+        
+        #set up arrays for model histogram plot 
+        hist_vals = self.ebounds
+        min_notice = np.extract(self.ebounds_mask,self.response.emin)
+        max_notice = np.extract(self.ebounds_mask,self.response.emax)
+        hist_errors = np.append(min_notice,max_notice[-1])
+        #artificially make the last/first bin wider so it goes out of the plot 
+        #bounds. this is a gross hack because matplotlib's histogram sucks 
+        hist_errors[0] = 0.8*hist_errors[0]
+        hist_errors[-1] = 1.2*hist_errors[-1]
+        #energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
+        #xerror = np.extract(self.ebounds_mask,self._ewidths_unmasked)
+        #artificially make the last/first bin wider so it goes out of the plot 
+        #bounds. this is a gross hack because matplotlib's histogram sucks 
+        #xerror[0] = 0.8*xerror[0]
+        #xerror[-1] = 1.2*xerror[-1]
         
         #first; get the model in the correct units
         model_fold = self.eval_model(params=params,energ=self.energs,mask=False)
@@ -422,7 +439,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             ax1.errorbar(energies,data,yerr=yerror,xerr=xerror,
                          ls="",marker='o')       
 
-        ax1.plot(energies,model,lw=3,zorder=3)
+        ax1.hist(hist_vals,bins=hist_errors,weights=model, 
+                 density=False, histtype='step',linewidth=3,zorder=3) 
+        
+        #ax1.plot(energies,model,lw=3,zorder=3)
 
         if plot_components is True:
             #we need to allocate a ModelResult object in order to retrieve the components
@@ -439,6 +459,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                     ax1.plot(energies,comp*energies**power,label=key,lw=2)
             ax1.legend(loc='best')
         
+        ax1.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+        ax2.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                      self.ebounds[-1]+0.5*self.ewidths[-1]])                      
         ax1.set_xscale("log",base=10)
         ax1.set_yscale("log",base=10)
         if plot_data is False:
