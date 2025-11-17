@@ -26,8 +26,8 @@ from .Utils import get_plot_info
 
 class JointFit():
     """
-    Generic joint inference class. Use this class if you have multiple 
-    datasets that you want to fit jointly in some way. 
+    Generic joint fitting class. Use this class if you have multiple datasets
+    that you want to fit jointly in some way. 
 
     Users can add other Fit...Objs from ndspec to an instance of this class, and
     that instance this will handle evaluating the model, sharing parameters 
@@ -35,18 +35,10 @@ class JointFit():
     and/or optimization. There is no restriction on the type or number of 
     Fit...Objs that can be added. 
     
-    Note that JointFit does not perform extra performance enhancements to make
-    evaluations run faster, so optimization and joint inference on many 
-    parameters is still subject to the usual computational problems that come
-    with such scenario. 
-    
     Attributes:
     ------------
     joint : dict{Fit... objects and/or list(Fit... objects)}
-        Dictionary containing named Fit... objects to be joint fitted. By
-        default, datasets that share parameters completely (simultaneous 
-        observations, or different data products of observations) are packaged 
-        together in lists.
+        Dictionary containing named Fit... objects to be joint-fitted. 
         
     joint_params: dict{lists(str)}
         Dictionary containing the names of model parameters for each distinct
@@ -57,20 +49,19 @@ class JointFit():
         parameter values, fit statistics etc) of a fit after it has been run. 
 
     model_params: lmfit.Parameters
-        The parameter values from which to start evalauting the model during
-        the fit.  
+        The parameters of all the fitter objects combined, which are used during 
+        the joint fit.
         
     energy_grid: np.array(float)
         An optional array containing a user-defined grid of energy bounds over 
         which to evaluate a model, instead of the grids defined by the instrument 
-        response(s) loaded in the individual fitter object. To be used only with 
-        time-averaged spectra for simplicity; can be used to optimize model 
-        evaluations if all loaded time-averaged fitter share the same spectral 
-        model and parameters. 
+        response(s) loaded in the individual fitter object. Usable only with 
+        time-averaged spectra using a single shared model. Using a shared grid 
+        can improve performance in some cases. 
         
     shared_energy_grid: bool 
         A boolean that tracks whether the joint fitter object has a shared 
-        energy grid for evaluating time-averaged spectrum models or not. 
+        energy grid for evaluating the time-averaged spectrum model or not. 
         
     shared_model: lmfit.CompositeModel
         The model shared among all FitTimeAvgSpectrum objects to be evaluated on 
@@ -160,9 +151,9 @@ class JointFit():
         self.joint[name] = fitobj
         #if first added object, add model params
         if self.model_params == None:
-                self.model_params = Parameters()
-                for par in fitobj.model_params:
-                    self.model_params.add_many(fitobj.model_params[par])
+            self.model_params = Parameters()
+            for par in fitobj.model_params:
+                self.model_params.add_many(fitobj.model_params[par])
         #pulls parameters names and saves to dictionary for model
         #evaluation later
         params = []
@@ -180,17 +171,17 @@ class JointFit():
     def eval_model(self,params=None,names=None,flatten=True):
         """
         This method is used to evaluate and return the model values of models 
-        in the hierarchy.
+        stored in the fitter objects that make up the joint fit.
         
         Parameters:
         ------------
         params: lmfit.Parameters, default None
-            The parameter values to use in evaluating the model/models. If 
-            none are provided, the model_params attribute is used.
+            The parameters to use in evaluating the model/models. If none are 
+            provided, the model_params attribute is used.
 
         names: list(str), default None
             Names of the fitters that should evalualate their models. Defaults 
-            to evaluating the models of all fitters.
+            to evaluating the models of all fitters stored in the joint fit.
             
         flatten: bool, default True 
             A boolean to switch between returning model evaluations as a 
@@ -216,7 +207,7 @@ class JointFit():
         #check if we shared the energy grid. If yes, evalute the model on the 
         #shared grid here. We then evaluate the model, with no folding or 
         #masking of ignored bins
-        if self.shared_energy_grid is not False:
+        if self.shared_energy_grid is True:
             shared_energ = 0.5*(self.energy_grid[1:]+self.energy_grid[:-1])
             joint_eval = self.shared_model.eval_model(params,
                                                       energ=shared_energ,
@@ -656,9 +647,7 @@ class JointFit():
         """
         
         if self.renorm_spectra is True:
-            warnings.warn("Fit cross-calibration constants enabled! The plots of "\
-                          "the models will be off from their correct values by "\
-                          "a factor equal to the cross calibration constant!",
+            warnings.warn("Fit cross-calibration constants enabled! Models might be off!",
                            UserWarning)   
         
         if return_plot is not False:
