@@ -211,7 +211,6 @@ def share_params(first_fitobj,second_fitobj,param_names=None):
     Returns:
     --------
     """
-    from .Utils import model_decompose
         
     #checks that both models are correctly specified
     if (((type(first_fitobj.model) != lmfit.CompositeModel)&(type(first_fitobj.model) != lmfit.Model))|
