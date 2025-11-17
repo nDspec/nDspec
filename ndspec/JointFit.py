@@ -52,10 +52,9 @@ class JointFit():
         The parameters of all the fitter objects combined, which are used during 
         the joint fit.
         
-    energy_grid: np.array(float)
-        An optional array containing a user-defined grid of energy bounds over 
-        which to evaluate a model, instead of the grids defined by the instrument 
-        response(s) loaded in the individual fitter object. Usable only with 
+    energy_grid: dict{np.arrays}
+        An optional dictionary containing  the details of a user-defined grid of 
+        energy bins and bounds over which to evaluate a model. Usable only with 
         time-averaged spectra using a single shared model. Using a shared grid 
         can improve performance in some cases. 
         
@@ -208,28 +207,27 @@ class JointFit():
         #shared grid here. We then evaluate the model, with no folding or 
         #masking of ignored bins
         if self.shared_energy_grid is True:
-            shared_energ = 0.5*(self.energy_grid[1:]+self.energy_grid[:-1])
-            joint_eval = self.shared_model.eval_model(params,
-                                                      energ=shared_energ,
-                                                      ear=self.energy_grid,
-                                                      fold=False,
-                                                      mask=False)
-            model_interp = interp1d(self.energy_grid,joint_eval,fill_value='extrapolate')
+            joint_eval = self.shared_model.eval(params,
+                                                energ=self.energy_grid["energ"],
+                                                ear=self.energy_grid["ear"],
+                                                fold=False,
+                                                mask=False)
+            model_interp = interp1d(self.energy_grid["energ"],joint_eval,
+                                    fill_value='extrapolate',kind='quadratic')
     
         for name in names:
             if name not in self.joint.keys():
                 raise AttributeError(f"{name} is not among the stored fitters")
             #retrieves model or models based on dictionary name
-            fitobjs = self.joint[name]     
+            fitobj = self.joint[name]     
             #if we are evaluating a fit on a shared grid, interpolate, fold and mask
             #otherwise evaluate normally      
             if (self.shared_energy_grid is True and type(fitobj)==FitTimeAvgSpectrum):
-                energ_bounds = fitobjs.ear[1:]-fitobjs.ear[:-1]
-                model_results = model_interp(fitobjs.ear)*energ_bounds
-                model_results = fitobjs.response.convolve_response(model_results) 
-                model_results = np.extract(fitobjs.ebounds_mask,model_results) 
+                model_results = model_interp(fitobj.energs)*fitobj.energ_bounds
+                model_results = fitobj.response.convolve_response(model_results) 
+                model_results = np.extract(fitobj.ebounds_mask,model_results) 
             else:
-                model_results = fitobjs.eval_model(params)
+                model_results = fitobj.eval_model(params)
             #if the fitter is in the list of spectra to re-normalize for 
             #cross calibration, do so now
             if self.renorm_spectra is True:
@@ -353,7 +351,7 @@ class JointFit():
         #check that all the models in the time averaged spectrum fitters are the 
         #same, and assign the model ot be used if that is true
         
-        fist_model = model_list[0]
+        first_model = model_list[0]
         if all(model == first_model for model in model_list):
             self.shared_model = first_model
         else:
@@ -361,7 +359,7 @@ class JointFit():
         
         self.energy_grid = dict(ear=grid_bounds,
                                 energ=0.5*(grid_bounds[1:]+grid_bounds[:-1]),
-                                energ_bounds=grid_bounds.ear[1:]-grid_bounds.ear[:-1])
+                                energ_bounds=grid_bounds[1:]-grid_bounds[:-1])
         self.shared_energy_grid = True
         return
 
