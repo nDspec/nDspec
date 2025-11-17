@@ -225,7 +225,7 @@ def share_params(first_fitobj,second_fitobj,param_names=None):
     models.append(model_decompose(second_fitobj.model))
 
     if param_names == None: #defaults to all parameters (models are identical)
-        second_fitobj.model_params = first_fitobj.model_params
+        param_names = list(first_fitobj.param_names)
     elif type(param_names) == list: #correct format
         pass
     elif type(param_names) == str: #translates to correct format
