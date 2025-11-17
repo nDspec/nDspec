@@ -1079,7 +1079,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         """
         #add complaint if people activate this for freq dependency
         self.renorm_modulus = switch
-        if self. renorm_modulus is True:
+        if self.renorm_modulus is True:
             #if we choose to renormalize the modulus, we need to modify the model 
             #definition and its parameters to include the modulus renormalization 
             #factors 

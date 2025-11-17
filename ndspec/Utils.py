@@ -250,4 +250,4 @@ def share_params(first_fitobj,second_fitobj,param_names=None):
         #find parameter name in first fit objects models
         second_fitobj.model_params[name] = first_fitobj.model_params[name]
         
-    return second_fitobj
+    return
