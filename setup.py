@@ -17,7 +17,8 @@ requirements = ['astropy>=5.0.2',
                 'matplotlib>=3.5.1',
                 'numpy>=1.24',
                 'scipy>=1.10',
-                'stingray']
+                'stingray',
+                'pyfftw']
 
 test_requirements = [ ]
 

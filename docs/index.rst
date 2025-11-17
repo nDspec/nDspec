@@ -31,7 +31,7 @@ Data fitting tutorials:
     fit_spec
     fit_cross_1d
     fit_cross_2d
-    joint_inference
+    fit_joint
 
 nDspec core functionality:
 

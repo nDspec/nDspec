@@ -444,7 +444,7 @@ class JointFit():
         #the object passed contains the same parameters?
         if type(params) != lmfit.Parameters:  
             raise AttributeError("The parameters input must be an LMFit Parameters object")
-        #updates the individually linked parameters rather than overwrites them.
+        #updates the individually linked parameters rather than overwriting them.
         for par in self.model_params:
             self.model_params[par] = params[par]
             for key in self.joint:

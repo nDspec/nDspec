@@ -48,11 +48,15 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         An array containing the uncertainty on the data to be fitted. It is also 
         stored as a one-dimensional array regardless of the type or dimensionality 
         of the initial data.       
+        
+    noise: np.array(float) or None
+        If loaded, an array containing the background spectrum, including only 
+        the channels noticed in the fit.
 
-    _data_unmasked, _data_err_unmasked: np.array(float)
-        The arrays of every data bin and its error, regardless of which ones are
-        ignored or noticed during the fit. Used exclusively to enable book 
-        keeping internal to the fitter class.        
+    _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
+        The arrays of every data bin, its error and (if loaded) the backgruond, 
+        regardless of which ones are ignored or noticed during the fit.
+        Used exclusively to enable book keeping internal to the fitter class.        
     
     Attributes inherited from EnergyDependentFit:
     ---------------------------------------------    
@@ -66,6 +70,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
                
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
         channels,  as stored in the instrument response provided. Only contains 
@@ -98,12 +107,12 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     response: nDspec.ResponseMatrix
         The instrument response matrix corresponding to the spectrum to be 
         fitted. It is required to define the energy grids over which model and
-        data are defined.   
+        data are defined. 
     """ 
     
     def __init__(self):
         SimpleFit.__init__(self)
-        self.response = None
+        self.response = None    
         pass
 
     def set_data(self,response,data,background=None):

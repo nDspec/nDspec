@@ -1,4 +1,5 @@
 import numpy as np
+import warnings
 
 from lmfit import fit_report, minimize 
 

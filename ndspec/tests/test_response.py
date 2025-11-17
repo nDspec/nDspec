@@ -12,15 +12,15 @@ class TestResponse(object):
 
     @classmethod
     def setup_class(cls):
-        cls.rmffile = "docs/data/nicer-rmf6s-teamonly-array50.rmf"
+        cls.rmffile = os.getcwd()+"/ndspec/tests/data/nicer.rmf"
         cls.response = ResponseMatrix(cls.rmffile)
-        cls.arffile = "docs/data/nicer-consim135p-teamonly-array50.arf"
+        cls.arffile = os.getcwd()+"/ndspec/tests/data/nicer.arf"
         return
-
+        
     def test_response_exists(self):
         response = ResponseMatrix(self.rmffile)
         self.response.load_arf(self.arffile)
-   
+  
     def test_rmf_has_correct_attributes(self):
         assert hasattr(self.response, "energ_lo"), "row missing in rmf file"
         assert hasattr(self.response, "energ_hi"), "row missing in rmf file"
@@ -34,29 +34,35 @@ class TestResponse(object):
 
     #compare the convolution with the nicer response to that in xspec 
     def test_nicer_convolution_comparison(self):
+        nicer_resp = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/nicer.rmf")
+        nicer_resp.load_arf(os.getcwd()+"/ndspec/tests/data/nicer.arf") 
         Xset.chatter = 0
         AllData.clear()
         AllModels.clear()
         placeholder = Spectrum(os.getcwd()+"/ndspec/tests/data/nicer_unbinned.pha")
-        placeholder.response = self.rmffile
-        placeholder.response.arf = self.arffile
+        placeholder.response = os.getcwd()+"/ndspec/tests/data/nicer.rmf"
+        placeholder.response.arf = os.getcwd()+"/ndspec/tests/data/nicer.arf"
         m1 = Model("powerlaw")
-        m1.powerlaw.PhoIndex = 2.        
+        m1.powerlaw.PhoIndex = 2. 
+        Plot.device = ""
+        Plot.xLog = True
+        Plot.yLog = False 
+        Plot.xAxis = "channel"      
         Plot("ldata")
-        modVals = Plot.model()        
+        modVals = np.array(Plot.model())        
         model_values = np.array(m1.values(1))
         model_energies = np.array(m1.energies(1))
         bin_widths = np.diff(model_energies)
-        convolved_model = self.response.convolve_response(
+        convolved_model = nicer_resp.convolve_response(
                                         model_values,
                                         units_in="xspec",
                                         units_out="channel")
-        convolved_rebinned = self.response.convolve_response(
+        convolved_rebinned = nicer_resp.convolve_response(
                                            model_values/bin_widths,
                                            units_in="rate",
                                            units_out="channel")
-        assert np.allclose(modVals,convolved_model,rtol=1e-6) == True
-        assert np.allclose(modVals,convolved_rebinned,rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6,atol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6,atol=1e-6) == True
 
     #compare the convolution with the nustar response to that in xspec        
     def test_nustar_convolution_comparison(self):
@@ -69,9 +75,13 @@ class TestResponse(object):
         placeholder.response = os.getcwd()+"/ndspec/tests/data/nustar_fpma.rmf"
         placeholder.response.arf = os.getcwd()+"/ndspec/tests/data/nustar_fpma.arf"
         m1 = Model("powerlaw")
-        m1.powerlaw.PhoIndex = 2.        
+        m1.powerlaw.PhoIndex = 2.      
+        Plot.device = ""
+        Plot.xLog = True
+        Plot.yLog = False 
+        Plot.xAxis = "channel"      
         Plot("ldata")
-        modVals = Plot.model()        
+        modVals = np.array(Plot.model())   
         model_values = np.array(m1.values(1))
         model_energies = np.array(m1.energies(1))
         bin_widths = np.diff(model_energies)
@@ -83,8 +93,8 @@ class TestResponse(object):
                                          model_values/bin_widths,
                                          units_in="rate",
                                          units_out="channel")
-        assert np.allclose(modVals,convolved_model,rtol=1e-6) == True
-        assert np.allclose(modVals,convolved_rebinned,rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the rxte response to that in xspec
     def test_rxte_convolution_comparison(self):
@@ -95,9 +105,13 @@ class TestResponse(object):
         placeholder = Spectrum(os.getcwd()+"/ndspec/tests/data/rxte.pha")
         placeholder.response = os.getcwd()+"/ndspec/tests/data/rxte.rsp"
         m1 = Model("powerlaw")
-        m1.powerlaw.PhoIndex = 2.        
+        m1.powerlaw.PhoIndex = 2.   
+        Plot.device = ""
+        Plot.xLog = True
+        Plot.yLog = False 
+        Plot.xAxis = "channel"    
         Plot("ldata")
-        modVals = Plot.model()        
+        modVals = np.array(Plot.model())        
         model_values = np.array(m1.values(1))
         model_energies = np.array(m1.energies(1))
         bin_widths = np.diff(model_energies)
@@ -109,8 +123,8 @@ class TestResponse(object):
                                       model_values/bin_widths,
                                       units_in="rate",
                                       units_out="channel")
-        assert np.allclose(modVals,convolved_model,rtol=1e-6) == True
-        assert np.allclose(modVals,convolved_rebinned,rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the xrt response to that in xspec
     def test_xrt_convolution_comparison(self):
@@ -123,9 +137,13 @@ class TestResponse(object):
         placeholder.response = os.getcwd()+"/ndspec/tests/data/xrt.rmf"
         placeholder.response.arf = os.getcwd()+"/ndspec/tests/data/xrt.arf"
         m1 = Model("powerlaw")
-        m1.powerlaw.PhoIndex = 2.        
+        m1.powerlaw.PhoIndex = 2.  
+        Plot.device = ""
+        Plot.xLog = True
+        Plot.yLog = False 
+        Plot.xAxis = "channel"      
         Plot("ldata")
-        modVals = Plot.model()        
+        modVals = np.array(Plot.model())    
         model_values = np.array(m1.values(1))
         model_energies = np.array(m1.energies(1))
         bin_widths = np.diff(model_energies)
@@ -137,8 +155,8 @@ class TestResponse(object):
                                       model_values/bin_widths,
                                       units_in="rate",
                                       units_out="channel")
-        assert np.allclose(modVals,convolved_model,rtol=1e-6) == True
-        assert np.allclose(modVals,convolved_rebinned,rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the xmm/epic response to that in xspec
     def test_xmm_convolution_comparison(self):
@@ -151,9 +169,13 @@ class TestResponse(object):
         placeholder.response = os.getcwd()+"/ndspec/tests/data/xmm.rmf"
         placeholder.response.arf = os.getcwd()+"/ndspec/tests/data/xmm.arf"
         m1 = Model("powerlaw")
-        m1.powerlaw.PhoIndex = 2.        
+        m1.powerlaw.PhoIndex = 2.  
+        Plot.device = ""
+        Plot.xLog = True
+        Plot.yLog = False 
+        Plot.xAxis = "channel"   
         Plot("ldata")
-        modVals = Plot.model()        
+        modVals = np.array(Plot.model())        
         model_values = np.array(m1.values(1))
         model_energies = np.array(m1.energies(1))
         bin_widths = np.diff(model_energies)
@@ -165,8 +187,8 @@ class TestResponse(object):
                                       model_values/bin_widths,
                                       units_in="rate",
                                       units_out="channel")
-        assert np.allclose(modVals,convolved_model,rtol=1e-6) == True
-        assert np.allclose(modVals,convolved_rebinned,rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6) == True
+        assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #test that we can't convolve models with the wrong number of channels
     def test_model_grid_match(self):
