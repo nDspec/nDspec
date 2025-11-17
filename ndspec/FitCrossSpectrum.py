@@ -770,6 +770,39 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                      freqs=self.freqs,times=self._times)
         #store the model in the cross spectrum, depending on the type
         #transposing is required to ensure the units are correct 
+        crossspec = self._to_cross_spec(model_eval)
+            
+        #fold the instrument response:
+        if fold is True:
+            model_eval = self.response.convolve_response(crossspec,
+                                                          units_in="rate",
+                                                          units_out="channel")
+        else:
+            model_eval = crossspec 
+            
+        #return the appropriately structured products
+        model = self._return_dependent_model(model_eval,params)
+
+        if mask is True:
+            model = self._filter_2d_by_mask(model)
+        return model
+    
+    def _to_cross_spec(self,model_eval):
+        """
+        This method converts the model evaluation results into the cross spectrum format
+        and sets the cross spectrum attribute appropriately. Returns the cross-spectrum
+        result.
+
+        Parameters:
+        -----------
+        model_eval: np.array(float)
+            The model evaluation results to convert into the cross spectrum format.
+
+        Returns:
+        --------
+        crossspec: CrossSpectrum
+            The cross spectrum object containing the converted model evaluation results.
+        """
         if self.model_type == "irf":
             self.crossspec.cross_from_irf(signal=np.transpose(model_eval),
                                           ref_bounds=self.ref_band)
@@ -780,25 +813,22 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.crossspec.cross = np.transpose(model_eval)
         else:
             raise AttributeError("Model type not supported")
-            
-        #fold the instrument response:
-        if fold is True:
-            model_eval = self.response.convolve_response(self.crossspec,
-                                                         units_in="rate",
-                                                         units_out="channel")
-        else:
-            model_eval = self.crossspec 
-            
-        #return the appropriately structured products
+        
+        return self.crossspec
+    
+    def _return_dependent_model(self,model_eval,params=None):
+        """
+        This method returns the appropriately structured
+        products based on the energy or frequency dependence
+        of the model.
+        """
         if self.dependence == "frequency":
             model = self._freq_dependent_model(model_eval)
         elif self.dependence == "energy":
             model = self._energ_dependent_model(model_eval,params)
         else:
             raise AttributeError("Product dependency not supported")
-
-        if mask is True:
-            model = self._filter_2d_by_mask(model)
+        
         return model
     
     def set_background(self,bkg_file_path):
@@ -975,7 +1005,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             raise AttributeError("Incorrect model units, set lags, cartesian or polar")                  
         return model
 
-    def renorm_phases(self,value):
+    def renorm_phases(self,switch):
         """
         Setter method to enable the phase renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -988,13 +1018,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
+        switch: bool 
             A boolean to track whether phase renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency        
-        self.renorm_phase = value
+        self.renorm_phase = switch
         if self.renorm_phase is True:
             #if we choose to renormalize the phase, we need to modify the model 
             #definition and its parameters to include the phase renormalization 
@@ -1030,7 +1060,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     
         return array + renorm
 
-    def renorm_mods(self,value):
+    def renorm_mods(self,switch):
         """
         Setter method to enable the modulus renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -1042,14 +1072,14 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
-            A boolean to track whether phase renormalization is enabled or not.
+        switch: bool 
+            A boolean to track whether modulus renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency
-        self.renorm_modulus = value
-        if self. renorm_modulus is True:
+        self.renorm_modulus = switch
+        if self.renorm_modulus is True:
             #if we choose to renormalize the modulus, we need to modify the model 
             #definition and its parameters to include the modulus renormalization 
             #factors 

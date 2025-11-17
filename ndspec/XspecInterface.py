@@ -324,6 +324,7 @@ class FortranInterface(ModelInterface):
                         photar.ctypes.data_as(ct.POINTER(ct.c_float)),
                         photer.ctypes.data_as(ct.POINTER(ct.c_float))
                     )
+                    photar = photar/np.diff(ear)
                 return photar*params[-1]
         elif self.models_info[func_name]['type'] == "mul":        
             @wraps(func)

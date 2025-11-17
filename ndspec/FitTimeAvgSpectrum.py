@@ -182,7 +182,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         EnergyDependentFit.__init__(self)  
         return
 
-    def eval_model(self,params=None,energ=None,ear=None,fold=True,mask=True):    
+    def eval_model(self,params=None,ear=None,fold=True,mask=True):    
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters,  over a given model energy grid. By default it  
@@ -195,18 +195,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         params: lmfit.Parameters, default None
             The parameter values to use in evaluating the model. If none are 
             provided, the model_params attribute is used.
-            
-        energ: np.array(float), default None
-            The array of photon energy bin centers over which to evalute the 
-            model. If none are provided, the same grid contained in the 
-            instrument response is used. Only one between energ and ear (below)
-            should be passed. 
-            
+
         ear: np.array(float), default None
             The array of photon energy bin edges over which to evaluate the  
             model. If none are provided, the same grid contained in the 
-            instrument response is used. Only one between energ and ear (above)
-            should be passed. 
+            instrument response is used. 
             
         fold: bool, default True
             A boolean switch to choose whether to fold the evaluated model 
@@ -225,15 +218,14 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             The model evaluated over the given energy grid, for the given input 
             parameters.  
         """    
-
-        if energ is None:
-            energ = self.energs
-            energ_bounds = self.energ_bounds
-        else:
-            energ_bounds = np.diff(energ)
             
         if ear is None:
             ear = self.ear
+            energ = self.energs 
+            energ_bounds = self.energ_bounds
+        else:
+            energ = 0.5*(ear[1:]+ear[:-1])
+            energ_bounds = ear[1:]-ear[:-1]
             
         if params is None:
             params = self.model_params
@@ -407,7 +399,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             not. Only additive model components will display their values 
             correctly. 
             
-        plot_bkg; str, default="False:
+        plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
 
         params: lmfit.parameters, default=None 
@@ -510,7 +502,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if plot_components is True:
             #we need to allocate a ModelResult object in order to retrieve the components
-            comps = LM_result(model=self.model,params=self.model_params).eval_components(energ=self.energs)
+            comps = LM_result(model=self.model,params=self.model_params).eval_components(energ=self.energs,ear=self.ear)
             for key in comps.keys():
                 comp_folded = self.response.convolve_response(comps[key]*self.energ_bounds)
                 #do it better here

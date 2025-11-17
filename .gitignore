@@ -12,3 +12,5 @@ ndspec/.DS_Store
 powerlaw_tests.ipynb
 
 ndspec.egg-info/
+
+.vscode/
