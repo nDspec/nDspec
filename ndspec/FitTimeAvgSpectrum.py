@@ -145,19 +145,25 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         bounds_lo, bounds_hi, counts, error, exposure, src_backsc = load_pha(data,response)
         self.response = response.rebin_channels(bounds_lo,bounds_hi) 
         EnergyDependentFit.__init__(self)  
+
+        #this loads the spectrum in units of counts/s/keV
+        self.data = counts/exposure/self.ewidths
+        self.data_err = error/exposure/self.ewidths
         
         if background is not None:
-            bounds_bkg_lo, bounds_bkg_hi, bkg_counts, _, _, bkg_backsc = load_pha(background,response)       
+            bounds_bkg_lo, bounds_bkg_hi, bkg_counts, bkg_error, _, bkg_backsc = load_pha(background,response)       
             backfac = src_backsc/bkg_backsc
             self.noise = self.response._rebin_sum(bkg_counts,
+                                                  [bounds_bkg_lo, bounds_bkg_hi],
+                                                  [bounds_lo, bounds_hi])
+            noise_err = self.response._rebin_sum(bkg_error,
                                                   [bounds_bkg_lo, bounds_bkg_hi],
                                                   [bounds_lo, bounds_hi])
             #for imaging instruments, this factor acconuts for cases when the 
             #area of extracted spectra+backgrounds is different. 
             self.noise = self.noise*backfac/exposure/self.ewidths
-        #this loads the spectrum in units of counts/s/keV
-        self.data = counts/exposure/self.ewidths
-        self.data_err = error/exposure/self.ewidths
+            self.data_err = np.sqrt(np.power(self.data_err,2)+self.noise)
+
         self._set_unmasked_data()
         return 
     

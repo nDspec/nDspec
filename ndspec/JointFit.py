@@ -213,7 +213,7 @@ class JointFit():
                                                 fold=False,
                                                 mask=False)
             model_interp = interp1d(self.energy_grid["energ"],joint_eval,
-                                    fill_value='extrapolate',kind='quadratic')
+                                    fill_value='extrapolate',kind='linear')
     
         for name in names:
             if name not in self.joint.keys():
@@ -564,7 +564,7 @@ class JointFit():
             i = i+1
             ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
                          xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
-                         fmt='o',alpha=0.1, color=col)
+                         fmt='o',alpha=0.5, color=col)
             
             model = plot_data["model_vals"]        
             #renormalize if necessary 
@@ -593,7 +593,7 @@ class JointFit():
             
             ax2.errorbar(plot_data["x_points"], y_res, 
                          xerr=plot_data["x_bars"], yerr=y_reserr, 
-                         fmt='o',alpha=0.35, color=col)
+                         fmt='o',alpha=0.5, color=col)
         
         if residuals == "delchi":
             ax2.plot(plot_data["x_points"],np.zeros(len(plot_data["x_points"])),
