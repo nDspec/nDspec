@@ -7,6 +7,9 @@ rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
 plt.rcParams.update({'font.size': 17})
 
+import matplotlib.colors as mcolors
+import colorsys
+
 def parse_plot_axes(plot):
     """
     This function is used to parse the contents of a matplotlib plot object. 
@@ -155,6 +158,34 @@ def get_plot_info(plot):
                      ax2_data=ax2_data)
   
     return plot_info
+    
+def darken_colour(color, factor=0.6):
+    """
+    This function darkens an input color by keeping hue and saturation 
+    identical, and changing the value/brightness. 
+    
+    Parameters:
+    -----------
+    color: matplotlib.color 
+        The color to be changed 
+        
+    factor: np.float, [0,1]
+        The amount by which to darken the color 
+        
+    Returns:
+    --------
+    (r,g,b): floats 
+        Values of the new color in rgb coordinates to pass to a matplotlib 
+        plot    
+    """
+    try:
+        rgb = mcolors.to_rgb(color)  # Convert to RGB
+    except ValueError:
+        return color  
+    h, l, s = colorsys.rgb_to_hls(*rgb)
+    l *= factor  # Darken by reducing lightness
+    r, g, b = colorsys.hls_to_rgb(h, l, s)
+    return (r, g, b)
 
 def model_decompose(model):
     """

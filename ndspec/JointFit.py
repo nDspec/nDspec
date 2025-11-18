@@ -13,6 +13,7 @@ from matplotlib import rc, rcParams
 rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
 plt.rcParams.update({'font.size': 17})
+import matplotlib.patheffects as path_effects
 
 from scipy.interpolate import interp1d, RegularGridInterpolator
 
@@ -22,7 +23,7 @@ from lmfit import Parameters as LM_Parameters
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
-from .Utils import get_plot_info
+from .Utils import get_plot_info, darken_colour
 
 class JointFit():
     """
@@ -565,7 +566,7 @@ class JointFit():
             i = i+1
             ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
                          xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
-                         fmt='o',alpha=0.5, color=col)
+                         fmt='o',alpha=0.35, color=col)
             
             model = plot_data["model_vals"]        
             #renormalize if necessary 
@@ -574,7 +575,7 @@ class JointFit():
             ax1.plot(plot_data["x_points"], model,
                      linestyle=plot_data["linestyle"][0],
                      linewidth= plot_data["linewidth"][0],
-                     color=col,zorder=10)
+                     color=darken_colour(col),zorder=10)
             
             ax1.set_xscale("log",base=10)
             ax1.set_yscale("log",base=10)    
