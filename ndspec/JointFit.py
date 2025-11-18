@@ -289,7 +289,8 @@ class JointFit():
                 if self.joint[name].noise is None:
                     resids = (self.joint[name].data-model)/self.joint[name].data_err
                 else:
-                    resids = (self.joint[name].data-self.joint[name].noise-model)/self.joint[name].data_err    
+                    err = np.sqrt(self.joint[name].data_err**2+self.joint[name].noise_err**2)  
+                    resids = (self.joint[name].data-self.joint[name].noise-model)/err   
                 residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals

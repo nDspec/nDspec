@@ -39,6 +39,10 @@ class SimpleFit():
     noise: np.array(float) or None
         If loaded, an array containing the background spectrum, including only 
         the channels noticed in the fit.
+        
+    noise_err: np.array(float or None) 
+        If loaded, an array containing the sqrt of the background counts, only 
+        in the channels noticed during the fit. Used to compute the fit statistic.
 
     _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
         The arrays of every data bin, its error and (if loaded) the backgruond, 
@@ -54,6 +58,7 @@ class SimpleFit():
         self.data = None
         self.data_err = None
         self.noise = None 
+        self.noise_err = None 
     pass
 
     def _set_unmasked_data(self):
@@ -70,6 +75,7 @@ class SimpleFit():
         #data
         if self.noise is not None:
             self._noise_unmasked = self.noise
+            self._noise_err_unmasked = self.noise_err
 
         if isinstance(self,EnergyDependentFit) is True:
             self._emin_unmasked = self.response.emin
@@ -209,18 +215,20 @@ class SimpleFit():
 
         if self.noise is None:
             noise = np.zeroes(len(data))
+            noise_err = np.zeroes(len(data))
         else:
             noise = self.noise
+            noise_err = self.noise_err
 
         if model is None:
             model = self.eval_model()
       
         if mask is True:
             data = self.data - noise 
-            error = self.data_err
+            error = np.sqrt(self.data_err**2+noise_err**2)
         elif mask is False:
             data = self._data_unmasked - self._noise_unmasked
-            error = self._data_err_unmasked
+            error = np.sqrt(self._data_err_unmasked**2+self._noise_err_unmasked**2)
 
         if res_type == "ratio":
             residuals = (data)/model
@@ -427,7 +435,8 @@ class EnergyDependentFit():
             self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)    
             #if we have a background we need to mask that too 
             if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)      
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
+                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)       
         return
    
     def notice_energies(self,bound_lo,bound_hi):

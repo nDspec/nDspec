@@ -52,6 +52,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     noise: np.array(float) or None
         If loaded, an array containing the background spectrum, including only 
         the channels noticed in the fit.
+        
+    noise_err: np.array(float or None) 
+        If loaded, an array containing the sqrt of the background counts, only 
+        in the channels noticed during the fit. Used to compute the fit statistic.
 
     _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
         The arrays of every data bin, its error and (if loaded) the backgruond, 
@@ -156,13 +160,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             self.noise = self.response._rebin_sum(bkg_counts,
                                                   [bounds_bkg_lo, bounds_bkg_hi],
                                                   [bounds_lo, bounds_hi])
-            noise_err = self.response._rebin_sum(bkg_error,
-                                                  [bounds_bkg_lo, bounds_bkg_hi],
-                                                  [bounds_lo, bounds_hi])
             #for imaging instruments, this factor acconuts for cases when the 
             #area of extracted spectra+backgrounds is different. 
             self.noise = self.noise*backfac/exposure/self.ewidths
-            self.data_err = np.sqrt(np.power(self.data_err,2)+self.noise)
+            self.noise_err = np.sqrt(self.noise)
 
         self._set_unmasked_data()
         return 
@@ -271,7 +272,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             if self.noise is None:
                 residuals = (self.data-model)/self.data_err
             else:
-                residuals = (self.data-self.noise-model)/self.data_err
+                err = np.sqrt(np.power(self.data_err,2)+np.power(self.noise_err,2))
+                residuals = (self.data-self.noise-model)/err
         else:
             raise AttributeError("custom likelihood not implemented yet")
         return residuals
