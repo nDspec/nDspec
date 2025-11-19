@@ -292,20 +292,18 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             #== ts*mi from the xspec docs which simplifies things
             #first we calculate the factor fi in the xspec docs
             cstat_res = np.zeros(self.n_chans)
-
-            test_sign = 2.*model - data - noise 
-            #define the bkg model - fi in the xspec docs
-            d_factor = np.sqrt(np.power(test_sign,2.)+8.*model*noise)    
             bkg_num = np.zeros(self.n_chans)
             bkg_den = np.zeros(self.n_chans)
             
-            mask = (test_sign>=0)            
+            test_sign = 2.*model - data - noise 
+            #define the bkg model - fi in the xspec docs
+            d_factor = np.sqrt(np.power(test_sign,2.)+8.*model*noise)   
             
+            mask = (test_sign>=0)        
             bkg_num[mask] = 2.*noise[mask]*model[mask]/(self.exposure)
             bkg_den[mask] = test_sign[mask] + d_factor[mask]    
             bkg_num[~mask] = d_factor[~mask] - test_sign[~mask] 
-            bkg_den[~mask] = 2.*self.exposure                
-            
+            bkg_den[~mask] = 2.*self.exposure             
             bkg_model = bkg_num/bkg_den*self.exposure 
             
             #handle the special cases of data being 0
