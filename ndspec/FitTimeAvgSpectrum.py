@@ -112,6 +112,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         The instrument response matrix corresponding to the spectrum to be 
         fitted. It is required to define the energy grids over which model and
         data are defined. 
+        
+    exposure: np.float 
+        The exposure time of the observation. Only used for calculating 
+        Poisson-type likelihoods.
     """ 
     
     def __init__(self):
@@ -153,6 +157,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #this loads the spectrum in units of counts/s/keV
         self.data = counts/exposure/self.ewidths
         self.data_err = error/exposure/self.ewidths
+        self.exposure = exposure
         
         if background is not None:
             bounds_bkg_lo, bounds_bkg_hi, bkg_counts, bkg_error, _, bkg_backsc = load_pha(background,response)       
@@ -246,6 +251,95 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             model = np.extract(self.ebounds_mask,model)            
 
         return model
+
+    def cstat_resids(self,res_type,model=None,mask=True):
+        """
+        Calculate the residuals for the cstat statistic in xspec. Summing over 
+        the returned array gives you the fit statistic. Note that if you are 
+        including a background, the calculation here for simplicity assumes that 
+        the exposure times for the background and source spectra are identical.
+        """
+        
+        if model is None:
+            model = self.eval_model(mask=mask)
+        
+        #fix the factor needed to convert to integrated counts, then calculate 
+        #the data+bkg (if present) in integrated counts  
+        if (mask is True and self.noise is None):
+            conv_factor = self.exposure*self.ewidths
+            data = self.data*conv_factor
+        elif (mask is True and self.noise is not None):
+            conv_factor = self.exposure*self.ewidths
+            data = self.data*conv_factor     
+            noise = self.noise*conv_factor       
+        elif (mask is False and self.noise is None):
+            conv_factor = self.exposure*self._ewidths_unmasked   
+            data = self._data_unmasked*conv_factor   
+        elif (mask is False and self.noise is not None):      
+            conv_factor = self.exposure*self._ewidths_unmasked   
+            data = self._data_unmasked*conv_factor   
+            noise = self._noise_unmasked*conv_factor  
+                       
+        #calculate the model in integrated counts 
+        model = model*conv_factor
+        
+        #calculate the residuals depending on having background or not 
+        if self.noise is None:
+            cstat_res = model - data + data*(np.log(data)-np.log(model))
+        else:
+            #see https://heasarc.gsfc.nasa.gov/docs/software/xspec/manual/node340.html
+            #if the bkg and source exposures are identical, our model array is
+            #== ts*mi from the xspec docs which simplifies things
+            #first we calculate the factor fi in the xspec docs
+            cstat_res = np.zeros(self.n_chans)
+
+            test_sign = 2.*model - data - noise 
+            #define the bkg model - fi in the xspec docs
+            d_factor = np.sqrt(np.power(test_sign,2.)+8.*model*noise)    
+            bkg_num = np.zeros(self.n_chans)
+            bkg_den = np.zeros(self.n_chans)
+            
+            mask = (test_sign>=0)            
+            
+            bkg_num[mask] = 2.*noise[mask]*model[mask]/(self.exposure)
+            bkg_den[mask] = test_sign[mask] + d_factor[mask]    
+            bkg_num[~mask] = d_factor[~mask] - test_sign[~mask] 
+            bkg_den[~mask] = 2.*self.exposure                
+            
+            bkg_model = bkg_num/bkg_den*self.exposure 
+            
+            #handle the special cases of data being 0
+            mask = (data==0)
+            mask_model = model[mask]
+            mask_noise = noise[mask]
+            cstat_res[mask] = mask_model - mask_noise*np.log(0.5)
+
+            #handle the case of noise being 0 and low counts
+            mask = (noise==0) & (test_sign<0)
+            mask_model = model[mask]
+            mask_data = data[mask] 
+            cstat_res[mask] = -mask_model - mask_data*np.log(0.5)
+            
+            #handle the case of noise being 0 and high counts 
+            mask = (noise==0) & (test_sign>=0) 
+            mask_model = model[mask]
+            mask_data = data[mask] 
+            cstat_res[mask] = (mask_model - mask_data +
+                               mask_data*(np.log(mask_data) - np.log(mask_model)))
+           
+            #handle all the normal case
+            mask = (data != 0) & (noise !=0)
+            mask_model = model[mask]
+            mask_data = data[mask]
+            mask_noise = noise[mask]
+            mask_bkg_model = bkg_model[mask]                
+            cstat_res[mask] = (mask_model + 2.*mask_bkg_model - 
+                               mask_data*np.log(mask_model+mask_bkg_model) -
+                               mask_noise*np.log(mask_bkg_model) - 
+                               mask_data*(1.-np.log(mask_data)) - 
+                               mask_noise*(1.-np.log(mask_noise)))
+
+        return 2.*cstat_res
 
     def _minimizer(self,params):
         """

@@ -214,14 +214,14 @@ class SimpleFit():
         """
 
         if self.noise is None:
-            noise = np.zeroes(len(data))
-            noise_err = np.zeroes(len(data))
+            noise = np.zeros(self.n_chans)
+            noise_err = np.zeros(self.n_chans)
         else:
             noise = self.noise
             noise_err = self.noise_err
 
         if model is None:
-            model = self.eval_model()
+            model = self.eval_model(mask=mask)
       
         if mask is True:
             data = self.data - noise 
@@ -235,7 +235,7 @@ class SimpleFit():
             bars = error/model
         elif res_type == "delchi":
             residuals = (data-model)/error
-            bars = np.ones(len(data))
+            bars = np.ones(self.n_chans)
         else:
             raise ValueError("The only supported residual types are ratio and delta chi")
             
