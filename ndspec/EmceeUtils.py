@@ -10,6 +10,8 @@ from matplotlib.colors import TwoSlopeNorm
 
 from .JointFit import JointFit
 from .SimpleFit import SimpleFit
+from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
+from .Likelihoods import cstat 
 
 rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
@@ -22,6 +24,10 @@ emcee_priors = None
 emcee_data = None 
 emcee_data_err = None
 emcee_model = None 
+emcee_noise = None
+emcee_noise_err = None
+emcee_exp = None
+emcee_bins = None
 
 def set_emcee_priors(fitobj,priors):
     """
@@ -80,7 +86,9 @@ def set_emcee_data(fitobj):
     This function is used to set the data and its error to be used with emcee 
     sampling. These are saved in global variables called emcee_data and 
     emcee_data_err; therefore, users should never re-use the variable names 
-    emcee_data and emcee_data_err in their code.
+    emcee_data and emcee_data_err in their code. If the fitter object includes 
+    noise (e.g. a background spectrum) and exposure times, these are included as
+    well. 
     
     Parameters:
     -----------
@@ -90,20 +98,48 @@ def set_emcee_data(fitobj):
     
     global emcee_data
     global emcee_data_err
+    global emcee_noise 
+    global emcee_noise_err
+    global emcee_exp
+    global emcee_bins 
+ 
     if type(fitobj) == JointFit:
         emcee_data = np.array([])
         emcee_data_err = np.array([])
+        emcee_noise = np.array([])
+        emcee_noise_err = np.array([])
+        emcee_exp = np.array([])
+        emcee_bins = np.array([])
         for obs in fitobj.joint:
             if type(fitobj.joint[obs]) == list:
                 for m in fitobj.joint[obs]:
                     emcee_data = np.concat([emcee_data,m.data])
                     emcee_data_err = np.concat([emcee_data_err,m.data_err])
+                    if m.noise is not None:
+                        emcee_noise = np.concat([emcee_noise,m.noise])
+                        emcee_noise_err = np.concat([emcee_noise_err,m.noise_err])
+                    if m.likelihood == "cash":
+                        emcee_exp = np.concat([emcee_exp,m.exposure])
+                        emcee_bins = np.concat([emcee_bins,m.ewidths])
             else:
                 emcee_data = np.concat([emcee_data,fitobj.joint[obs].data])
                 emcee_data_err = np.concat([emcee_data_err,fitobj.joint[obs].data_err])
+                if fitobj.joint[obs].noise is not None:
+                    emcee_noise = np.concat([emcee_noise,fitobj.joint[obs].noise])
+                    emcee_noise_err = np.concat([emcee_noise_err,fitobj.joint[obs].noise_err])
+                if fitobj.joint[obs].likelihood == "cash":
+                    emcee_exp = np.concat([emcee_exp,fitobj.joint[obs].exposure])
+                    emcee_bins = np.concat([emcee_bins,fitobj.joint[obs].ewidths])
     else:
         emcee_data = fitobj.data 
         emcee_data_err = fitobj.data_err
+        if fitobj.noise is not None:
+            emcee_noise = fitobj.noise
+            emcee_noise_err = fitobj.noise_err
+        if fitobj.likelihood == "cash":
+            emcee_exp = fitobj.exposure
+            emcee_bins = fitobj.ewidths
+            
     return
 
 def set_emcee_parameters(params):
@@ -360,6 +396,29 @@ def log_priors(theta, prior_dict):
         logprior = logprior + obj.logprob(val) 
     return logprior
 
+def cash_likelihood(theta):
+    "wip cash likelihood, (sometimes) maybe good (sometimes) maybe shit"
+    global emcee_priors
+    global emcee_names 
+    global emcee_params
+    global emcee_data
+    global emcee_data_err
+    global emcee_model 
+    global emcee_noise
+    global emcee_noise_err
+    global emcee_exp
+    global emcee_bins
+
+    logpriors = log_priors(theta, emcee_priors)
+    if not np.isfinite(logpriors):
+        return -np.inf        
+    for name, val in zip(emcee_names, theta):
+        emcee_params[name].value = val    
+    model = emcee_model(params=emcee_params)    
+    residual = cstat(emcee_data,model,emcee_exp,emcee_bins,emcee_noise)
+    statistic = -0.5*np.sum(residual)
+    likelihood = statistic + logpriors
+    return likelihood
     
 def gaussian_likelihood(theta):
     """

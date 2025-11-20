@@ -297,7 +297,15 @@ class SimpleFit():
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm)
-        print(fit_report(self.fit_result,show_correl=False))
+        
+        #tbd: remove this crap down here and instead update print_fit_stat
+        if self.likelihood is None:
+            print(fit_report(self.fit_result,show_correl=False))
+        elif self.likelihood == 'cash':
+            print("Fit results summary:")
+            print("Best-fit statistic:", np.sum(self.fit_result.residual))
+            print("Everything else is WIP")
+        
         fit_params = self.fit_result.params
         self.set_params(fit_params)
         return
