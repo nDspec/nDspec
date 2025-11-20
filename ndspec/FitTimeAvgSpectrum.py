@@ -306,26 +306,26 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             bkg_den[~mask] = 2.*self.exposure             
             bkg_model = bkg_num/bkg_den*self.exposure 
             
-            #handle the special cases of data being 0
+            #handle the exception of data being 0
             mask = (data==0)
             mask_model = model[mask]
             mask_noise = noise[mask]
             cstat_res[mask] = mask_model - mask_noise*np.log(0.5)
 
-            #handle the case of noise being 0 and low counts
+            #handle the exceptionof noise being 0 and low counts
             mask = (noise==0) & (test_sign<0)
             mask_model = model[mask]
             mask_data = data[mask] 
             cstat_res[mask] = -mask_model - mask_data*np.log(0.5)
             
-            #handle the case of noise being 0 and high counts 
+            #handle the exception of noise being 0 and high counts 
             mask = (noise==0) & (test_sign>=0) 
             mask_model = model[mask]
             mask_data = data[mask] 
             cstat_res[mask] = (mask_model - mask_data +
                                mask_data*(np.log(mask_data) - np.log(mask_model)))
            
-            #handle all the normal case
+            #handle the bins without exceptions
             mask = (data != 0) & (noise !=0)
             mask_model = model[mask]
             mask_data = data[mask]

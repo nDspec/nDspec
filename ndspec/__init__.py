@@ -3,7 +3,7 @@ from . import FitCrossSpectrum
 from . import FitPowerSpectrum
 from . import FitTimeAvgSpectrum
 from . import JointFit
-from . import models
+from . import Models
 from . import Operator
 from . import Response
 from . import SimpleFit
