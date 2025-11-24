@@ -1,6 +1,6 @@
 import numpy as np
 
-def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
+def delchi(data,err,model,noise=None,noise_err=None,summed=False):
     """
     This function is used to calculate the traditional chi-squared statistic 
     drawn from Gaussian-distributed data. It also accounts for a background/noise 
@@ -27,9 +27,9 @@ def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
         The optional background uncertainty values to be added in quadrature to 
         the error on the data. If it is not specified, no uncertainty is added.
         
-    residuals: bool, default False 
-        A boolean to either return the summed statistic (False) or an array with 
-        the contribution of each bin to the total statistic (True)
+    summed: bool, default False 
+        A boolean to either return the summed statistic (True) or an array with 
+        the contribution of each bin to the total statistic (False)
         
     Returns:
     --------
@@ -50,10 +50,10 @@ def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
     else:
         delchi = (data-model)/err
     
-    if residuals is True:
-        return delchi  
-    else:
+    if summed is True:
         return np.sum(delchi)
+    else:
+        return delchi
     
 def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     """
@@ -116,7 +116,7 @@ def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     else: 
         return ratio
 
-def cstat(data,model,exp,widths,noise=None,residuals=False):
+def cstat(data,model,exp,widths,noise=None,summed=False):
     """
     This function calculates the Cash statistic (Cash 1979, DOI: 10.1086/156922)
     for Poisson-distributed count data (typically, a time-averaged X-ray 
@@ -153,9 +153,9 @@ def cstat(data,model,exp,widths,noise=None,residuals=False):
         thiis MUST be provided in units of counts/s/keV (e.g., identical to the 
         array stored in a ndspec FitTimeAvgSpectrum object).
         
-    residuals: bool, default False 
-        A boolean to either return the summed statistic (False) or an array with 
-        the contribution of each bin to the total statistic (True)
+    summed: bool, default False 
+        A boolean to either return the summed statistic (True) or an array with 
+        the contribution of each bin to the total statistic (False)
     
     Returns:
     --------
@@ -226,7 +226,7 @@ def cstat(data,model,exp,widths,noise=None,residuals=False):
                        mask_data*(1.-np.log(mask_data)) - 
                        mask_noise*(1.-np.log(mask_noise)))
     
-    if residuals is False:
-        return np.sum(2.*cstat)    
-    elif residuals is True:
+    if summed is True:
+        return 2.*np.sum(cstat)
+    else:
         return 2.*cstat

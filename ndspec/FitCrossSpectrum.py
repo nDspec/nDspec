@@ -1139,7 +1139,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         if self.likelihood == "chisq":
             model = self.eval_model(params)
             residuals = delchi(self.data,self.data_err,model,
-                               residuals=True)
+                               summed=False)
         else:
             raise AttributeError("Likelihood type not supported")
         

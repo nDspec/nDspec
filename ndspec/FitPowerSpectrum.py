@@ -181,7 +181,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         if self.likelihood == "chisq":
             model = self.model.eval(params,freq=self.freqs)
             residuals = delchi(self.data,self.data_err,model,
-                               residuals=True)
+                               summed=False)
         else:
             raise AttributeError("Likelihood type not supported")
             

@@ -228,10 +228,10 @@ class SimpleFit():
         #separate the case of cash vs non cash statistic because in the former 
         #case subtracting/accounting for the background is not straightforward
         #and is taken care of within the cstat function call 
-        if (mask is True and res_type is not "delcash"):
+        if (mask is True and res_type != "delcash"):
             data = self.data - noise 
             error = np.sqrt(self.data_err**2+noise_err**2)
-        elif (mask is False and res_type is not "delcash"):
+        elif (mask is False and res_type != "delcash"):
             data = self._data_unmasked - self._noise_unmasked
             error = np.sqrt(self._data_err_unmasked**2+self._noise_err_unmasked**2)
         elif mask is True:
@@ -239,16 +239,15 @@ class SimpleFit():
         elif mask is False:
             data = self._data_unmasked
 
-        print("get_residuals method",res_type)
         if res_type == "ratio":
             residuals, bars = ratio(data,error,model,summed=False)
         elif res_type == "delchi":
-            residuals = delchi(data,error,model,residuals=True)
+            residuals = delchi(data,error,model,summed=False)
             bars = np.ones(len(self.data))
         elif res_type == "delcash":
             exp = self.exposure 
             bins = self.ewidths
-            residuals = cstat(data,model,exp,bins,noise=noise,residuals=True)
+            residuals = cstat(data,model,exp,bins,noise=noise,summed=False)
             bars = np.ones(len(self.data))
         else:
             raise ValueError("The supported residual types are ratio, delta chi, and delta cash")
@@ -263,37 +262,32 @@ class SimpleFit():
         number of data bins, free parameters and degrees of freedom. 
         """
         
-        if self.likelihood == "chisqr":
-            res, err = self.get_residuals("delchi")
-            chi_squared = np.sum(np.power(res.reshape(len(self.data)),2))
-            freepars = 0
-            for key, value in self.model_params.items():
-                param = self.model_params[key]
-                if param.vary is True:
-                    freepars += 1
-            dof = len(self.data) - freepars
-            reduced_chisquared = chi_squared/dof
-            print("Goodness of fit metrics:")
-            print("Chi squared" + "{0: <13}".format(" ") + str(chi_squared))
-            print("Reduced chi squared" + "{0: <5}".format(" ") + str(reduced_chisquared))
-            print("Data bins:" + "{0: <14}".format(" ") + str(len(self.data)))
-            print("Free parameters:" + "{0: <8}".format(" ") + str(freepars))
-            print("Degrees of freedom:" + "{0: <5}".format(" ") + str(dof))
-        else:
-            print("custom likelihood not supported yet")
-            
-        '''
-        add("[[Fit Statistics]]")
-        add(f"    # fitting method   = {result.method}")
-        add(f"    # function evals   = {getfloat_attr(result, 'nfev')}")
-        add(f"    # data points      = {getfloat_attr(result, 'ndata')}")
-        add(f"    # variables        = {getfloat_attr(result, 'nvarys')}")
-        add(f"    chi-square         = {getfloat_attr(result, 'chisqr')}")
-        add(f"    reduced chi-square = {getfloat_attr(result, 'redchi')}")
-        add(f"    Akaike info crit   = {getfloat_attr(result, 'aic')}")
-        add(f"    Bayesian info crit = {getfloat_attr(result, 'bic')}")
-        '''
-            
+        if self.likelihood == "chisq":
+            res, _ = self.get_residuals("delchi")
+        elif self.likelihood == "cash":
+            res, _ = self.get_residuals("delcash")
+       
+        freepars = 0
+        for key, value in self.model_params.items():
+            param = self.model_params[key]
+            if param.vary is True:
+                freepars += 1
+        dof = len(self.data) - freepars
+
+        if self.likelihood == "chisq":
+            fit_statistic = np.sum(np.power(res,2))
+        elif self.likelihood == "cash":
+            fit_statistic = np.sum(res)  
+        reduced_stat = fit_statistic/dof
+
+        print("Goodness of fit metrics:")
+        print(f"Fit statistic: {self.likelihood}")
+        print("Fit statistic" + "{0: <11}".format(" ") + str(fit_statistic))
+        print("Reduced fit stat" + "{0: <8}".format(" ") + str(reduced_stat))
+        print("Data bins:" + "{0: <14}".format(" ") + str(len(self.data)))
+        print("Free parameters:" + "{0: <8}".format(" ") + str(freepars))
+        print("Degrees of freedom:" + "{0: <5}".format(" ") + str(dof))         
+
         return 
 
     def fit_data(self,algorithm='leastsq'):
@@ -324,17 +318,11 @@ class SimpleFit():
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm)
-        
-        #tbd: remove this crap down here and instead update print_fit_stat
-        if self.likelihood == 'chisq':
-            print(fit_report(self.fit_result,show_correl=False))
-        elif self.likelihood == 'cash':
-            print("Fit results summary:")
-            print("Best-fit statistic:", np.sum(self.fit_result.residual))
-            print("Everything else is WIP")
-        
         fit_params = self.fit_result.params
         self.set_params(fit_params)
+        
+        self.print_fit_report()
+        self.print_model()
         return
     
     def print_model(self):
@@ -342,24 +330,42 @@ class SimpleFit():
         This method prints out model components, model parameters, and their
         settings.
         """
-        print("Model \n")
         print("-----------------------")
         print(self.model.name)
-        print("\n")
-        print("Parameters \n")
+        print("-----------------------")
+        print("Parameters")
         print("-----------------------")
         self.model_params.pretty_print()
-        print("-----------------------")
+        return
         
     def print_fit_report(self):
         """
         This method prints the current fit result.
         """
         
-        if self.fit_result != None:
-            print(fit_report(self.fit_result,show_correl=False))
-        else:
-            print("No current fit result.")
+        result = self.fit_result
+        print("-----------------------")
+        print("[[Fit Statistics]]")
+        print(f"    # fitting method   = {result.method}")
+        print(f"    # function evals   = {result.nfev}")
+        print(f"    # data points      = {result.ndata}")
+        print(f"    # variables        = {result.nvarys}")
+        if self.likelihood == "chisq":        
+            fit_statistic = result.chisqr 
+            reduced_stat = result.redchi
+        #for the cash statistic, the chisqr/redchi stored in the result object 
+        #is nonesense (since it assumes gaussian statistics etc)
+        elif self.likelihood == "cash":
+            res, _ = self.get_residuals("delcash") 
+            fit_statistic = np.sum(res)  
+            reduced_stat = fit_statistic/(result.ndata-result.nvarys)    
+        print(f"    fit statistic      = {fit_statistic}")
+        print(f"    reduced statistic  = {reduced_stat}")
+        #no idea how to get these two for Cash statistic
+        if self.likelihood == "chisq":
+            print(f"    Akaike info crit   = {result.aic}")
+            print(f"    Bayesian info crit = {result.bic}")
+        return
 
 class EnergyDependentFit():
     """

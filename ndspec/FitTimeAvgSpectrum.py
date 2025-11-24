@@ -295,10 +295,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     
         if self.likelihood == "chisq":
             residuals = delchi(self.data,self.data_err,model,
-                               self.noise,self.noise_err,residuals=True)
+                               self.noise,self.noise_err,summed=False)
         elif self.likelihood == 'cash':
             residuals = cstat(self.data,model,self.exposure,self.ewidths,
-                              self.noise,residuals=True)
+                              self.noise,summed=False)
         else:
             raise AttributeError("Chosen likelihood not implemented yet")
         return residuals
@@ -470,7 +470,6 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             else:
                 residuals = "delchi"
                                      
-        print("start plot",residuals)
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
         
@@ -499,7 +498,6 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #if we're also plotting data, get the data in the same units
         #as well as the residuals
         if plot_data is True:
-            print("plot data",residuals)
             model_res,res_errors = self.get_residuals(residuals)
             if residuals == "delchi":
                 reslabel = "$\\Delta\\chi$"
