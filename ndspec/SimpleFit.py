@@ -53,7 +53,7 @@ class SimpleFit():
     def __init__(self):
         self.model = None
         self.model_params = None
-        self.likelihood = None
+        self.likelihood = "chisq"
         self.fit_result = None
         self.data = None
         self.data_err = None
@@ -214,8 +214,8 @@ class SimpleFit():
         """
 
         if self.noise is None:
-            noise = np.zeros(self.n_chans)
-            noise_err = np.zeros(self.n_chans)
+            noise = np.zeros(len(self.data))
+            noise_err = np.zeros(len(self.data))
         else:
             noise = self.noise
             noise_err = self.noise_err
@@ -235,7 +235,7 @@ class SimpleFit():
             bars = error/model
         elif res_type == "delchi":
             residuals = (data-model)/error
-            bars = np.ones(self.n_chans)
+            bars = np.ones(len(self.data))
         else:
             raise ValueError("The only supported residual types are ratio and delta chi")
             
@@ -299,7 +299,7 @@ class SimpleFit():
                                    method=algorithm)
         
         #tbd: remove this crap down here and instead update print_fit_stat
-        if self.likelihood is None:
+        if self.likelihood == 'chisq':
             print(fit_report(self.fit_result,show_correl=False))
         elif self.likelihood == 'cash':
             print("Fit results summary:")

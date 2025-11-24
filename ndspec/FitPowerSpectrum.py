@@ -10,6 +10,7 @@ plt.rcParams.update({'font.size': 17})
 from lmfit.model import ModelResult as LM_result
 
 from .SimpleFit import SimpleFit, FrequencyDependentFit
+from .Likelihoods import delchi, ratio
 
 class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     """
@@ -177,11 +178,12 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             residuals in each bin.            
         """
         
-        if self.likelihood is None:
+        if self.likelihood == "chisq":
             model = self.model.eval(params,freq=self.freqs)
-            residuals = (self.data-model)/self.data_err
+            residuals = delchi(self.data,self.data_err,model,
+                               residuals=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Likelihood type not supported")
             
         return residuals
     

@@ -11,7 +11,7 @@ from lmfit.model import ModelResult as LM_result
 
 from .Response import ResponseMatrix
 from .SimpleFit import SimpleFit, EnergyDependentFit, load_pha
-from .Likelihoods import cstat
+from .Likelihoods import cstat, delchi, ratio
 
 class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     """
@@ -195,6 +195,24 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         EnergyDependentFit.__init__(self)  
         return
 
+    def set_fit_statistic(self,stat):
+        """
+        This method is used to set the statistic to be optimized during the fit.
+        By default, the optimizer will optimize the chi-squared statistic. 
+        
+        Parameters:
+        -----------
+        stat: str 
+            A string with the name of the fit statistic to be used. Supported 
+            statistics currently are "chisq" (the standard chi squared statistic, 
+            appropriate for data in the Gaussian regime) and "cash" (the Cash 
+            statistic, see https://ui.adsabs.harvard.edu/abs/1979ApJ...228..939C/abstract,
+            appropriate for Poisson-distributed data). 
+        """
+        if (stat != "chisq" and stat != "cash"):
+            raise ValueError("Fit statistic not recognized")
+        self.likelihood = stat 
+
     def eval_model(self,params=None,ear=None,fold=True,mask=True):    
         """
         This method is used to evaluate and return the model values for a given 
@@ -275,12 +293,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         model = self.eval_model(params)
     
-        if self.likelihood is None:
-            if self.noise is None:
-                residuals = (self.data-model)/self.data_err
-            else:
-                err = np.sqrt(np.power(self.data_err,2)+np.power(self.noise_err,2))
-                residuals = (self.data-self.noise-model)/err
+        if self.likelihood == "chisq":
+            residuals = delchi(self.data,self.data_err,model,
+                               self.noise,self.noise_err,residuals=True)
         elif self.likelihood == 'cash':
             residuals = cstat(self.data,model,self.exposure,self.ewidths,
                               self.noise,residuals=True)

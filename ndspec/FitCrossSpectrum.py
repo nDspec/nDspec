@@ -1136,11 +1136,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             residuals in each bin.            
         """
     
-        if self.likelihood is None:
+        if self.likelihood == "chisq":
             model = self.eval_model(params)
-            residuals = (self.data-model)/self.data_err
+            residuals = delchi(self.data,self.data_err,model,
+                               residuals=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Likelihood type not supported")
         
         return residuals
     

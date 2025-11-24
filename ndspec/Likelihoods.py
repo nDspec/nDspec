@@ -1,11 +1,39 @@
 import numpy as np
 from .SimpleFit import SimpleFit as simple
 
-def delchi():
-    return 
+def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
+
+    #check that both noise and noise_err are present, or absent
+    if (noise is None and noise_err is not None):
+        raise ValueError("The background is not defined but its error is")
+    if (noise is not None and noise_err is None):
+        raise ValueError("The background is defined but its error is not")
     
-def ratio():
-    return
+    if noise_err is not None:
+        err = np.sqrt(np.power(err,2)+np.power(noise_err,2))
+        delchi = (data-noise-model)/err
+    else:
+        delchi = (data-model)/err
+    
+    if residuals is False:
+        return np.sum(delchi)    
+    elif residuals is True:
+        return delchi
+    
+def ratio(data,err,model,noise=None,noise_err=None,residuals=True,bars=True):
+
+    if noise is not None:
+        data = data-noise 
+    if noise_err is not None:
+        err = np.sqrt(np.power(err,2)+np.power(noise_err,2))
+
+    ratio = data/model 
+
+    if bars is True:
+        bars = err/model 
+        return ratio, bars
+    else: 
+        return ratio
 
 def cstat(data,model,exp,widths,noise=None,residuals=False):
        
