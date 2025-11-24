@@ -401,7 +401,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             return 
 
     def plot_model(self,plot_data=True,plot_components=False,plot_bkg=False,
-                   params=None,units="data",residuals="delchi",return_plot=False):
+                   params=None,units="data",residuals=None,return_plot=False):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
@@ -448,10 +448,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             For instance, units="eeunfold" plots units of kev^2 counts/s/keV/cm^2,
             i.e. units of nuFnu. 
             
-        residuals: str, default="delchi"
+        residuals: str, default=None
             The units to use for the residuals. If residuals="delchi", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model; if residuals "delcash", the 
+            plot shows the contribution of each bin to the Cash statistic. 
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -461,8 +462,15 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
-        """           
+        """        
+        
+        if residuals is None:
+            if self.likelihood == "cash":
+                residuals = "delcash"   
+            else:
+                residuals = "delchi"
                                      
+        print("start plot",residuals)
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
         
@@ -491,11 +499,14 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #if we're also plotting data, get the data in the same units
         #as well as the residuals
         if plot_data is True:
+            print("plot data",residuals)
             model_res,res_errors = self.get_residuals(residuals)
             if residuals == "delchi":
                 reslabel = "$\\Delta\\chi$"
             elif residuals == "ratio":
                 reslabel = "Data/model"
+            elif residuals == "delcash":
+                reslabel = "$\\Delta C$"
             else:
                 raise ValueError("Residual format not supported")   
                             
@@ -556,8 +567,12 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if plot_data is True:
             ax1.set_ylim([0.85*np.min(data),1.15*np.max(data)])
-            ax2.errorbar(energies,model_res,yerr=res_errors,
-                         linestyle='',marker='o')
+            if residuals != "delcash":
+                ax2.errorbar(energies,model_res,yerr=res_errors,
+                             linestyle='',marker='o')
+            else: 
+                #placeholder, do the histogram thing properly
+                ax2.step(energies,model_res,where='mid')                
             if residuals == "delchi":
                 ax2.plot(energies,np.zeros(len(energies)),
                          ls=":",lw=2,color='black')

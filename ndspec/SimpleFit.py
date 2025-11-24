@@ -3,6 +3,8 @@ import warnings
 
 from lmfit import fit_report, minimize 
 
+from .Likelihoods import cstat, delchi, ratio
+
 class SimpleFit():
     """
     Generic least-chi squared fitter class, used internally to store methods 
@@ -223,21 +225,33 @@ class SimpleFit():
         if model is None:
             model = self.eval_model(mask=mask)
       
-        if mask is True:
+        #separate the case of cash vs non cash statistic because in the former 
+        #case subtracting/accounting for the background is not straightforward
+        #and is taken care of within the cstat function call 
+        if (mask is True and res_type is not "delcash"):
             data = self.data - noise 
             error = np.sqrt(self.data_err**2+noise_err**2)
-        elif mask is False:
+        elif (mask is False and res_type is not "delcash"):
             data = self._data_unmasked - self._noise_unmasked
             error = np.sqrt(self._data_err_unmasked**2+self._noise_err_unmasked**2)
+        elif mask is True:
+            data = self.data 
+        elif mask is False:
+            data = self._data_unmasked
 
+        print("get_residuals method",res_type)
         if res_type == "ratio":
-            residuals = (data)/model
-            bars = error/model
+            residuals, bars = ratio(data,error,model,summed=False)
         elif res_type == "delchi":
-            residuals = (data-model)/error
+            residuals = delchi(data,error,model,residuals=True)
+            bars = np.ones(len(self.data))
+        elif res_type == "delcash":
+            exp = self.exposure 
+            bins = self.ewidths
+            residuals = cstat(data,model,exp,bins,noise=noise,residuals=True)
             bars = np.ones(len(self.data))
         else:
-            raise ValueError("The only supported residual types are ratio and delta chi")
+            raise ValueError("The supported residual types are ratio, delta chi, and delta cash")
             
         return residuals, bars
 
@@ -249,7 +263,7 @@ class SimpleFit():
         number of data bins, free parameters and degrees of freedom. 
         """
         
-        if self.likelihood is None:
+        if self.likelihood == "chisqr":
             res, err = self.get_residuals("delchi")
             chi_squared = np.sum(np.power(res.reshape(len(self.data)),2))
             freepars = 0
@@ -267,6 +281,19 @@ class SimpleFit():
             print("Degrees of freedom:" + "{0: <5}".format(" ") + str(dof))
         else:
             print("custom likelihood not supported yet")
+            
+        '''
+        add("[[Fit Statistics]]")
+        add(f"    # fitting method   = {result.method}")
+        add(f"    # function evals   = {getfloat_attr(result, 'nfev')}")
+        add(f"    # data points      = {getfloat_attr(result, 'ndata')}")
+        add(f"    # variables        = {getfloat_attr(result, 'nvarys')}")
+        add(f"    chi-square         = {getfloat_attr(result, 'chisqr')}")
+        add(f"    reduced chi-square = {getfloat_attr(result, 'redchi')}")
+        add(f"    Akaike info crit   = {getfloat_attr(result, 'aic')}")
+        add(f"    Bayesian info crit = {getfloat_attr(result, 'bic')}")
+        '''
+            
         return 
 
     def fit_data(self,algorithm='leastsq'):

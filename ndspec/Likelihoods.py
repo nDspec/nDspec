@@ -1,5 +1,4 @@
 import numpy as np
-from .SimpleFit import SimpleFit as simple
 
 def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
     """
@@ -51,10 +50,10 @@ def delchi(data,err,model,noise=None,noise_err=None,residuals=False):
     else:
         delchi = (data-model)/err
     
-    if residuals is False:
-        return np.sum(delchi)    
-    elif residuals is True:
-        return delchi
+    if residuals is True:
+        return delchi  
+    else:
+        return np.sum(delchi)
     
 def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     """
@@ -62,8 +61,6 @@ def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     background and its uncertainty are provided, these are subtracted from the 
     data and summed in quadrature to the error, respectively.
     
-    Parameters:
-    -----------
     Parameters:
     -----------
     data: np.array(float)
@@ -109,6 +106,9 @@ def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
         err = np.sqrt(np.power(err,2)+np.power(noise_err,2))
 
     ratio = data/model 
+    
+    if summed is True:
+        return np.sum(ratio)
 
     if bars is True:
         bars = err/model 
