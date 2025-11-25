@@ -33,8 +33,18 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         components.
    
     likelihood: str
-        A string that allows to switch between Chi-squared (for Gaussian data) 
-        and Cash (for Poisson data) fit statistics.
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
+        likelihood
    
     fit_result: lmfit.MinimizeResult
         A lmfit MinimizeResult, which stores the result (including best-fitting 
@@ -209,7 +219,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             statistic, see https://ui.adsabs.harvard.edu/abs/1979ApJ...228..939C/abstract,
             appropriate for Poisson-distributed data). 
         """
-        if (stat != "chisq" and stat != "cstat"):
+        if (stat != "chisq" and stat != "cstat" and stat != "custom"):
             raise ValueError("Fit statistic not recognized")
         self.likelihood = stat 
 
@@ -297,8 +307,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             residuals, _ = self.get_residuals("chisq",model=model,mask=True)
         elif self.likelihood == "cstat":
             residuals, _ = self.get_residuals("cstat",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
-            raise AttributeError("Chosen likelihood not implemented yet")
+            raise AttributeError("Chosen likelihood not supported")
         return residuals
 
     def plot_data(self,units="data",plot_bkg=False,return_plot=False):
@@ -463,10 +475,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """        
         
         if residuals is None:
-            if self.likelihood == "cstat":
-                residuals = "cstat"   
-            else:
-                residuals = "chisq"
+            residuals = self.likelihood
                                      
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
@@ -503,6 +512,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                 reslabel = "Data/model"
             elif residuals == "cstat":
                 reslabel = "$\\Delta C$"
+            elif residuals == "custom":
+                reslabel = "Residuals"
             else:
                 raise ValueError("Residual format not supported")   
                             

@@ -22,7 +22,17 @@ class SimpleFit():
    
     likelihood: str
         A string that allows to switch between different fit statistics; which 
-        one is available depends on the type of fitter object.
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
+        likelihood
    
     fit_result: lmfit.MinimizeResult
         A lmfit MinimizeResult, which stores the result (including best-fitting 
@@ -56,6 +66,8 @@ class SimpleFit():
         self.model = None
         self.model_params = None
         self.likelihood = "chisq"
+        self.custom_likelihood = None
+        self.custom_args = None
         self.fit_result = None
         self.data = None
         self.data_err = None
@@ -190,6 +202,39 @@ class SimpleFit():
         self.model_params = params
         return 
 
+    def set_custom_likelihood(self,likelihood_function,*args):
+        """
+        This method allows users to define their own custom likelihood function,
+        which can then optimized during a fit. In addition, this sets the 
+        value of the class "likelihood" string to custom, to signal to the other 
+        methods that a custom likelihood is in use and should be used for plots, 
+        residuals etc.
+        
+        Parameters:
+        -----------
+        likelihood_function: function
+            The name of the function which calculates the model residuals; e.g.,
+            if we want to minimize the difference between data and model, we 
+            would define:
+            def diff(data,model):
+                return data-model 
+            and call set_custom_likelihood(diff).
+            
+        *args:
+            Additional arguments to be passed to the likelihood calculation, 
+            excluding the data and model (which are always included 
+            automatically by the class). Following the example above:
+            def diff(data,model,factor):
+                return factor*(data-model)
+            and call set_custom_likelihood(diff,5) - if we want to set "factor" 
+            to 5.
+        """
+    
+        self.custom_likelihood = likelihood_function
+        self.custom_args = args
+        self.likelihood = "custom"
+        return
+
     def get_residuals(self,res_type,model=None,mask=True):    
         """
         This methods return the residuals (either as data/model, or as 
@@ -201,11 +246,13 @@ class SimpleFit():
         res_type: string 
             If set to "ratio", the method returns the residuals defined as 
             data/model. If set to "chisq", it returns the contribution of 
-            each energy channel to the total chi squared.
+            each energy channel to the total chi squared. If set to "custom", 
+            the residuals are based on whatever custom likelihood the user 
+            defined.
 
         mask: bool, default True 
             A flag to decide whether to compare the model against the masked or 
-            unmasked data. 
+            unmasked data.
             
         Returns:
         --------
@@ -230,7 +277,7 @@ class SimpleFit():
       
         #separate the case of Cash vs non cash statistic because in the former 
         #case subtracting/accounting for the background is not straightforward
-        #and is taken care of within the cstat function call 
+        #and is taken care of within the cstat function call        
         if (mask is True and res_type != "cstat"):
             data = self.data - noise 
             error = np.sqrt(self.data_err**2+noise_err**2)
@@ -259,6 +306,13 @@ class SimpleFit():
             bins = self.ewidths
             residuals = cstat(data,model,exp,bins,noise=noise,summed=False)
             bars = np.ones(len(self.data))
+        elif res_type == "custom":
+            custom_args = [model,data]
+            if self.custom_args is not None:
+                for arg in self.custom_args:
+                    custom_args.append(arg)
+            residuals = self.custom_likelihood(*custom_args)
+            bars = np.ones(len(self.data))
         else:
             raise ValueError("The supported residual types are ratio, chisq, and cstat")
             
@@ -276,6 +330,8 @@ class SimpleFit():
             res, _ = self.get_residuals("chisq")
         elif self.likelihood == "cstat":
             res, _ = self.get_residuals("cstat")
+        elif self.likelihood == "custom":
+            res, _ = self.get_residuals("custom")
        
         freepars = 0
         for key, value in self.model_params.items():
@@ -288,6 +344,8 @@ class SimpleFit():
             fit_statistic = np.sum(res**2)
         elif self.likelihood == "cstat":
             fit_statistic = np.sum(res)  
+        elif self.likelihood == "custom":
+            fit_statistic = np.sum(res) 
         reduced_stat = fit_statistic/dof
 
         print("Goodness of fit metrics:")
@@ -365,8 +423,8 @@ class SimpleFit():
             reduced_stat = result.redchi
         #for the Cash statistic, the chisqr/redchi stored in the result object 
         #is nonesense (since it assumes gaussian statistics etc)
-        elif self.likelihood == "cstat":
-            res, _ = self.get_residuals("cstat") 
+        else:
+            res, _ = self.get_residuals(self.likelihood) 
             fit_statistic = np.sum(res)  
             reduced_stat = fit_statistic/(result.ndata-result.nvarys)    
         print(f"    fit statistic      = {fit_statistic}")

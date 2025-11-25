@@ -35,8 +35,18 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -177,10 +187,12 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-        
+        model = self.model.eval(params,freq=self.freqs)     
+           
         if self.likelihood == "chisq":
-            model = self.model.eval(params,freq=self.freqs)
             residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
             raise AttributeError("Likelihood type not supported")
             
@@ -269,7 +281,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         residuals: str, default="chisq"
             The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If a custom likelihood 
+            is defined, then the residuals are computed from that likelihood.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -293,6 +306,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             reslabel = "$\\Delta\\chi$"
         elif residuals == "ratio":
             reslabel = "Data/model"
+        elif self.likelihood == "custom":
+            reslabel = "Residuals"
         else:
             raise ValueError("Residual format not supported")
             
