@@ -10,7 +10,7 @@ plt.rcParams.update({'font.size': 17})
 from lmfit.model import ModelResult as LM_result
 
 from .SimpleFit import SimpleFit, FrequencyDependentFit
-from .Likelihoods import delchi, ratio
+from .Likelihoods import chisq, ratio
 
 class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     """
@@ -180,8 +180,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         
         if self.likelihood == "chisq":
             model = self.model.eval(params,freq=self.freqs)
-            residuals = delchi(self.data,self.data_err,model,
-                               summed=False)
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
         else:
             raise AttributeError("Likelihood type not supported")
             
@@ -238,7 +237,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             return           
         
     def plot_model(self,plot_data=True,plot_components=False,params=None,
-                   units="fpower",residuals="delchi",return_plot=False):
+                   units="fpower",residuals="chisq",return_plot=False):
         """
         This method plots the model defined by the user as a function of 
         Fourier frequency, as well as (optionally) its components, and the data
@@ -267,8 +266,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             the data in units of power*frequency. units="power" instead plots 
             the data in units of power. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model.
             
@@ -290,7 +289,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         if plot_data is True:
             model_res, res_errors = self.get_residuals(res_type=residuals,model=model)
 
-        if residuals == "delchi":
+        if residuals == "chisq":
             reslabel = "$\\Delta\\chi$"
         elif residuals == "ratio":
             reslabel = "Data/model"
@@ -342,7 +341,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         if plot_data is True:
             ax2.errorbar(self.freqs,model_res,yerr=res_errors,
                          linestyle='',marker='o')
-            if residuals == "delchi":
+            if residuals == "chisq":
                 ax2.plot(self.freqs,np.zeros(len(self.freqs)),
                          ls=":",lw=2,color='black')
             elif residuals == "ratio":

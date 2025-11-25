@@ -11,7 +11,7 @@ from lmfit.model import ModelResult as LM_result
 
 from .Response import ResponseMatrix
 from .SimpleFit import SimpleFit, EnergyDependentFit, load_pha
-from .Likelihoods import cstat, delchi, ratio
+from .Likelihoods import cstat, chisq, ratio
 
 class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     """
@@ -32,9 +32,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
-        likelihood
+    likelihood: str
+        A string that allows to switch between Chi-squared (for Gaussian data) 
+        and Cash (for Poisson data) fit statistics.
    
     fit_result: lmfit.MinimizeResult
         A lmfit MinimizeResult, which stores the result (including best-fitting 
@@ -205,11 +205,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         stat: str 
             A string with the name of the fit statistic to be used. Supported 
             statistics currently are "chisq" (the standard chi squared statistic, 
-            appropriate for data in the Gaussian regime) and "cash" (the Cash 
+            appropriate for data in the Gaussian regime) and "cstat" (the Cash 
             statistic, see https://ui.adsabs.harvard.edu/abs/1979ApJ...228..939C/abstract,
             appropriate for Poisson-distributed data). 
         """
-        if (stat != "chisq" and stat != "cash"):
+        if (stat != "chisq" and stat != "cstat"):
             raise ValueError("Fit statistic not recognized")
         self.likelihood = stat 
 
@@ -294,11 +294,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         model = self.eval_model(params)
     
         if self.likelihood == "chisq":
-            residuals = delchi(self.data,self.data_err,model,
-                               self.noise,self.noise_err,summed=False)
-        elif self.likelihood == 'cash':
-            residuals = cstat(self.data,model,self.exposure,self.ewidths,
-                              self.noise,summed=False)
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "cstat":
+            residuals, _ = self.get_residuals("cstat",model=model,mask=True)
         else:
             raise AttributeError("Chosen likelihood not implemented yet")
         return residuals
@@ -449,9 +447,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             i.e. units of nuFnu. 
             
         residuals: str, default=None
-            The units to use for the residuals. If residuals="delchi", the plot 
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model; if residuals "delcash", the 
+            the plot instead uses units of data/model; if residuals "cstat", the 
             plot shows the contribution of each bin to the Cash statistic. 
             
         return_plot: bool, default=False
@@ -465,10 +463,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """        
         
         if residuals is None:
-            if self.likelihood == "cash":
-                residuals = "delcash"   
+            if self.likelihood == "cstat":
+                residuals = "cstat"   
             else:
-                residuals = "delchi"
+                residuals = "chisq"
                                      
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
@@ -499,11 +497,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #as well as the residuals
         if plot_data is True:
             model_res,res_errors = self.get_residuals(residuals)
-            if residuals == "delchi":
+            if residuals == "chisq":
                 reslabel = "$\\Delta\\chi$"
             elif residuals == "ratio":
                 reslabel = "Data/model"
-            elif residuals == "delcash":
+            elif residuals == "cstat":
                 reslabel = "$\\Delta C$"
             else:
                 raise ValueError("Residual format not supported")   
@@ -565,13 +563,13 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if plot_data is True:
             ax1.set_ylim([0.85*np.min(data),1.15*np.max(data)])
-            if residuals != "delcash":
+            if residuals != "cstat":
                 ax2.errorbar(energies,model_res,yerr=res_errors,
                              linestyle='',marker='o')
             else: 
                 #placeholder, do the histogram thing properly
                 ax2.step(energies,model_res,where='mid')                
-            if residuals == "delchi":
+            if residuals == "chisq":
                 ax2.plot(energies,np.zeros(len(energies)),
                          ls=":",lw=2,color='black')
             elif residuals == "ratio":

@@ -1,6 +1,6 @@
 import numpy as np
 
-def delchi(data,err,model,noise=None,noise_err=None,summed=False):
+def chisq(data,err,model,noise=None,noise_err=None,summed=False):
     """
     This function is used to calculate the traditional chi-squared statistic 
     drawn from Gaussian-distributed data. It also accounts for a background/noise 
@@ -33,7 +33,7 @@ def delchi(data,err,model,noise=None,noise_err=None,summed=False):
         
     Returns:
     --------
-    delchi: np.array(float)
+    chisq: np.array(float)
         Either a single value containing the summed statistic (if residuals is 
         True), or an array containing the contribution of each bin to the total 
         statistic (if residuals is False).
@@ -45,15 +45,15 @@ def delchi(data,err,model,noise=None,noise_err=None,summed=False):
         raise ValueError("The background is defined but its error is not")
     
     if noise_err is not None:
-        err = np.sqrt(np.power(err,2)+np.power(noise_err,2))
-        delchi = (data-noise-model)/err
+        err = np.sqrt(err**2+noise_err**2)
+        chisq = (data-noise-model)/err
     else:
-        delchi = (data-model)/err
+        chisq = (data-model)/err
     
     if summed is True:
-        return np.sum(delchi)
+        return np.sum(chisq)
     else:
-        return delchi
+        return chisq
     
 def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     """
@@ -103,7 +103,7 @@ def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
     if noise is not None:
         data = data-noise 
     if noise_err is not None:
-        err = np.sqrt(np.power(err,2)+np.power(noise_err,2))
+        err = np.sqrt(err**2+noise_err**2)
 
     ratio = data/model 
     
@@ -186,7 +186,7 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
         
         test_sign = 2.*model - data - noise 
         #define the bkg model - fi in the xspec docs
-        d_factor = np.sqrt(np.power(test_sign,2.)+8.*model*noise)   
+        d_factor = np.sqrt(test_sign**2.+8.*model*noise)   
         
         mask = (test_sign>=0)        
         bkg_num[mask] = 2.*noise[mask]*model[mask]/(exp)

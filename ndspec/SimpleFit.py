@@ -3,7 +3,7 @@ import warnings
 
 from lmfit import fit_report, minimize 
 
-from .Likelihoods import cstat, delchi, ratio
+from .Likelihoods import cstat, chisq, ratio
 
 class SimpleFit():
     """
@@ -20,9 +20,9 @@ class SimpleFit():
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
-        likelihood
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object.
    
     fit_result: lmfit.MinimizeResult
         A lmfit MinimizeResult, which stores the result (including best-fitting 
@@ -78,6 +78,9 @@ class SimpleFit():
         if self.noise is not None:
             self._noise_unmasked = self.noise
             self._noise_err_unmasked = self.noise_err
+        else:
+            self._noise_unmasked = None
+            self._noise_err_unmasked = None
 
         if isinstance(self,EnergyDependentFit) is True:
             self._emin_unmasked = self.response.emin
@@ -197,7 +200,7 @@ class SimpleFit():
         -----------
         res_type: string 
             If set to "ratio", the method returns the residuals defined as 
-            data/model. If set to "delchi", it returns the contribution of 
+            data/model. If set to "chisq", it returns the contribution of 
             each energy channel to the total chi squared.
 
         mask: bool, default True 
@@ -225,15 +228,22 @@ class SimpleFit():
         if model is None:
             model = self.eval_model(mask=mask)
       
-        #separate the case of cash vs non cash statistic because in the former 
+        #separate the case of Cash vs non cash statistic because in the former 
         #case subtracting/accounting for the background is not straightforward
         #and is taken care of within the cstat function call 
-        if (mask is True and res_type != "delcash"):
+        if (mask is True and res_type != "cstat"):
             data = self.data - noise 
             error = np.sqrt(self.data_err**2+noise_err**2)
-        elif (mask is False and res_type != "delcash"):
-            data = self._data_unmasked - self._noise_unmasked
-            error = np.sqrt(self._data_err_unmasked**2+self._noise_err_unmasked**2)
+        elif (mask is False and res_type != "cstat"):
+            #ugly hack to handle 2d cross spectrum plots - ugh
+            if self._noise_unmasked is None:
+                noise = np.zeros(len(self._data_unmasked))
+                noise_err = np.zeros(len(self._data_unmasked))
+            else:
+                noise = self._noise_unmasked
+                noise_err = self._noise_err_unmasked
+            data = self._data_unmasked - noise
+            error = np.sqrt(self._data_err_unmasked**2+noise_err**2)
         elif mask is True:
             data = self.data 
         elif mask is False:
@@ -241,16 +251,16 @@ class SimpleFit():
 
         if res_type == "ratio":
             residuals, bars = ratio(data,error,model,summed=False)
-        elif res_type == "delchi":
-            residuals = delchi(data,error,model,summed=False)
+        elif res_type == "chisq":
+            residuals = chisq(data,error,model,summed=False)
             bars = np.ones(len(self.data))
-        elif res_type == "delcash":
+        elif res_type == "cstat":
             exp = self.exposure 
             bins = self.ewidths
             residuals = cstat(data,model,exp,bins,noise=noise,summed=False)
             bars = np.ones(len(self.data))
         else:
-            raise ValueError("The supported residual types are ratio, delta chi, and delta cash")
+            raise ValueError("The supported residual types are ratio, chisq, and cstat")
             
         return residuals, bars
 
@@ -263,9 +273,9 @@ class SimpleFit():
         """
         
         if self.likelihood == "chisq":
-            res, _ = self.get_residuals("delchi")
-        elif self.likelihood == "cash":
-            res, _ = self.get_residuals("delcash")
+            res, _ = self.get_residuals("chisq")
+        elif self.likelihood == "cstat":
+            res, _ = self.get_residuals("cstat")
        
         freepars = 0
         for key, value in self.model_params.items():
@@ -275,8 +285,8 @@ class SimpleFit():
         dof = len(self.data) - freepars
 
         if self.likelihood == "chisq":
-            fit_statistic = np.sum(np.power(res,2))
-        elif self.likelihood == "cash":
+            fit_statistic = np.sum(res**2)
+        elif self.likelihood == "cstat":
             fit_statistic = np.sum(res)  
         reduced_stat = fit_statistic/dof
 
@@ -353,10 +363,10 @@ class SimpleFit():
         if self.likelihood == "chisq":        
             fit_statistic = result.chisqr 
             reduced_stat = result.redchi
-        #for the cash statistic, the chisqr/redchi stored in the result object 
+        #for the Cash statistic, the chisqr/redchi stored in the result object 
         #is nonesense (since it assumes gaussian statistics etc)
-        elif self.likelihood == "cash":
-            res, _ = self.get_residuals("delcash") 
+        elif self.likelihood == "cstat":
+            res, _ = self.get_residuals("cstat") 
             fit_statistic = np.sum(res)  
             reduced_stat = fit_statistic/(result.ndata-result.nvarys)    
         print(f"    fit statistic      = {fit_statistic}")
@@ -763,7 +773,7 @@ def load_pha(path,response):
         #note: we are summing the systematic and Poisson errors in quadrature
         #so the factor sqrt in the Poisson error factors out
         if has_sys_err:
-            counts_err = np.sqrt(counts+np.power(counts*sys_err,2.))
+            counts_err = np.sqrt(counts+(counts*sys_err)**2)
         else:
             counts_err = np.sqrt(counts)
         #calculate the spectrum whether it has been grouped or not, along with 
@@ -788,7 +798,7 @@ def load_pha(path,response):
             bin_bounds_lo[-1] = bin_bounds_hi[-2]
             bin_bounds_hi[-1] = response.emax[-1]
             sys_err_per_group = counts_per_group*avg_sys
-            spectrum_error = np.sqrt(np.power(sys_err_per_group,2)+counts_per_group)
+            spectrum_error = np.sqrt(sys_err_per_group**2+counts_per_group)
         else:
             bin_bounds_lo = response.emin
             bin_bounds_hi = response.emax
