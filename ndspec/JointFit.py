@@ -72,6 +72,10 @@ class JointFit():
         a set of chosen fitters for time-averaged spectra. Used to account for 
         instrument flux cross-calibration.
         
+    shared_keys: list 
+        A list containing the keys (names) of the parameters that are identical 
+        and therefore shared between the loaded fitter objects.
+        
     renorm_names: list[str]
         A list with the names of the time-averaged fitter objects to which the 
         cross-calibration constants should be applied. 
@@ -85,6 +89,7 @@ class JointFit():
         self.energy_grid = None
         self.shared_energy_grid = False
         self.shared_model = None
+        self.shared_keys = []
         self.spec_renorm_model = None
         self.renorm_spectra = False 
         self.renorm_names = None
@@ -122,6 +127,9 @@ class JointFit():
         else: 
             #single observation loaded each time 
             self._add_single_fitobj(fitobj,name)
+        
+        if self.shared_keys != []:
+            print(f"""The following parameters have been shared: {self.shared_keys}""")
         return 
     
     def _add_single_fitobj(self,fitobj,name):
@@ -158,13 +166,14 @@ class JointFit():
         #evaluation later
         params = []
         for key in fitobj.model_params.valuesdict().keys():
-            for joint_obs in self.joint_params:
-                if key in self.joint_params[joint_obs]:
-                    print(f"""Caution: {key} is already a model parameter.vDo you intend for these parameters to be linked?
-                          If not, give it a different name to differentiate between multiple instances of the same type for different models.""")
-                else:
-                    self.model_params.add_many(fitobj.model_params[key])
-            params.append(key)
+               for joint_obs in self.joint_params:
+                    if key in self.shared_keys:
+                        pass
+                    elif key in self.joint_params[joint_obs]:
+                        self.shared_keys.append(key)
+                    else:
+                        self.model_params.add_many(fitobj.model_params[key])
+                    params.append(key)
         self.joint_params[name] = params
         return 
      
@@ -501,7 +510,7 @@ class JointFit():
         """
         return self.joint[key]
 
-    def joint_plot(self,units,residuals="delchi",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
+    def joint_plot(self,units,residuals="chisq",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -514,8 +523,8 @@ class JointFit():
             The units to use for the y axis. For more info, see the documentation 
             of the individual fitter classes. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model. For cross spectra this 
             key word is ignored and only delta chi residuals can be shown.
@@ -584,7 +593,7 @@ class JointFit():
             y_reserr = plot_data["reserr"]
             
             #if the spectra were renormalized, we have to over-write the residuals
-            if (self.renorm_spectra is True and residuals=="delchi"):
+            if (self.renorm_spectra is True and residuals=="chisq"):
                 y_res = self._minimizer(self.model_params,names=key)
                 y_reserr = plot_data["reserr"]
             elif (self.renorm_spectra is True and residuals=="ratio"):
@@ -597,7 +606,7 @@ class JointFit():
                          xerr=plot_data["x_bars"], yerr=y_reserr, 
                          fmt='o',alpha=0.5, color=col)
         
-        if residuals == "delchi":
+        if residuals == "chisq":
             ax2.plot(plot_data["x_points"],np.zeros(len(plot_data["x_points"])),
                      ls=":",lw=2,color='black',zorder=10)
         elif residuals == "ratio":
@@ -617,7 +626,7 @@ class JointFit():
         else:
             return   
         
-    def all_plots(self,units,residuals="delchi",plot_bkg=None,return_plot=False):
+    def all_plots(self,units,residuals="chisq",plot_bkg=None,return_plot=False):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -632,8 +641,8 @@ class JointFit():
             of the individual fitter classes. Has no impact if the fitter being 
             looked over is a cross spectrum. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model. For cross spectra this 
             key word is ignored and only delta chi residuals can be shown.

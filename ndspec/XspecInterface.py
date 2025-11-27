@@ -458,6 +458,7 @@ class CInterface(ModelInterface):
                         photer.ctypes.data_as(ct.POINTER(ct.c_double)),
                         init_string.encode('utf-8')
                     )
+                photar = photar/np.diff(ear)
                 return photar*params[-1]
         elif self.models_info[func_name]['type'] == "mul":        
             @wraps(func)
