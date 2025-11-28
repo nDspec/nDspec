@@ -167,14 +167,14 @@ class JointFit():
         #evaluation later
         params = []
         for key in fitobj.model_params.valuesdict().keys():
-               for joint_obs in self.joint_params:
-                    if key in self.shared_keys:
-                        pass
-                    elif key in self.joint_params[joint_obs]:
-                        self.shared_keys.append(key)
-                    else:
-                        self.model_params.add_many(fitobj.model_params[key])
-                    params.append(key)
+           for joint_obs in self.joint_params:
+                if key in self.shared_keys:
+                    pass
+                elif key in self.joint_params[joint_obs]:
+                    self.shared_keys.append(key)
+                else:
+                    self.model_params.add_many(fitobj.model_params[key])
+                params.append(key)
         self.joint_params[name] = params
         return 
      

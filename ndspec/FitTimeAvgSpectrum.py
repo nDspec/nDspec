@@ -179,8 +179,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                                                   [bounds_lo, bounds_hi])
             #for imaging instruments, this factor acconuts for cases when the 
             #area of extracted spectra+backgrounds is different. 
+            self.noise_err = np.sqrt(self.noise)*backfac/exposure/self.ewidths
             self.noise = self.noise*backfac/exposure/self.ewidths
-            self.noise_err = np.sqrt(self.noise)
 
         self._set_unmasked_data()
         return 

@@ -24,7 +24,8 @@ class SimpleFit():
     likelihood: str
         A string that allows to switch between different fit statistics; which 
         one is available depends on the type of fitter object. Uses chi-squared 
-        likelihood by default.
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
         
     custom_likelihood: function 
         A function users can set to bypass the supported likelihoods and instead 
@@ -63,10 +64,10 @@ class SimpleFit():
         Used exclusively to enable book keeping internal to the fitter class.            
     """ 
 
-    def __init__(self):
+    def __init__(self,likelihood="chisq"):
         self.model = None
         self.model_params = None
-        self.likelihood = "chisq"
+        self.likelihood = likelihood
         self.custom_likelihood = None
         self.custom_args = None
         self.fit_result = None
