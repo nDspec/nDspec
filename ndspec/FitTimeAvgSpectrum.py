@@ -35,7 +35,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     likelihood: str
         A string that allows to switch between different fit statistics; which 
         one is available depends on the type of fitter object. Uses chi-squared 
-        likelihood by default.
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
         
     custom_likelihood: function 
         A function users can set to bypass the supported likelihoods and instead 
@@ -129,8 +130,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         Poisson-type likelihoods.
     """ 
     
-    def __init__(self):
-        SimpleFit.__init__(self)
+    def __init__(self,likelihood="chisq"):
+        SimpleFit.__init__(self,likelihood)
         self.response = None    
         pass
 
@@ -462,7 +463,9 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model; if residuals "cstat", the 
-            plot shows the contribution of each bin to the Cash statistic. 
+            plot shows the contribution of each bin to the Cash statistic. If
+            residual units are not specified, they are computed from the  
+            likelihood set by the user. 
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 

@@ -309,11 +309,11 @@ class JointFit():
     def fit_data(self,algorithm='leastsq',names=None,report_result=True):
         """
         This method attempts to minimize the residuals of the model with respect 
-        to the data defined by the user. The fit always starts from the set of 
-        parameters defined with .set_params(). Once the algorithm has completed 
-        its run, it prints to terminal the best-fitting parameters, fit 
-        statistics, and simple selection criteria (reduced chi-squared, Akaike
-        information criterion, and Bayesian information criterion). 
+        to the data defined by the user. The fit either starts from the set of 
+        parameters defined with .set_params(), or from the parameters set in the 
+        individual fitter obejcts loaded. Once the algorithm has completed its
+        run, it optionally prints to terminal the best-fitting parameters, fit 
+        statistics, and parameter values. 
         
         Parameters:
         -----------

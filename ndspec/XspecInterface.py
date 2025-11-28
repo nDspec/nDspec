@@ -381,8 +381,15 @@ class FortranInterface(ModelInterface):
         sections and abundances and is required to correctly evaluate Xspec 
         models outside of the Xspec command interface. 
         """    
-        init_call = self.lib.fninit_
-        init_call()
+        
+        try:
+            init_call = self.lib.fninit_
+            init_call()
+        except AttributeError:
+            init_call = self.lib.FNINIT 
+            init_call()           
+        
+        return
 
 class CInterface(ModelInterface):
     """

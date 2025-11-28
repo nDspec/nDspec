@@ -38,7 +38,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     likelihood: str
         A string that allows to switch between different fit statistics; which 
         one is available depends on the type of fitter object. Uses chi-squared 
-        likelihood by default.
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
         
     custom_likelihood: function 
         A function users can set to bypass the supported likelihoods and instead 
@@ -80,8 +81,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         in units of Hz. Only contains noticed bins.          
     """ 
 
-    def __init__(self):
-        SimpleFit.__init__(self)
+    def __init__(self,likelihood="chisq"):
+        SimpleFit.__init__(self,likelihood)
         self.freqs = None 
         self.dependence = "frequency"
         pass

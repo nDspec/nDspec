@@ -121,7 +121,7 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
     This function calculates the Cash statistic (Cash 1979, DOI: 10.1086/156922)
     for Poisson-distributed count data (typically, a time-averaged X-ray 
     spectrum). Optionally, users can also provide a background count rate, which 
-    is also assumed to be Poissoni-distributed. The implementation is identical 
+    is also assumed to be Poisson-distributed. The implementation is identical 
     to that of Xspec, with the additional assumption that the exposure times for 
     the background and data are identical. For more details of the math used, 
     see the Xspec documentation:
