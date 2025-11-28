@@ -5,6 +5,7 @@ import numpy as np
 import lmfit
 from lmfit import fit_report, minimize
 from lmfit import Parameters
+from lmfit.printfuncs import gformat
 from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
@@ -305,7 +306,7 @@ class JointFit():
             residuals = np.asarray(residuals).flatten()
         return residuals
     
-    def fit_data(self,algorithm='leastsq',names=None):
+    def fit_data(self,algorithm='leastsq',names=None,report_result=True):
         """
         This method attempts to minimize the residuals of the model with respect 
         to the data defined by the user. The fit always starts from the set of 
@@ -330,9 +331,10 @@ class JointFit():
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm,args=[names])
-        print(fit_report(self.fit_result,show_correl=False))
         fit_params = self.fit_result.params
         self.set_params(fit_params)
+
+        self.print_fit_report()
         return
 
     def set_energy_grid(self,grid_bounds):
@@ -494,14 +496,84 @@ class JointFit():
             self.joint[names].print_model()
             print("-----------------------")
         
-    def print_fit_results(self):
+    def print_fit_report(self):
         """
-        This method prints the current fit results.
+        This method prints the current fit result.
         """
-        if self.fit_result != None:
-            print(fit_report(self.fit_result,show_correl=False))
-        else:
-            print("No current fit result.")
+        
+        result = self.fit_result
+        print("-----------------------")
+        print("[[Fit Statistics]]")
+        print(f"    # fitting method   = {result.method}")
+        print(f"    # function evals   = {result.nfev}")
+        print(f"    # data points      = {result.ndata}")
+        print(f"    # variables        = {result.nvarys}")
+        
+        total_fit_stat = 0
+        print("-----------------------")        
+        for name in self.joint.keys():
+            print(f"    Dataset: {name}")    
+            model =  self.joint[name].eval_model(params=self.model_params)  
+            if (self.renorm_spectra is True and type(self.joint[name]) == FitTimeAvgSpectrum):
+                model = model*self.model_params['renorm_'+str(name)].value  
+            res, _ = self.joint[name].get_residuals(self.joint[name].likelihood,model=model) 
+            if self.joint[name].likelihood == "chisq":
+                fit_statistic = np.sum(res**2)
+            else:
+                fit_statistic = np.sum(res)
+            dof = len(self.joint[name].data) - result.nvarys  
+            reduced_stat = fit_statistic/dof    
+            total_fit_stat = total_fit_stat + fit_statistic
+            print(f"    fit statistic      = {fit_statistic}")
+            print(f"    reduced statistic  = {reduced_stat}")
+            print(f"    # data points      = {len(self.joint[name].data)}")
+        reduced_stat = total_fit_stat/(result.ndata-result.nvarys) 
+        print("-----------------------")
+        print(f"    total fit stat         = {total_fit_stat}")
+        print(f"    total reduced stat     = {reduced_stat}")        
+        print("-----------------------")
+        
+        namelen = max(len(n) for n in list(result.params.keys()))
+        parnames_varying = [par for par in result.params if result.params[par].vary]
+        #report parameteres that didn't vary/are stuck
+        for name in parnames_varying:
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            if par.init_value and np.allclose(par.value, par.init_value):
+                print(f'    {name}:{space}  at initial value')
+            if (np.allclose(par.value, par.min) or np.allclose(par.value, par.max)):
+                print(f'    {name}:{space}  at boundary')
+        
+        #report parameter values
+        print("[[Parameters]]")
+        modelpars = result.params
+        for name in result.params.keys():
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            nout = f"{name}:{space}"
+            inval = '(init = ?)'
+            if par.init_value is not None:
+                inval = f'(init = {par.init_value:.7g})'
+            if modelpars is not None and name in modelpars:
+                inval = f'(init = {par.init_value:.7g})'
+            try:
+                sval = gformat(par.value)
+            except (TypeError, ValueError):
+                sval = ' Non numeric value found in parameter'
+            if par.stderr is not None:
+                serr = gformat(par.stderr)
+                try:
+                    spercent = f'({abs(par.stderr/par.value):.2%})'
+                except ZeroDivisionError:
+                    spercent = ''
+                sval = f'{sval} +/-{serr} {spercent}'
+            if par.vary:
+                print(f"    {nout} {sval} {inval}")
+            elif par.expr is not None:
+                print(f"    {nout} {sval} == '{par.expr}'")
+            else:
+                print(f"    {nout} {par.value: .7g} (fixed)")
+        return
     
     def __getitem__(self, key):
         """
@@ -600,7 +672,8 @@ class JointFit():
                 y_res = plot_data["y_points"]/model 
                 y_reserr = plot_data["y_bars"]/model 
             elif (self.renorm_spectra is True):
-                raise ValueError("Residual type not regognized")                
+                y_res = self._minimizer(self.model_params,names=key)
+                y_reserr = np.ones(len(y_res))               
             
             ax2.errorbar(plot_data["x_points"], y_res, 
                          xerr=plot_data["x_bars"], yerr=y_reserr, 

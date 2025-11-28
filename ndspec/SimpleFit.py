@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 
 from lmfit import fit_report, minimize 
+from lmfit.printfuncs import gformat
 
 from .Likelihoods import cstat, chisq, ratio
 
@@ -271,10 +272,10 @@ class SimpleFit():
         else:
             noise = self.noise
             noise_err = self.noise_err
-
+        
         if model is None:
             model = self.eval_model(mask=mask)
-      
+        
         #separate the case of Cash vs non cash statistic because in the former 
         #case subtracting/accounting for the background is not straightforward
         #and is taken care of within the cstat function call        
@@ -314,8 +315,7 @@ class SimpleFit():
             residuals = self.custom_likelihood(*custom_args)
             bars = np.ones(len(self.data))
         else:
-            raise ValueError("The supported residual types are ratio, chisq, and cstat")
-            
+            raise ValueError("The supported residual types are ratio, chisq, and cstat")    
         return residuals, bars
 
     def print_fit_stat(self):
@@ -390,7 +390,6 @@ class SimpleFit():
         self.set_params(fit_params)
         
         self.print_fit_report()
-        self.print_model()
         return
     
     def print_model(self):
@@ -433,6 +432,47 @@ class SimpleFit():
         if self.likelihood == "chisq":
             print(f"    Akaike info crit   = {result.aic}")
             print(f"    Bayesian info crit = {result.bic}")
+        
+        namelen = max(len(n) for n in list(result.params.keys()))
+        parnames_varying = [par for par in result.params if result.params[par].vary]
+        #report parameteres that didn't vary/are stuck
+        for name in parnames_varying:
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            if par.init_value and np.allclose(par.value, par.init_value):
+                print(f'    {name}:{space}  at initial value')
+            if (np.allclose(par.value, par.min) or np.allclose(par.value, par.max)):
+                print(f'    {name}:{space}  at boundary')
+        
+        #report parameter values
+        print("[[Parameters]]")
+        modelpars = result.params
+        for name in result.params.keys():
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            nout = f"{name}:{space}"
+            inval = '(init = ?)'
+            if par.init_value is not None:
+                inval = f'(init = {par.init_value:.7g})'
+            if modelpars is not None and name in modelpars:
+                inval = f'{inval}, model_value = {modelpars[name].value:.7g}'
+            try:
+                sval = gformat(par.value)
+            except (TypeError, ValueError):
+                sval = ' Non numeric value found in parameter'
+            if par.stderr is not None:
+                serr = gformat(par.stderr)
+                try:
+                    spercent = f'({abs(par.stderr/par.value):.2%})'
+                except ZeroDivisionError:
+                    spercent = ''
+                sval = f'{sval} +/-{serr} {spercent}'
+            if par.vary:
+                print(f"    {nout} {sval} {inval}")
+            elif par.expr is not None:
+                print(f"    {nout} {sval} == '{par.expr}'")
+            else:
+                print(f"    {nout} {par.value: .7g} (fixed)")
         return
 
 class EnergyDependentFit():

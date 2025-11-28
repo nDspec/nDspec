@@ -397,15 +397,30 @@ def log_priors(theta, prior_dict):
     return logprior
 
 def cash_likelihood(theta):
-    "wip cash likelihood, (sometimes) maybe good (sometimes) maybe shit"
+    """
+    This function computes the log-likelihood of Poisson-distributed data, and 
+    including priors, for a given set of parameter values theta. It requires 
+    the global variables emcee_priors, emcee_names, emcee_params, emcee_data,
+    emcee_noise, emcee_exp, and emcee_bins beforehand. 
+    
+    Parameters:
+    -----------
+    theta: np.array(float)
+        An array of parameter values for which to compute the log likelihood. 
+        
+    Returns:
+    --------
+    likelihood: float 
+        The value of the summed Cash log-likelihood for the given parameter 
+        values.
+    """
+    
     global emcee_priors
     global emcee_names 
     global emcee_params
     global emcee_data
-    global emcee_data_err
     global emcee_model 
     global emcee_noise
-    global emcee_noise_err
     global emcee_exp
     global emcee_bins
 
@@ -444,6 +459,8 @@ def gaussian_likelihood(theta):
     global emcee_params
     global emcee_data
     global emcee_data_err
+    global emcee_noise
+    global emcee_noise_err
     global emcee_model 
     
     logpriors = log_priors(theta, emcee_priors)
@@ -452,7 +469,11 @@ def gaussian_likelihood(theta):
     for name, val in zip(emcee_names, theta):
         emcee_params[name].value = val    
     model = emcee_model(params=emcee_params)
-    residual = (emcee_data-model)/emcee_data_err
+    if emcee_noise_err is not None:
+        err = np.sqrt(emcee_data_err**2+emcee_noise_err**2)
+    else:
+        err = emcee_data_err
+    residual = (emcee_data-model)/err
     statistic = -0.5*np.sum(residual**2)
     likelihood = statistic + logpriors
     return likelihood
