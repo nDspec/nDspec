@@ -5,6 +5,7 @@ import numpy as np
 import lmfit
 from lmfit import fit_report, minimize
 from lmfit import Parameters
+from lmfit.printfuncs import gformat
 from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
@@ -13,6 +14,7 @@ from matplotlib import rc, rcParams
 rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
 plt.rcParams.update({'font.size': 17})
+import matplotlib.patheffects as path_effects
 
 from scipy.interpolate import interp1d, RegularGridInterpolator
 
@@ -22,7 +24,7 @@ from lmfit import Parameters as LM_Parameters
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
-from .Utils import get_plot_info
+from .Utils import get_plot_info, darken_colour
 
 class JointFit():
     """
@@ -71,6 +73,10 @@ class JointFit():
         a set of chosen fitters for time-averaged spectra. Used to account for 
         instrument flux cross-calibration.
         
+    shared_keys: list 
+        A list containing the keys (names) of the parameters that are identical 
+        and therefore shared between the loaded fitter objects.
+        
     renorm_names: list[str]
         A list with the names of the time-averaged fitter objects to which the 
         cross-calibration constants should be applied. 
@@ -84,6 +90,7 @@ class JointFit():
         self.energy_grid = None
         self.shared_energy_grid = False
         self.shared_model = None
+        self.shared_keys = []
         self.spec_renorm_model = None
         self.renorm_spectra = False 
         self.renorm_names = None
@@ -121,6 +128,9 @@ class JointFit():
         else: 
             #single observation loaded each time 
             self._add_single_fitobj(fitobj,name)
+        
+        if self.shared_keys != []:
+            print(f"""The following parameters have been shared: {self.shared_keys}""")
         return 
     
     def _add_single_fitobj(self,fitobj,name):
@@ -157,13 +167,14 @@ class JointFit():
         #evaluation later
         params = []
         for key in fitobj.model_params.valuesdict().keys():
-            for joint_obs in self.joint_params:
-                if key in self.joint_params[joint_obs]:
-                    print(f"""Caution: {key} is already a model parameter.vDo you intend for these parameters to be linked?
-                          If not, give it a different name to differentiate between multiple instances of the same type for different models.""")
+           for joint_obs in self.joint_params:
+                if key in self.shared_keys:
+                    pass
+                elif key in self.joint_params[joint_obs]:
+                    self.shared_keys.append(key)
                 else:
                     self.model_params.add_many(fitobj.model_params[key])
-            params.append(key)
+                params.append(key)
         self.joint_params[name] = params
         return 
      
@@ -213,7 +224,7 @@ class JointFit():
                                                 fold=False,
                                                 mask=False)
             model_interp = interp1d(self.energy_grid["energ"],joint_eval,
-                                    fill_value='extrapolate',kind='quadratic')
+                                    fill_value='extrapolate',kind='linear')
     
         for name in names:
             if name not in self.joint.keys():
@@ -289,19 +300,20 @@ class JointFit():
                 if self.joint[name].noise is None:
                     resids = (self.joint[name].data-model)/self.joint[name].data_err
                 else:
-                    resids = (self.joint[name].data-self.joint[name].noise-model)/self.joint[name].data_err    
+                    err = np.sqrt(self.joint[name].data_err**2+self.joint[name].noise_err**2)  
+                    resids = (self.joint[name].data-self.joint[name].noise-model)/err   
                 residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals
     
-    def fit_data(self,algorithm='leastsq',names=None):
+    def fit_data(self,algorithm='leastsq',names=None,report_result=True):
         """
         This method attempts to minimize the residuals of the model with respect 
-        to the data defined by the user. The fit always starts from the set of 
-        parameters defined with .set_params(). Once the algorithm has completed 
-        its run, it prints to terminal the best-fitting parameters, fit 
-        statistics, and simple selection criteria (reduced chi-squared, Akaike
-        information criterion, and Bayesian information criterion). 
+        to the data defined by the user. The fit either starts from the set of 
+        parameters defined with .set_params(), or from the parameters set in the 
+        individual fitter obejcts loaded. Once the algorithm has completed its
+        run, it optionally prints to terminal the best-fitting parameters, fit 
+        statistics, and parameter values. 
         
         Parameters:
         -----------
@@ -319,9 +331,10 @@ class JointFit():
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm,args=[names])
-        print(fit_report(self.fit_result,show_correl=False))
         fit_params = self.fit_result.params
         self.set_params(fit_params)
+
+        self.print_fit_report()
         return
 
     def set_energy_grid(self,grid_bounds):
@@ -483,14 +496,84 @@ class JointFit():
             self.joint[names].print_model()
             print("-----------------------")
         
-    def print_fit_results(self):
+    def print_fit_report(self):
         """
-        This method prints the current fit results.
+        This method prints the current fit result.
         """
-        if self.fit_result != None:
-            print(fit_report(self.fit_result,show_correl=False))
-        else:
-            print("No current fit result.")
+        
+        result = self.fit_result
+        print("-----------------------")
+        print("[[Fit Statistics]]")
+        print(f"    # fitting method   = {result.method}")
+        print(f"    # function evals   = {result.nfev}")
+        print(f"    # data points      = {result.ndata}")
+        print(f"    # variables        = {result.nvarys}")
+        
+        total_fit_stat = 0
+        print("-----------------------")        
+        for name in self.joint.keys():
+            print(f"    Dataset: {name}")    
+            model =  self.joint[name].eval_model(params=self.model_params)  
+            if (self.renorm_spectra is True and type(self.joint[name]) == FitTimeAvgSpectrum):
+                model = model*self.model_params['renorm_'+str(name)].value  
+            res, _ = self.joint[name].get_residuals(self.joint[name].likelihood,model=model) 
+            if self.joint[name].likelihood == "chisq":
+                fit_statistic = np.sum(res**2)
+            else:
+                fit_statistic = np.sum(res)
+            dof = len(self.joint[name].data) - result.nvarys  
+            reduced_stat = fit_statistic/dof    
+            total_fit_stat = total_fit_stat + fit_statistic
+            print(f"    fit statistic      = {fit_statistic}")
+            print(f"    reduced statistic  = {reduced_stat}")
+            print(f"    # data points      = {len(self.joint[name].data)}")
+        reduced_stat = total_fit_stat/(result.ndata-result.nvarys) 
+        print("-----------------------")
+        print(f"    total fit stat         = {total_fit_stat}")
+        print(f"    total reduced stat     = {reduced_stat}")        
+        print("-----------------------")
+        
+        namelen = max(len(n) for n in list(result.params.keys()))
+        parnames_varying = [par for par in result.params if result.params[par].vary]
+        #report parameteres that didn't vary/are stuck
+        for name in parnames_varying:
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            if par.init_value and np.allclose(par.value, par.init_value):
+                print(f'    {name}:{space}  at initial value')
+            if (np.allclose(par.value, par.min) or np.allclose(par.value, par.max)):
+                print(f'    {name}:{space}  at boundary')
+        
+        #report parameter values
+        print("[[Parameters]]")
+        modelpars = result.params
+        for name in result.params.keys():
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            nout = f"{name}:{space}"
+            inval = '(init = ?)'
+            if par.init_value is not None:
+                inval = f'(init = {par.init_value:.7g})'
+            if modelpars is not None and name in modelpars:
+                inval = f'(init = {par.init_value:.7g})'
+            try:
+                sval = gformat(par.value)
+            except (TypeError, ValueError):
+                sval = ' Non numeric value found in parameter'
+            if par.stderr is not None:
+                serr = gformat(par.stderr)
+                try:
+                    spercent = f'({abs(par.stderr/par.value):.2%})'
+                except ZeroDivisionError:
+                    spercent = ''
+                sval = f'{sval} +/-{serr} {spercent}'
+            if par.vary:
+                print(f"    {nout} {sval} {inval}")
+            elif par.expr is not None:
+                print(f"    {nout} {sval} == '{par.expr}'")
+            else:
+                print(f"    {nout} {par.value: .7g} (fixed)")
+        return
     
     def __getitem__(self, key):
         """
@@ -499,7 +582,7 @@ class JointFit():
         """
         return self.joint[key]
 
-    def joint_plot(self,units,residuals="delchi",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
+    def joint_plot(self,units,residuals="chisq",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -512,8 +595,8 @@ class JointFit():
             The units to use for the y axis. For more info, see the documentation 
             of the individual fitter classes. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model. For cross spectra this 
             key word is ignored and only delta chi residuals can be shown.
@@ -564,7 +647,7 @@ class JointFit():
             i = i+1
             ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
                          xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
-                         fmt='o',alpha=0.1, color=col)
+                         fmt='o',alpha=0.35, color=col)
             
             model = plot_data["model_vals"]        
             #renormalize if necessary 
@@ -573,7 +656,7 @@ class JointFit():
             ax1.plot(plot_data["x_points"], model,
                      linestyle=plot_data["linestyle"][0],
                      linewidth= plot_data["linewidth"][0],
-                     color=col,zorder=10)
+                     color=darken_colour(col),zorder=10)
             
             ax1.set_xscale("log",base=10)
             ax1.set_yscale("log",base=10)    
@@ -582,20 +665,21 @@ class JointFit():
             y_reserr = plot_data["reserr"]
             
             #if the spectra were renormalized, we have to over-write the residuals
-            if (self.renorm_spectra is True and residuals=="delchi"):
+            if (self.renorm_spectra is True and residuals=="chisq"):
                 y_res = self._minimizer(self.model_params,names=key)
                 y_reserr = plot_data["reserr"]
             elif (self.renorm_spectra is True and residuals=="ratio"):
                 y_res = plot_data["y_points"]/model 
                 y_reserr = plot_data["y_bars"]/model 
             elif (self.renorm_spectra is True):
-                raise ValueError("Residual type not regognized")                
+                y_res = self._minimizer(self.model_params,names=key)
+                y_reserr = np.ones(len(y_res))               
             
             ax2.errorbar(plot_data["x_points"], y_res, 
                          xerr=plot_data["x_bars"], yerr=y_reserr, 
-                         fmt='o',alpha=0.35, color=col)
+                         fmt='o',alpha=0.5, color=col)
         
-        if residuals == "delchi":
+        if residuals == "chisq":
             ax2.plot(plot_data["x_points"],np.zeros(len(plot_data["x_points"])),
                      ls=":",lw=2,color='black',zorder=10)
         elif residuals == "ratio":
@@ -615,7 +699,7 @@ class JointFit():
         else:
             return   
         
-    def all_plots(self,units,residuals="delchi",plot_bkg=None,return_plot=False):
+    def all_plots(self,units,residuals="chisq",plot_bkg=None,return_plot=False):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -630,8 +714,8 @@ class JointFit():
             of the individual fitter classes. Has no impact if the fitter being 
             looked over is a cross spectrum. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model. For cross spectra this 
             key word is ignored and only delta chi residuals can be shown.

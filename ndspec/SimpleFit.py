@@ -2,6 +2,9 @@ import numpy as np
 import warnings
 
 from lmfit import fit_report, minimize 
+from lmfit.printfuncs import gformat
+
+from .Likelihoods import cstat, chisq, ratio
 
 class SimpleFit():
     """
@@ -18,8 +21,19 @@ class SimpleFit():
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -39,6 +53,10 @@ class SimpleFit():
     noise: np.array(float) or None
         If loaded, an array containing the background spectrum, including only 
         the channels noticed in the fit.
+        
+    noise_err: np.array(float or None) 
+        If loaded, an array containing the sqrt of the background counts, only 
+        in the channels noticed during the fit. Used to compute the fit statistic.
 
     _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
         The arrays of every data bin, its error and (if loaded) the backgruond, 
@@ -46,14 +64,17 @@ class SimpleFit():
         Used exclusively to enable book keeping internal to the fitter class.            
     """ 
 
-    def __init__(self):
+    def __init__(self,likelihood="chisq"):
         self.model = None
         self.model_params = None
-        self.likelihood = None
+        self.likelihood = likelihood
+        self.custom_likelihood = None
+        self.custom_args = None
         self.fit_result = None
         self.data = None
         self.data_err = None
         self.noise = None 
+        self.noise_err = None 
     pass
 
     def _set_unmasked_data(self):
@@ -70,6 +91,10 @@ class SimpleFit():
         #data
         if self.noise is not None:
             self._noise_unmasked = self.noise
+            self._noise_err_unmasked = self.noise_err
+        else:
+            self._noise_unmasked = None
+            self._noise_err_unmasked = None
 
         if isinstance(self,EnergyDependentFit) is True:
             self._emin_unmasked = self.response.emin
@@ -179,6 +204,39 @@ class SimpleFit():
         self.model_params = params
         return 
 
+    def set_custom_likelihood(self,likelihood_function,*args):
+        """
+        This method allows users to define their own custom likelihood function,
+        which can then optimized during a fit. In addition, this sets the 
+        value of the class "likelihood" string to custom, to signal to the other 
+        methods that a custom likelihood is in use and should be used for plots, 
+        residuals etc.
+        
+        Parameters:
+        -----------
+        likelihood_function: function
+            The name of the function which calculates the model residuals; e.g.,
+            if we want to minimize the difference between data and model, we 
+            would define:
+            def diff(data,model):
+                return data-model 
+            and call set_custom_likelihood(diff).
+            
+        *args:
+            Additional arguments to be passed to the likelihood calculation, 
+            excluding the data and model (which are always included 
+            automatically by the class). Following the example above:
+            def diff(data,model,factor):
+                return factor*(data-model)
+            and call set_custom_likelihood(diff,5) - if we want to set "factor" 
+            to 5.
+        """
+    
+        self.custom_likelihood = likelihood_function
+        self.custom_args = args
+        self.likelihood = "custom"
+        return
+
     def get_residuals(self,res_type,model=None,mask=True):    
         """
         This methods return the residuals (either as data/model, or as 
@@ -189,12 +247,14 @@ class SimpleFit():
         -----------
         res_type: string 
             If set to "ratio", the method returns the residuals defined as 
-            data/model. If set to "delchi", it returns the contribution of 
-            each energy channel to the total chi squared.
+            data/model. If set to "chisq", it returns the contribution of 
+            each energy channel to the total chi squared. If set to "custom", 
+            the residuals are based on whatever custom likelihood the user 
+            defined.
 
         mask: bool, default True 
             A flag to decide whether to compare the model against the masked or 
-            unmasked data. 
+            unmasked data.
             
         Returns:
         --------
@@ -208,29 +268,55 @@ class SimpleFit():
         """
 
         if self.noise is None:
-            noise = np.zeroes(len(data))
+            noise = np.zeros(len(self.data))
+            noise_err = np.zeros(len(self.data))
         else:
             noise = self.noise
-
+            noise_err = self.noise_err
+        
         if model is None:
-            model = self.eval_model()
-      
-        if mask is True:
+            model = self.eval_model(mask=mask)
+        
+        #separate the case of Cash vs non cash statistic because in the former 
+        #case subtracting/accounting for the background is not straightforward
+        #and is taken care of within the cstat function call        
+        if (mask is True and res_type != "cstat"):
             data = self.data - noise 
-            error = self.data_err
+            error = np.sqrt(self.data_err**2+noise_err**2)
+        elif (mask is False and res_type != "cstat"):
+            #ugly hack to handle 2d cross spectrum plots - ugh
+            if self._noise_unmasked is None:
+                noise = np.zeros(len(self._data_unmasked))
+                noise_err = np.zeros(len(self._data_unmasked))
+            else:
+                noise = self._noise_unmasked
+                noise_err = self._noise_err_unmasked
+            data = self._data_unmasked - noise
+            error = np.sqrt(self._data_err_unmasked**2+noise_err**2)
+        elif mask is True:
+            data = self.data 
         elif mask is False:
-            data = self._data_unmasked - self._noise_unmasked
-            error = self._data_err_unmasked
+            data = self._data_unmasked
 
         if res_type == "ratio":
-            residuals = (data)/model
-            bars = error/model
-        elif res_type == "delchi":
-            residuals = (data-model)/error
-            bars = np.ones(len(data))
+            residuals, bars = ratio(data,error,model,summed=False)
+        elif res_type == "chisq":
+            residuals = chisq(data,error,model,summed=False)
+            bars = np.ones(len(self.data))
+        elif res_type == "cstat":
+            exp = self.exposure 
+            bins = self.ewidths
+            residuals = cstat(data,model,exp,bins,noise=noise,summed=False)
+            bars = np.ones(len(self.data))
+        elif res_type == "custom":
+            custom_args = [model,data]
+            if self.custom_args is not None:
+                for arg in self.custom_args:
+                    custom_args.append(arg)
+            residuals = self.custom_likelihood(*custom_args)
+            bars = np.ones(len(self.data))
         else:
-            raise ValueError("The only supported residual types are ratio and delta chi")
-            
+            raise ValueError("The supported residual types are ratio, chisq, and cstat")    
         return residuals, bars
 
     def print_fit_stat(self):
@@ -241,24 +327,36 @@ class SimpleFit():
         number of data bins, free parameters and degrees of freedom. 
         """
         
-        if self.likelihood is None:
-            res, err = self.get_residuals("delchi")
-            chi_squared = np.sum(np.power(res.reshape(len(self.data)),2))
-            freepars = 0
-            for key, value in self.model_params.items():
-                param = self.model_params[key]
-                if param.vary is True:
-                    freepars += 1
-            dof = len(self.data) - freepars
-            reduced_chisquared = chi_squared/dof
-            print("Goodness of fit metrics:")
-            print("Chi squared" + "{0: <13}".format(" ") + str(chi_squared))
-            print("Reduced chi squared" + "{0: <5}".format(" ") + str(reduced_chisquared))
-            print("Data bins:" + "{0: <14}".format(" ") + str(len(self.data)))
-            print("Free parameters:" + "{0: <8}".format(" ") + str(freepars))
-            print("Degrees of freedom:" + "{0: <5}".format(" ") + str(dof))
-        else:
-            print("custom likelihood not supported yet")
+        if self.likelihood == "chisq":
+            res, _ = self.get_residuals("chisq")
+        elif self.likelihood == "cstat":
+            res, _ = self.get_residuals("cstat")
+        elif self.likelihood == "custom":
+            res, _ = self.get_residuals("custom")
+       
+        freepars = 0
+        for key, value in self.model_params.items():
+            param = self.model_params[key]
+            if param.vary is True:
+                freepars += 1
+        dof = len(self.data) - freepars
+
+        if self.likelihood == "chisq":
+            fit_statistic = np.sum(res**2)
+        elif self.likelihood == "cstat":
+            fit_statistic = np.sum(res)  
+        elif self.likelihood == "custom":
+            fit_statistic = np.sum(res) 
+        reduced_stat = fit_statistic/dof
+
+        print("Goodness of fit metrics:")
+        print(f"Fit statistic: {self.likelihood}")
+        print("Fit statistic" + "{0: <11}".format(" ") + str(fit_statistic))
+        print("Reduced fit stat" + "{0: <8}".format(" ") + str(reduced_stat))
+        print("Data bins:" + "{0: <14}".format(" ") + str(len(self.data)))
+        print("Free parameters:" + "{0: <8}".format(" ") + str(freepars))
+        print("Degrees of freedom:" + "{0: <5}".format(" ") + str(dof))         
+
         return 
 
     def fit_data(self,algorithm='leastsq'):
@@ -289,9 +387,10 @@ class SimpleFit():
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm)
-        print(fit_report(self.fit_result,show_correl=False))
         fit_params = self.fit_result.params
         self.set_params(fit_params)
+        
+        self.print_fit_report()
         return
     
     def print_model(self):
@@ -299,24 +398,83 @@ class SimpleFit():
         This method prints out model components, model parameters, and their
         settings.
         """
-        print("Model \n")
         print("-----------------------")
         print(self.model.name)
-        print("\n")
-        print("Parameters \n")
+        print("-----------------------")
+        print("Parameters")
         print("-----------------------")
         self.model_params.pretty_print()
-        print("-----------------------")
+        return
         
     def print_fit_report(self):
         """
         This method prints the current fit result.
         """
         
-        if self.fit_result != None:
-            print(fit_report(self.fit_result,show_correl=False))
+        result = self.fit_result
+        print("-----------------------")
+        print("[[Fit Statistics]]")
+        print(f"    # fitting method   = {result.method}")
+        print(f"    # function evals   = {result.nfev}")
+        print(f"    # data points      = {result.ndata}")
+        print(f"    # variables        = {result.nvarys}")
+        if self.likelihood == "chisq":        
+            fit_statistic = result.chisqr 
+            reduced_stat = result.redchi
+        #for the Cash statistic, the chisqr/redchi stored in the result object 
+        #is nonesense (since it assumes gaussian statistics etc)
         else:
-            print("No current fit result.")
+            res, _ = self.get_residuals(self.likelihood) 
+            fit_statistic = np.sum(res)  
+            reduced_stat = fit_statistic/(result.ndata-result.nvarys)    
+        print(f"    fit statistic      = {fit_statistic}")
+        print(f"    reduced statistic  = {reduced_stat}")
+        #no idea how to get these two for Cash statistic
+        if self.likelihood == "chisq":
+            print(f"    Akaike info crit   = {result.aic}")
+            print(f"    Bayesian info crit = {result.bic}")
+        
+        namelen = max(len(n) for n in list(result.params.keys()))
+        parnames_varying = [par for par in result.params if result.params[par].vary]
+        #report parameteres that didn't vary/are stuck
+        for name in parnames_varying:
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            if par.init_value and np.allclose(par.value, par.init_value):
+                print(f'    {name}:{space}  at initial value')
+            if (np.allclose(par.value, par.min) or np.allclose(par.value, par.max)):
+                print(f'    {name}:{space}  at boundary')
+        
+        #report parameter values
+        print("[[Parameters]]")
+        modelpars = result.params
+        for name in result.params.keys():
+            par = result.params[name]
+            space = ' '*(namelen-len(name))
+            nout = f"{name}:{space}"
+            inval = '(init = ?)'
+            if par.init_value is not None:
+                inval = f'(init = {par.init_value:.7g})'
+            if modelpars is not None and name in modelpars:
+                inval = f'{inval}, model_value = {modelpars[name].value:.7g}'
+            try:
+                sval = gformat(par.value)
+            except (TypeError, ValueError):
+                sval = ' Non numeric value found in parameter'
+            if par.stderr is not None:
+                serr = gformat(par.stderr)
+                try:
+                    spercent = f'({abs(par.stderr/par.value):.2%})'
+                except ZeroDivisionError:
+                    spercent = ''
+                sval = f'{sval} +/-{serr} {spercent}'
+            if par.vary:
+                print(f"    {nout} {sval} {inval}")
+            elif par.expr is not None:
+                print(f"    {nout} {sval} == '{par.expr}'")
+            else:
+                print(f"    {nout} {par.value: .7g} (fixed)")
+        return
 
 class EnergyDependentFit():
     """
@@ -427,7 +585,8 @@ class EnergyDependentFit():
             self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)    
             #if we have a background we need to mask that too 
             if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)      
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
+                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)       
         return
    
     def notice_energies(self,bound_lo,bound_hi):
@@ -713,7 +872,7 @@ def load_pha(path,response):
         #note: we are summing the systematic and Poisson errors in quadrature
         #so the factor sqrt in the Poisson error factors out
         if has_sys_err:
-            counts_err = np.sqrt(counts+np.power(counts*sys_err,2.))
+            counts_err = np.sqrt(counts+(counts*sys_err)**2)
         else:
             counts_err = np.sqrt(counts)
         #calculate the spectrum whether it has been grouped or not, along with 
@@ -738,7 +897,7 @@ def load_pha(path,response):
             bin_bounds_lo[-1] = bin_bounds_hi[-2]
             bin_bounds_hi[-1] = response.emax[-1]
             sys_err_per_group = counts_per_group*avg_sys
-            spectrum_error = np.sqrt(np.power(sys_err_per_group,2)+counts_per_group)
+            spectrum_error = np.sqrt(sys_err_per_group**2+counts_per_group)
         else:
             bin_bounds_lo = response.emin
             bin_bounds_hi = response.emax

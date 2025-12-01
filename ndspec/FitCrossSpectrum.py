@@ -26,6 +26,7 @@ from stingray.fourier import poisson_level, get_average_ctrate
 from .Response import ResponseMatrix
 from .Timing import PowerSpectrum, CrossSpectrum
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit, load_pha
+from .Likelihoods import chisq, ratio
 
 pyfftw.interfaces.cache.enable()
 
@@ -61,8 +62,19 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -241,8 +253,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         already been read in and will not be read again.
     """
     
-    def __init__(self):
-        SimpleFit.__init__(self)
+    def __init__(self,likelihood="chisq"):
+        SimpleFit.__init__(self,likelihood)
         self.ref_band = None
         self.freqs = None 
         self._times = None
@@ -1135,12 +1147,14 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-    
-        if self.likelihood is None:
-            model = self.eval_model(params)
-            residuals = (self.data-model)/self.data_err
+        model = self.eval_model(params)  
+          
+        if self.likelihood == "chisq":
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Likelihood type not supported")
         
         return residuals
     
@@ -1389,7 +1403,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return      
 
-    def plot_model_1d(self,plot_data=True,params=None,residuals="delchi",return_plot=False):
+    def plot_model_1d(self,plot_data=True,params=None,residuals="chisq",return_plot=False):
         """
         This method plots the model defined by the user as a function of  the  
         unit dependence specified (ie, Fourier frequency or energy). 
@@ -1422,10 +1436,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             The parameters to be used to evaluate the model. If False, the set 
             of parameters stored in the class is used   
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If using a custom  
+            likelihood, the residuals are computed from it.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -1457,11 +1472,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         model = self.eval_model(params=params)
         
         if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals)
-            if residuals == "delchi":
+            model_res,res_errors = self.get_residuals(residuals,mask=True)
+            if residuals == "chisq":
                 reslabel = "$\\Delta\\chi$"
-            else:
+            elif residuals == "ratio":
                 reslabel = "Data/model"
+            elif self.likelihood == "custom":
+                reslabel = "Residuals"
 
         if self.units != "lags":
             if plot_data is True:
@@ -1506,7 +1523,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 else:
                     ax1.set_ylabel("Real part")
                     ax2.set_ylabel("Imaginary part")
-                if residuals == "delchi":
+                if residuals == "chisq":
                     ax3.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                     ax4.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                 elif residuals == "ratio":
@@ -1552,7 +1569,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     ax2.errorbar(x_axis,model_res[i*data_bound:(i+1)*data_bound],
                                  yerr=res_errors[i*data_bound:(i+1)*data_bound],
                                  linestyle='',marker='o',color=col,zorder=2)
-                if residuals == "delchi": 
+                if residuals == "chisq": 
                     ax2.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                 elif residuals == "ratio":
                     ax2.hlines(1,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
@@ -1582,7 +1599,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return 
 
-    def plot_model_2d(self,params=None,use_phase=False,residuals="delchi",return_plot=False):
+    def plot_model_2d(self,params=None,use_phase=False,residuals="chisq",return_plot=False):
         """
         This method plots the model and data loaded by the user in two dimensions 
         as a function of both Fourier frequency or energy. Regardless of the data
@@ -1605,10 +1622,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             it converts the lags to phases for ease of visualization over a large 
             range in lag timescales.
 
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If using a custom  
+            likelihood, the residuals are computed from it.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -1636,7 +1654,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             data_bound = self.n_chans 
 
         model = self.eval_model(params=params,mask=False)
-        model_res,_ = self.get_residuals(res_type=residuals,model=model,mask=False)
+        model_res,_ = self.get_residuals(residuals,model=model,mask=False)
 
         #the output of eval_model and get_residuals is not masked because we 
         #need to mask by hand here to get a correct 2d plots when ignoring bins

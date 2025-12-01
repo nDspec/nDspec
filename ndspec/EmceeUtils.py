@@ -10,6 +10,8 @@ from matplotlib.colors import TwoSlopeNorm
 
 from .JointFit import JointFit
 from .SimpleFit import SimpleFit
+from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
+from .Likelihoods import cstat 
 
 rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
@@ -22,6 +24,10 @@ emcee_priors = None
 emcee_data = None 
 emcee_data_err = None
 emcee_model = None 
+emcee_noise = None
+emcee_noise_err = None
+emcee_exp = None
+emcee_bins = None
 
 def set_emcee_priors(fitobj,priors):
     """
@@ -80,7 +86,9 @@ def set_emcee_data(fitobj):
     This function is used to set the data and its error to be used with emcee 
     sampling. These are saved in global variables called emcee_data and 
     emcee_data_err; therefore, users should never re-use the variable names 
-    emcee_data and emcee_data_err in their code.
+    emcee_data and emcee_data_err in their code. If the fitter object includes 
+    noise (e.g. a background spectrum) and exposure times, these are included as
+    well. 
     
     Parameters:
     -----------
@@ -90,20 +98,48 @@ def set_emcee_data(fitobj):
     
     global emcee_data
     global emcee_data_err
+    global emcee_noise 
+    global emcee_noise_err
+    global emcee_exp
+    global emcee_bins 
+ 
     if type(fitobj) == JointFit:
         emcee_data = np.array([])
         emcee_data_err = np.array([])
+        emcee_noise = np.array([])
+        emcee_noise_err = np.array([])
+        emcee_exp = np.array([])
+        emcee_bins = np.array([])
         for obs in fitobj.joint:
             if type(fitobj.joint[obs]) == list:
                 for m in fitobj.joint[obs]:
                     emcee_data = np.concat([emcee_data,m.data])
                     emcee_data_err = np.concat([emcee_data_err,m.data_err])
+                    if m.noise is not None:
+                        emcee_noise = np.concat([emcee_noise,m.noise])
+                        emcee_noise_err = np.concat([emcee_noise_err,m.noise_err])
+                    if m.likelihood == "cash":
+                        emcee_exp = np.concat([emcee_exp,m.exposure])
+                        emcee_bins = np.concat([emcee_bins,m.ewidths])
             else:
                 emcee_data = np.concat([emcee_data,fitobj.joint[obs].data])
                 emcee_data_err = np.concat([emcee_data_err,fitobj.joint[obs].data_err])
+                if fitobj.joint[obs].noise is not None:
+                    emcee_noise = np.concat([emcee_noise,fitobj.joint[obs].noise])
+                    emcee_noise_err = np.concat([emcee_noise_err,fitobj.joint[obs].noise_err])
+                if fitobj.joint[obs].likelihood == "cash":
+                    emcee_exp = np.concat([emcee_exp,fitobj.joint[obs].exposure])
+                    emcee_bins = np.concat([emcee_bins,fitobj.joint[obs].ewidths])
     else:
         emcee_data = fitobj.data 
         emcee_data_err = fitobj.data_err
+        if fitobj.noise is not None:
+            emcee_noise = fitobj.noise
+            emcee_noise_err = fitobj.noise_err
+        if fitobj.likelihood == "cash":
+            emcee_exp = fitobj.exposure
+            emcee_bins = fitobj.ewidths
+            
     return
 
 def set_emcee_parameters(params):
@@ -360,10 +396,48 @@ def log_priors(theta, prior_dict):
         logprior = logprior + obj.logprob(val) 
     return logprior
 
-    
-def chi_square_likelihood(theta):
+def cash_likelihood(theta):
     """
-    This function computes the log-likelihood, using the chi-square statistic
+    This function computes the log-likelihood of Poisson-distributed data, and 
+    including priors, for a given set of parameter values theta. It requires 
+    the global variables emcee_priors, emcee_names, emcee_params, emcee_data,
+    emcee_noise, emcee_exp, and emcee_bins beforehand. 
+    
+    Parameters:
+    -----------
+    theta: np.array(float)
+        An array of parameter values for which to compute the log likelihood. 
+        
+    Returns:
+    --------
+    likelihood: float 
+        The value of the summed Cash log-likelihood for the given parameter 
+        values.
+    """
+    
+    global emcee_priors
+    global emcee_names 
+    global emcee_params
+    global emcee_data
+    global emcee_model 
+    global emcee_noise
+    global emcee_exp
+    global emcee_bins
+
+    logpriors = log_priors(theta, emcee_priors)
+    if not np.isfinite(logpriors):
+        return -np.inf        
+    for name, val in zip(emcee_names, theta):
+        emcee_params[name].value = val    
+    model = emcee_model(params=emcee_params)    
+    residual = cstat(emcee_data,model,emcee_exp,emcee_bins,emcee_noise)
+    statistic = -0.5*np.sum(residual)
+    likelihood = statistic + logpriors
+    return likelihood
+    
+def gaussian_likelihood(theta):
+    """
+    This function computes the log-likelihood, using a Gaussian distribution
     and including priors, for a given set of parameter values theta. It requires
     the user to have set the global variables emcee_priors, emcee_names, 
     emcee_params, emcee_data, emcee_data_err and emcee_model beforehand. 
@@ -385,6 +459,8 @@ def chi_square_likelihood(theta):
     global emcee_params
     global emcee_data
     global emcee_data_err
+    global emcee_noise
+    global emcee_noise_err
     global emcee_model 
     
     logpriors = log_priors(theta, emcee_priors)
@@ -393,93 +469,15 @@ def chi_square_likelihood(theta):
     for name, val in zip(emcee_names, theta):
         emcee_params[name].value = val    
     model = emcee_model(params=emcee_params)
-    residual = (emcee_data-model)/emcee_data_err
+    if emcee_noise_err is not None:
+        err = np.sqrt(emcee_data_err**2+emcee_noise_err**2)
+    else:
+        err = emcee_data_err
+    residual = (emcee_data-model)/err
     statistic = -0.5*np.sum(residual**2)
     likelihood = statistic + logpriors
     return likelihood
-
-#note: double check units/obs_time
-#def cash_likelihood(theta,obs_time):
-#    """
-#    This function computes the log-likelihood, using the Cash statistic
-#    and including priors, for a given set of parameter values theta. It requires
-#    the user to have set the global variables emcee_priors, emcee_names, 
-#    emcee_params, emcee_data, emcee_data_err and emcee_model beforehand. Here, 
-#    the definition of the Cash likelihood is identical to that of Xspec,  
-#    https://heasarc.gsfc.nasa.gov/xanadu/xspec/manual/XSappendixStatistics.html.
-    
-#    Input: 
-#    ------
-#    theta: np.array(float)
-#        An array of parameter values for which to compute the log likelihood. 
-#        
-#    obs_time: float 
-#        The exposure time of the observation. 
-        
-#    Returns:
-#    --------
-#    likelihood: float 
-#        The value of the cstat log-likelihood for the given parameter values.        
-#    """  
-
-#    global emcee_priors
-#    global emcee_names 
-#    global emcee_params
-#    global emcee_data
-#    global emcee_model 
-
-#    logpriors = log_priors(theta, emcee_priors)
-#    if not np.isfinite(logpriors):
-#        return -np.inf       
-#    for name, val in zip(emcee_names, theta):
-#        emcee_params[name].value = val    
-#    model = emcee_model(params=emcee_params)
-#    cash = model - emcee_data/obs_time + emcee_data/obs_time*(np.log(emcee_data/obs_time)-np.log(model))
-#    statistic = -np.sum(cash)
-#    likelihood = statistic + logpriors
-#    return likelihood
-
-#def whittle_likelihood(theta,segments):
-#    """
-#    This function computes the log-likelihood, using the Whittle statistic
-#    and including priors, for a given set of parameter values theta. This
-#    appropariate for modelling power spectra of binned time series data, and is 
-#    described in Barret and Vaughan (2012) and Bachetti and Huppenkothen (2023):
-#    https://ui.adsabs.harvard.edu/abs/2012ApJ...746..131B/abstract
-#    https://ui.adsabs.harvard.edu/abs/2022arXiv220907954B/abstract
-    
-#    Input: 
-#    ------
-#    theta: np.array(float)
-#        An array of parameter values for which to compute the log likelihood. 
-        
-#    segments: int 
-#        The number of segments used to average the data in the powerspectrum.
-        
-#    Returns:
-#    --------
-#    likelihood: float 
-#        The value of the cstat log-likelihood for the given parameter values.        
-#    """ 
-
-#    global emcee_priors
-#    global emcee_names 
-#    global emcee_params
-#    global emcee_data
-#    global emcee_model 
-    
-#    logpriors = -log_priors(theta, emcee_priors)
-#    if not np.isfinite(logpriors):
-#        return -np.inf       
-#    for name, val in zip(emcee_names, theta):
-#        emcee_params[name].value = val    
-#    model = emcee_model(params=emcee_params)
-#    nu = 2.*segments
-#    whittle = emcee_data/model + np.log(model) + (2./nu -1)*np.log(emcee_data)
-#    statistic = -nu*np.sum(whittle)
-#    likelihood = statistic + logpriors
-#    return likelihood
-    
+   
 def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_autocorr=True):
     """
     Given a sampler emcee EnsamleSampler object, this function calculates and 

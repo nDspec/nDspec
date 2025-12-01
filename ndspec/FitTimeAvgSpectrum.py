@@ -11,6 +11,7 @@ from lmfit.model import ModelResult as LM_result
 
 from .Response import ResponseMatrix
 from .SimpleFit import SimpleFit, EnergyDependentFit, load_pha
+from .Likelihoods import cstat, chisq, ratio
 
 class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     """
@@ -31,8 +32,19 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -52,6 +64,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     noise: np.array(float) or None
         If loaded, an array containing the background spectrum, including only 
         the channels noticed in the fit.
+        
+    noise_err: np.array(float or None) 
+        If loaded, an array containing the sqrt of the background counts, only 
+        in the channels noticed during the fit. Used to compute the fit statistic.
 
     _data_unmasked, _data_err_unmasked, _noise_unmasked: np.array(float)
         The arrays of every data bin, its error and (if loaded) the backgruond, 
@@ -108,10 +124,14 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         The instrument response matrix corresponding to the spectrum to be 
         fitted. It is required to define the energy grids over which model and
         data are defined. 
+        
+    exposure: np.float 
+        The exposure time of the observation. Only used for calculating 
+        Poisson-type likelihoods.
     """ 
     
-    def __init__(self):
-        SimpleFit.__init__(self)
+    def __init__(self,likelihood="chisq"):
+        SimpleFit.__init__(self,likelihood)
         self.response = None    
         pass
 
@@ -145,19 +165,23 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         bounds_lo, bounds_hi, counts, error, exposure, src_backsc = load_pha(data,response)
         self.response = response.rebin_channels(bounds_lo,bounds_hi) 
         EnergyDependentFit.__init__(self)  
+
+        #this loads the spectrum in units of counts/s/keV
+        self.data = counts/exposure/self.ewidths
+        self.data_err = error/exposure/self.ewidths
+        self.exposure = exposure
         
         if background is not None:
-            bounds_bkg_lo, bounds_bkg_hi, bkg_counts, _, _, bkg_backsc = load_pha(background,response)       
+            bounds_bkg_lo, bounds_bkg_hi, bkg_counts, bkg_error, _, bkg_backsc = load_pha(background,response)       
             backfac = src_backsc/bkg_backsc
             self.noise = self.response._rebin_sum(bkg_counts,
                                                   [bounds_bkg_lo, bounds_bkg_hi],
                                                   [bounds_lo, bounds_hi])
             #for imaging instruments, this factor acconuts for cases when the 
             #area of extracted spectra+backgrounds is different. 
+            self.noise_err = np.sqrt(self.noise)*backfac/exposure/self.ewidths
             self.noise = self.noise*backfac/exposure/self.ewidths
-        #this loads the spectrum in units of counts/s/keV
-        self.data = counts/exposure/self.ewidths
-        self.data_err = error/exposure/self.ewidths
+
         self._set_unmasked_data()
         return 
     
@@ -181,6 +205,24 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         self.response = response
         EnergyDependentFit.__init__(self)  
         return
+
+    def set_fit_statistic(self,stat):
+        """
+        This method is used to set the statistic to be optimized during the fit.
+        By default, the optimizer will optimize the chi-squared statistic. 
+        
+        Parameters:
+        -----------
+        stat: str 
+            A string with the name of the fit statistic to be used. Supported 
+            statistics currently are "chisq" (the standard chi squared statistic, 
+            appropriate for data in the Gaussian regime) and "cstat" (the Cash 
+            statistic, see https://ui.adsabs.harvard.edu/abs/1979ApJ...228..939C/abstract,
+            appropriate for Poisson-distributed data). 
+        """
+        if (stat != "chisq" and stat != "cstat" and stat != "custom"):
+            raise ValueError("Fit statistic not recognized")
+        self.likelihood = stat 
 
     def eval_model(self,params=None,ear=None,fold=True,mask=True):    
         """
@@ -259,15 +301,17 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
+
+        model = self.eval_model(params)
     
-        if self.likelihood is None:
-            model = self.eval_model(params)
-            if self.noise is None:
-                residuals = (self.data-model)/self.data_err
-            else:
-                residuals = (self.data-self.noise-model)/self.data_err
+        if self.likelihood == "chisq":
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "cstat":
+            residuals, _ = self.get_residuals("cstat",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Chosen likelihood not supported")
         return residuals
 
     def plot_data(self,units="data",plot_bkg=False,return_plot=False):
@@ -368,7 +412,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             return 
 
     def plot_model(self,plot_data=True,plot_components=False,plot_bkg=False,
-                   params=None,units="data",residuals="delchi",return_plot=False):
+                   params=None,units="data",residuals=None,return_plot=False):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
@@ -415,10 +459,13 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             For instance, units="eeunfold" plots units of kev^2 counts/s/keV/cm^2,
             i.e. units of nuFnu. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default=None
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model; if residuals "cstat", the 
+            plot shows the contribution of each bin to the Cash statistic. If
+            residual units are not specified, they are computed from the  
+            likelihood set by the user. 
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -428,7 +475,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
-        """           
+        """        
+        
+        if residuals is None:
+            residuals = self.likelihood
                                      
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
         xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
@@ -459,10 +509,14 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         #as well as the residuals
         if plot_data is True:
             model_res,res_errors = self.get_residuals(residuals)
-            if residuals == "delchi":
+            if residuals == "chisq":
                 reslabel = "$\\Delta\\chi$"
             elif residuals == "ratio":
                 reslabel = "Data/model"
+            elif residuals == "cstat":
+                reslabel = "$\\Delta C$"
+            elif residuals == "custom":
+                reslabel = "Residuals"
             else:
                 raise ValueError("Residual format not supported")   
                             
@@ -523,9 +577,13 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if plot_data is True:
             ax1.set_ylim([0.85*np.min(data),1.15*np.max(data)])
-            ax2.errorbar(energies,model_res,yerr=res_errors,
-                         linestyle='',marker='o')
-            if residuals == "delchi":
+            if residuals != "cstat":
+                ax2.errorbar(energies,model_res,yerr=res_errors,
+                             linestyle='',marker='o')
+            else: 
+                #placeholder, do the histogram thing properly
+                ax2.step(energies,model_res,where='mid')                
+            if residuals == "chisq":
                 ax2.plot(energies,np.zeros(len(energies)),
                          ls=":",lw=2,color='black')
             elif residuals == "ratio":
