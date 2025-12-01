@@ -73,7 +73,7 @@ def parse_plot_lines(plot):
             print(f"Y data length: {len(line.get_ydata())}")
             print(f"First 3 (x, y) points: {list(zip(line.get_xdata()[:3], line.get_ydata()[:3]))}")
             
-def get_plot_info(plot):
+def get_plot_info(plot,residuals=None):
     """
     This function is used to return the data points, as well as x and y error 
     bars, and model values, of an input matplotlib plot object created with the
@@ -83,6 +83,10 @@ def get_plot_info(plot):
     -----------
     plot: matplotlib.figure.Figure
         A plot object of which you want to list the contents of the axes. 
+        
+    residuals: str 
+        A string to keep track of the type of residuals used. Necessary because 
+        depending on the residual units, the plot will contain different lines.
         
     Returns:
     --------
@@ -132,10 +136,15 @@ def get_plot_info(plot):
     x_data = np.array([seg[0, 0] for seg in segments_y])  
     y_errors = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_y]).T - y_midpoints)
     
-    # Extract data points and errors for the resiuals. The x axis is the same as above. 
-    segments_res = ax2_data.collections[0].get_segments()
-    y_res = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_res], axis=1)
-    y_reserr = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_res]).T - y_res)
+    if residuals != "cstat":
+        # Extract data points and errors for the resiuals. The x axis is the same as above. 
+        segments_res = ax2_data.collections[0].get_segments()
+        y_res = np.mean([[seg[0, 1], seg[1, 1]] for seg in segments_res], axis=1)
+        y_reserr = np.abs(np.array([[seg[0, 1], seg[1, 1]] for seg in segments_res]).T - y_res)
+    else: 
+        res_line  = ax2_data.get_lines()[0]
+        y_res = res_line.get_ydata()
+        y_reserr = np.zeros(len(y_res))
   
     #Extract model lines 
     model_line = lines[1]    

@@ -113,23 +113,23 @@ def set_emcee_data(fitobj):
         for obs in fitobj.joint:
             if type(fitobj.joint[obs]) == list:
                 for m in fitobj.joint[obs]:
-                    emcee_data = np.concat([emcee_data,m.data])
-                    emcee_data_err = np.concat([emcee_data_err,m.data_err])
+                    emcee_data = np.concatenate([emcee_data,m.data])
+                    emcee_data_err = np.concatenate([emcee_data_err,m.data_err])
                     if m.noise is not None:
-                        emcee_noise = np.concat([emcee_noise,m.noise])
-                        emcee_noise_err = np.concat([emcee_noise_err,m.noise_err])
+                        emcee_noise = np.concatenate([emcee_noise,m.noise])
+                        emcee_noise_err = np.concatenate([emcee_noise_err,m.noise_err])
                     if m.likelihood == "cash":
-                        emcee_exp = np.concat([emcee_exp,m.exposure])
-                        emcee_bins = np.concat([emcee_bins,m.ewidths])
+                        emcee_exp = np.concatenate([emcee_exp,m.exposure])
+                        emcee_bins = np.concatenate([emcee_bins,m.ewidths])
             else:
-                emcee_data = np.concat([emcee_data,fitobj.joint[obs].data])
-                emcee_data_err = np.concat([emcee_data_err,fitobj.joint[obs].data_err])
+                emcee_data = np.concatenate([emcee_data,fitobj.joint[obs].data])
+                emcee_data_err = np.concatenate([emcee_data_err,fitobj.joint[obs].data_err])
                 if fitobj.joint[obs].noise is not None:
-                    emcee_noise = np.concat([emcee_noise,fitobj.joint[obs].noise])
-                    emcee_noise_err = np.concat([emcee_noise_err,fitobj.joint[obs].noise_err])
+                    emcee_noise = np.concatenate([emcee_noise,fitobj.joint[obs].noise])
+                    emcee_noise_err = np.concatenate([emcee_noise_err,fitobj.joint[obs].noise_err])
                 if fitobj.joint[obs].likelihood == "cash":
-                    emcee_exp = np.concat([emcee_exp,fitobj.joint[obs].exposure])
-                    emcee_bins = np.concat([emcee_bins,fitobj.joint[obs].ewidths])
+                    emcee_exp = np.concatenate([emcee_exp,fitobj.joint[obs].exposure])
+                    emcee_bins = np.concatenate([emcee_bins,fitobj.joint[obs].ewidths])
     else:
         emcee_data = fitobj.data 
         emcee_data_err = fitobj.data_err

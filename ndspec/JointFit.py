@@ -641,7 +641,7 @@ class JointFit():
                                                   plot_bkg=plot_bkg,
                                                   return_plot=True)                       
 
-            plot_data = get_plot_info(plot)
+            plot_data = get_plot_info(plot,residuals=residuals)
             
             col="C"+str(i)
             i = i+1
@@ -670,10 +670,7 @@ class JointFit():
                 y_reserr = plot_data["reserr"]
             elif (self.renorm_spectra is True and residuals=="ratio"):
                 y_res = plot_data["y_points"]/model 
-                y_reserr = plot_data["y_bars"]/model 
-            elif (self.renorm_spectra is True):
-                y_res = self._minimizer(self.model_params,names=key)
-                y_reserr = np.ones(len(y_res))               
+                y_reserr = plot_data["y_bars"]/model           
             
             ax2.errorbar(plot_data["x_points"], y_res, 
                          xerr=plot_data["x_bars"], yerr=y_reserr, 
