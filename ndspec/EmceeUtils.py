@@ -484,11 +484,32 @@ def gaussian_likelihood(theta):
     for name, val in zip(emcee_names, theta):
         emcee_params[name].value = val    
     model = emcee_model(params=emcee_params)
-    if emcee_noise_err is not None:
-        err = np.sqrt(emcee_data_err**2+emcee_noise_err**2)
+
+    #flatten arrays if necessary
+    if len(emcee_data) > 1:
+        data = []
+        for array in emcee_data:
+            data.extend(array)
+        data = np.asarray(data)
+        
+        err = []
+        for array in emcee_data_err:
+            err.extend(array)
+        err = np.asarray(err)
+        
+        noise_err = [] 
+        for array in emcee_noise_err:
+            noise_err.extend(array)
+        noise_err = np.asarray(noise_err)
     else:
-        err = emcee_data_err
-    residual = (emcee_data-model)/err
+        data = emcee_data
+        err = emcee_data_err 
+        noise_err = emcee_noise_err
+    
+    if noise_err is not None:
+        err = np.sqrt(err**2+noise_err**2)
+
+    residual = (data-model)/err
     statistic = -0.5*np.sum(residual**2)
     likelihood = statistic + logpriors
     return likelihood
