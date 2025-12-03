@@ -646,6 +646,8 @@ class ResponseMatrix(nDspecOperator):
         energy_widths = self.energ_hi - self.energ_lo 
         unfold_matrix = energy_widths.reshape(self.n_energs,1)*self.resp_matrix
         unfold_array = np.sum(unfold_matrix,axis=0).reshape(self.n_chans,1) 
+        #fix the warning when unfolding 
+        unfold_array[unfold_array==0] = 1e-50       
 
         if units_in == "channel":
             unfold_model = array/unfold_array
@@ -659,7 +661,7 @@ class ResponseMatrix(nDspecOperator):
         #this confuses matplotlib and produces weird plots
         if (unfold_model.size == self.n_chans):
             unfold_model = unfold_model.reshape(self.n_chans)      
-        
+ 
         return unfold_model
        
     def set_exposure_time(self,time):

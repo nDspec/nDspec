@@ -55,7 +55,7 @@ def chisq(data,err,model,noise=None,noise_err=None,summed=False):
     else:
         return chisq
     
-def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
+def ratio(data,err,model,noise=None,noise_err=None,summed=False,bars=True):
     """
     This function is used to calculate the ratio of the data to a model. If a 
     background and its uncertainty are provided, these are subtracted from the 
@@ -111,7 +111,7 @@ def ratio(data,err,model,noise=None,noise_err=None,summed=True,bars=True):
         return np.sum(ratio)
 
     if bars is True:
-        bars = err/model 
+        bars = err/model     
         return ratio, bars
     else: 
         return ratio

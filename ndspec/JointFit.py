@@ -25,6 +25,7 @@ from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from .Utils import get_plot_info, darken_colour
+from .Likelihoods import cstat, chisq, ratio
 
 class JointFit():
     """
@@ -209,6 +210,9 @@ class JointFit():
         
         if names == None: #retrieves all models
             names = self.joint.keys()
+        elif type(names) == str:
+            names = [names]
+            
         if params == None:
             params = self.model_params
         #creates structure to return model results
@@ -296,12 +300,9 @@ class JointFit():
             model_dict = self.eval_model(params,names,flatten=False)
             residuals = np.array([])
             for name in names:
-                model = model_dict[name]
-                if self.joint[name].noise is None:
-                    resids = (self.joint[name].data-model)/self.joint[name].data_err
-                else:
-                    err = np.sqrt(self.joint[name].data_err**2+self.joint[name].noise_err**2)  
-                    resids = (self.joint[name].data-self.joint[name].noise-model)/err   
+                model = model_dict[name]          
+                likelihood = self.joint[name].likelihood    
+                resids = self.joint[name].get_residuals(likelihood,model=model)
                 residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
         return residuals
@@ -351,6 +352,8 @@ class JointFit():
             first bin and finishing up to the top edge of the last bin in the 
             new grid.
         """
+        raise AttributeError("THIS METHOD CURRENTLY DOES NOT WORK, DO NOT USE")
+        
         names = list(self.joint.keys())
         model_list = []
         for name in names:
@@ -411,7 +414,7 @@ class JointFit():
             renorm_pars = LM_Parameters()
             for name in self.renorm_names:       
                 renorm_pars.add('renorm_'+str(name),
-                                value=1,min=0.7,max=1.3,vary=True)
+                                value=1,min=0.5,max=1.5,vary=True)
             self.model_params = self.model_params + renorm_pars          
         return
 
@@ -506,10 +509,15 @@ class JointFit():
         print("[[Fit Statistics]]")
         print(f"    # fitting method   = {result.method}")
         print(f"    # function evals   = {result.nfev}")
-        print(f"    # data points      = {result.ndata}")
-        print(f"    # variables        = {result.nvarys}")
+        var = 0
+        for key in self.model_params:
+            if self.model_params[key].vary is True:
+                var += 1
+        print(f"    # variables        = {var}")
         
         total_fit_stat = 0
+        total_n_points = 0
+        
         print("-----------------------")        
         for name in self.joint.keys():
             print(f"    Dataset: {name}")    
@@ -521,16 +529,18 @@ class JointFit():
                 fit_statistic = np.sum(res**2)
             else:
                 fit_statistic = np.sum(res)
-            dof = len(self.joint[name].data) - result.nvarys  
+            dof = len(self.joint[name].data) - var
             reduced_stat = fit_statistic/dof    
             total_fit_stat = total_fit_stat + fit_statistic
+            total_n_points = total_n_points + len(self.joint[name].data)
             print(f"    fit statistic      = {fit_statistic}")
             print(f"    reduced statistic  = {reduced_stat}")
             print(f"    # data points      = {len(self.joint[name].data)}")
-        reduced_stat = total_fit_stat/(result.ndata-result.nvarys) 
+        reduced_stat = total_fit_stat/(total_n_points-var) 
         print("-----------------------")
         print(f"    total fit stat         = {total_fit_stat}")
         print(f"    total reduced stat     = {reduced_stat}")        
+        print(f"    total data points      = {total_n_points}")
         print("-----------------------")
         
         namelen = max(len(n) for n in list(result.params.keys()))
@@ -632,6 +642,9 @@ class JointFit():
             ax1.set_ylim(yrange)
         
         i=0
+        max_xrange = 0.
+        min_xrange = 1e30
+        
         for key in names:
             if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
@@ -639,20 +652,29 @@ class JointFit():
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   plot_bkg=plot_bkg,
-                                                  return_plot=True)                       
-
+                                                  return_plot=True,
+                                                  params=self.model_params)                       
+            
             plot_data = get_plot_info(plot,residuals=residuals)
             
+            #sort the plot bounds 
+            if plot_data["x_points"][0] < min_xrange:
+                min_xrange = plot_data["x_points"][0]   
+            if plot_data["x_points"][-1] > max_xrange: 
+                max_xrange = plot_data["x_points"][-1]  
+                    
             col="C"+str(i)
             i = i+1
             ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
                          xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
                          fmt='o',alpha=0.35, color=col)
             
-            model = plot_data["model_vals"]        
+            model = plot_data["model_vals"] 
+                
             #renormalize if necessary 
             if (self.renorm_spectra is True):
                 model = model*self.model_params['renorm_'+str(key)].value            
+            
             ax1.plot(plot_data["x_points"], model,
                      linestyle=plot_data["linestyle"][0],
                      linewidth= plot_data["linewidth"][0],
@@ -666,21 +688,36 @@ class JointFit():
             
             #if the spectra were renormalized, we have to over-write the residuals
             if (self.renorm_spectra is True and residuals=="chisq"):
-                y_res = self._minimizer(self.model_params,names=key)
+                model_folded = self.eval_model(names=key,flatten=True)
+                y_res = chisq(self.joint[key].data,self.joint[key].data_err,
+                              model_folded,
+                              noise=self.joint[key].noise,
+                              noise_err=self.joint[key].noise_err,
+                              )
                 y_reserr = plot_data["reserr"]
             elif (self.renorm_spectra is True and residuals=="ratio"):
-                y_res = plot_data["y_points"]/model 
-                y_reserr = plot_data["y_bars"]/model           
-            
+                model_folded = self.eval_model(names=key,flatten=True)
+                res, bars = ratio(self.joint[key].data,
+                                  self.joint[key].data_err,
+                                  model_folded,
+                                  noise=self.joint[key].noise,
+                                  noise_err=self.joint[key].noise_err,
+                                  summed=False,
+                                  bars=True)
+                y_res = res 
+                y_reserr = bars
+                                    
             ax2.errorbar(plot_data["x_points"], y_res, 
                          xerr=plot_data["x_bars"], yerr=y_reserr, 
                          fmt='o',alpha=0.5, color=col)
         
+        x_points = np.linspace(min_xrange,max_xrange,100)
+
         if residuals == "chisq":
-            ax2.plot(plot_data["x_points"],np.zeros(len(plot_data["x_points"])),
+            ax2.plot(x_points,np.zeros(len(x_points)),
                      ls=":",lw=2,color='black',zorder=10)
         elif residuals == "ratio":
-            ax2.plot(plot_data["x_points"],np.ones(len(plot_data["x_points"])),
+            ax2.plot(x_points,np.ones(len(x_points)),
                      ls=":",lw=2,color='black',zorder=10)
         ax2.set_xscale("log",base=10)
         
@@ -688,6 +725,9 @@ class JointFit():
         ax1.set_ylabel(plot_data["ax1_data"].get_ylabel())
         ax2.set_xlabel(plot_data["ax2_data"].get_xlabel())
         ax2.set_ylabel(plot_data["ax2_data"].get_ylabel())
+        
+        ax1.set_xlim([0.95*min_xrange,1.05*max_xrange])
+        ax2.set_xlim([0.95*min_xrange,1.05*max_xrange])
 
         fig.tight_layout()
 

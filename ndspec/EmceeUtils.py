@@ -291,7 +291,7 @@ class priorLogUniform():
         """        
         
         if self.min < theta < self.max:
-            return -np.log(theta)
+            return -np.log(10**theta)
         return -np.inf
 
 
@@ -368,8 +368,7 @@ class priorLogNormal():
         """
         logprior = -0.5*(np.log(theta)-self.mu)**2/self.sigma**2+0.5*np.log(2.*np.pi*self.sigma**2/theta**2)
         return logprior
-
-        
+       
 def log_priors(theta, prior_dict):
     """
     This function computes the total log-probability of a set of priors, given 
@@ -447,7 +446,7 @@ def cash_likelihood(theta):
                                        emcee_exp[index],emcee_bins[index],
                                        emcee_noise[index],
                                        summed=True)                         
-    likelihood = residual + logpriors
+    likelihood = -residual + logpriors
     return likelihood
     
 def gaussian_likelihood(theta):
