@@ -195,7 +195,7 @@ def initialise_mcmc(fitobj,priors):
         of the prior evaluated at a given point.
 
     Returns:
-    -------
+    --------
     theta: np.array 
         A numpy array containing the values of the free parameters in the model.
     """
@@ -211,6 +211,39 @@ def initialise_mcmc(fitobj,priors):
     set_emcee_model(fitobj)
     set_emcee_priors(fitobj,priors)
     return theta
+
+def reflect_parameter(x, a, b):
+    """
+    This function is used to bounce a parameter value off a hard-limit, defined 
+    by e..g the limits of a uniform prior. It is useful to improve the behavior
+    and acceptance rate of a mcmc chain
+    
+    Parameters:
+    -----------
+    x: np.array(float) or (float) 
+        A value, or array of values, for a parameter which may or may not 
+        exceed the limits defined by the priors 
+        
+    a: np.array(float) or (float) 
+        A value, or array of values, containing the lower limit allowed for 
+        each parameter
+    
+    b: np.array(float) or (float) 
+        A value, or array of values, containing the upper limit allowed for 
+        each parameter
+        
+    Returns:
+    --------
+    y: np.array(float) or (float) 
+        The parameter value to be used in the model, "bounced" of the hard limit 
+        if it exceeds it - e.g. if x=1.2, a=0, b=1, then y = 0.8.
+    """
+    y = x.copy()
+    width = b - a
+    y = (y - a) % (2*width)
+    y = np.where(y <= width, a + y, b - (y - width))
+
+    return y
 
 class priorUniform():
     """
@@ -423,10 +456,23 @@ def cash_likelihood(theta):
     global emcee_exp
     global emcee_bins
 
-    logpriors = log_priors(theta, emcee_priors)
+    #reflect parameters before computing the priors 
+    theta_r = theta
+    index = 0
+    theta[0] = 30
+    for name in emcee_params:
+        if emcee_params[name].vary is True:
+            if (type(emcee_priors[name]) == priorUniform or 
+                type(emcee_priors[name]) == priorLogUniform):
+                min_value = emcee_priors[name].min
+                max_value = emcee_priors[name].max
+                ref_value = reflect_parameter(theta[index],min_value,max_value)
+                theta_r[index] = ref_value
+            index = index + 1          
+            logpriors = log_priors(theta_r, emcee_priors)
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(emcee_names, theta):
+    for name, val in zip(emcee_names, theta_r):
         emcee_params[name].value = val    
     
     model = emcee_model(params=emcee_params) 
@@ -477,11 +523,24 @@ def gaussian_likelihood(theta):
     global emcee_noise_err
     global emcee_model 
     
-    logpriors = log_priors(theta, emcee_priors)
+    #reflect parameters before computing the priors 
+    theta_r = theta
+    index = 0
+    for name in emcee_params:
+        if emcee_params[name].vary is True:
+            if (type(emcee_priors[name]) == priorUniform or 
+                type(emcee_priors[name]) == priorLogUniform):
+                min_value = emcee_priors[name].min
+                max_value = emcee_priors[name].max
+                ref_value = reflect_parameter(theta[index],min_value,max_value)
+                theta_r[index] = ref_value
+            index = index + 1          
+            logpriors = log_priors(theta_r, emcee_priors)
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(emcee_names, theta):
-        emcee_params[name].value = val    
+    for name, val in zip(emcee_names, theta_r):
+        emcee_params[name].value = val 
+   
     model = emcee_model(params=emcee_params)
 
     #flatten arrays if necessary

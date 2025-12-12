@@ -1,5 +1,4 @@
 import warnings
-warnings.filterwarnings("once", category=UserWarning) 
 
 import numpy as np
 import lmfit
