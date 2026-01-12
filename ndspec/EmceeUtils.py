@@ -459,17 +459,27 @@ def cash_likelihood(theta):
     #reflect parameters before computing the priors 
     theta_r = theta
     index = 0
-    theta[0] = 30
+    bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
             if (type(emcee_priors[name]) == priorUniform or 
                 type(emcee_priors[name]) == priorLogUniform):
                 min_value = emcee_priors[name].min
                 max_value = emcee_priors[name].max
-                ref_value = reflect_parameter(theta[index],min_value,max_value)
-                theta_r[index] = ref_value
+            else:
+                min_value = emcee_params[name].min
+                max_value = emcee_params[name].max     
+            #if we're too far from the original boundary just set a hard bound 
+            #on the likelihood
+            if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
+                print("out of boundary")
+                return -np.inf
+            #otherwise, just bounce the value off the limits
+            ref_value = reflect_parameter(theta[index],min_value,max_value)
+            theta_r[index] = ref_value
             index = index + 1          
             logpriors = log_priors(theta_r, emcee_priors)
+    
     if not np.isfinite(logpriors):
         return -np.inf        
     for name, val in zip(emcee_names, theta_r):
@@ -526,16 +536,26 @@ def gaussian_likelihood(theta):
     #reflect parameters before computing the priors 
     theta_r = theta
     index = 0
+    bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
             if (type(emcee_priors[name]) == priorUniform or 
                 type(emcee_priors[name]) == priorLogUniform):
                 min_value = emcee_priors[name].min
                 max_value = emcee_priors[name].max
-                ref_value = reflect_parameter(theta[index],min_value,max_value)
-                theta_r[index] = ref_value
+            else:
+                min_value = emcee_params[name].min
+                max_value = emcee_params[name].max     
+            #if we're too far from the original boundary just set a hard bound 
+            #on the likelihood
+            if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
+                return -np.inf
+            #otherwise, just bounce the value off the limits
+            ref_value = reflect_parameter(theta[index],min_value,max_value)
+            theta_r[index] = ref_value
             index = index + 1          
             logpriors = log_priors(theta_r, emcee_priors)
+
     if not np.isfinite(logpriors):
         return -np.inf        
     for name, val in zip(emcee_names, theta_r):

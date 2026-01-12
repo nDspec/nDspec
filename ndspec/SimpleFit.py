@@ -846,6 +846,10 @@ def load_pha(path,response):
                 backscal = 1.
                 warnings.warn("WARNING: backscal keyword not found, check file format",
                               UserWarning)     
+        if backscal == 0.:
+            backscal = 1.
+            warnings.warn("WARNING: found backscal=0, assuming it is 1",
+                          UserWarning)               
         
         #check that the spectrum and response have the same mission and channel 
         #number         
