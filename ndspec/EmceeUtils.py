@@ -262,6 +262,7 @@ class priorUniform():
     def __init__(self,min,max):
         self.min = min
         self.max = max
+        self.reflect = False
         pass 
         
     def logprob(self,theta):
@@ -302,16 +303,17 @@ class priorLogUniform():
     def __init__(self,min,max):
         self.min = min
         self.max = max
+        self.reflect = False
         pass
     
     def logprob(self,theta):
         """
         This method returns the log probability of the distribution - in this 
         case, an (arbitrary, for the purpose of likelihood optimization) 
-        constant. More explicitely, if x is our parameter and log(x) is uniform,
-        then p(log(x)) = const, p(x) = p(log(x))*dlog(x)/dx = const/x.
+        constant. More explicitely, if x is our parameter and log10(x) is uniform,
+        then p(log10(x)) = const, p(x) = p(log10(x))*dlog10(x)/dx = const/x.
         Therefore, the log-probability is (minus a constant)
-        log(p(x)) = log(1/x) = -log(x). 
+        log10(p(x)) = log10(1/x) = -log10(x). 
         
         Parameters:
         -----------
@@ -324,7 +326,7 @@ class priorLogUniform():
         """        
         
         if self.min < theta < self.max:
-            return -np.log(10**theta)
+            return -np.log10(theta)
         return -np.inf
 
 
@@ -345,6 +347,7 @@ class priorNormal():
     def __init__(self,sigma,mu):
         self.sigma = sigma
         self.mu = mu
+        self.reflect = False
         pass 
 
     def logprob(self,theta):
@@ -383,6 +386,7 @@ class priorLogNormal():
     def __init__(self,sigma,mu):
         self.sigma = sigma
         self.mu = mu
+        self.reflect = False
         pass 
 
     def logprob(self,theta):
@@ -457,28 +461,24 @@ def cash_likelihood(theta):
     global emcee_bins
 
     #reflect parameters before computing the priors 
-    theta_r = theta
+    theta_r = theta.copy()
     index = 0
     bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
-            if (type(emcee_priors[name]) == priorUniform or 
-                type(emcee_priors[name]) == priorLogUniform):
+            if emcee_priors[name].reflect is True:
                 min_value = emcee_priors[name].min
-                max_value = emcee_priors[name].max
-            else:
-                min_value = emcee_params[name].min
-                max_value = emcee_params[name].max     
-            #if we're too far from the original boundary just set a hard bound 
-            #on the likelihood
-            if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
-                print("out of boundary")
-                return -np.inf
-            #otherwise, just bounce the value off the limits
-            ref_value = reflect_parameter(theta[index],min_value,max_value)
-            theta_r[index] = ref_value
-            index = index + 1          
-            logpriors = log_priors(theta_r, emcee_priors)
+                max_value = emcee_priors[name].max   
+                #if we're too far from the original boundary just set a hard bound 
+                #on the likelihood
+                if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
+                    return -np.inf
+                #otherwise, just bounce the value off the limits
+                ref_value = reflect_parameter(theta[index],min_value,max_value)
+                theta_r[index] = ref_value
+                index = index + 1          
+    
+    logpriors = log_priors(theta_r, emcee_priors)
     
     if not np.isfinite(logpriors):
         return -np.inf        
@@ -487,7 +487,7 @@ def cash_likelihood(theta):
     
     model = emcee_model(params=emcee_params) 
  
-    if len(emcee_data) ==1 :
+    if type(emcee_data) == "numpy.ndarray":
         residual = cstat(emcee_data,model,emcee_exp,emcee_bins,emcee_noise,summed=True)
     else:
         residual = 0
@@ -534,18 +534,14 @@ def gaussian_likelihood(theta):
     global emcee_model 
     
     #reflect parameters before computing the priors 
-    theta_r = theta
+    theta_r = theta.copy()
     index = 0
     bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
-            if (type(emcee_priors[name]) == priorUniform or 
-                type(emcee_priors[name]) == priorLogUniform):
+            if emcee_priors[name].reflect is True:
                 min_value = emcee_priors[name].min
-                max_value = emcee_priors[name].max
-            else:
-                min_value = emcee_params[name].min
-                max_value = emcee_params[name].max     
+                max_value = emcee_priors[name].max       
             #if we're too far from the original boundary just set a hard bound 
             #on the likelihood
             if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
@@ -553,8 +549,8 @@ def gaussian_likelihood(theta):
             #otherwise, just bounce the value off the limits
             ref_value = reflect_parameter(theta[index],min_value,max_value)
             theta_r[index] = ref_value
-            index = index + 1          
-            logpriors = log_priors(theta_r, emcee_priors)
+            index = index + 1        
+    logpriors = log_priors(theta_r, emcee_priors)
 
     if not np.isfinite(logpriors):
         return -np.inf        
@@ -564,7 +560,7 @@ def gaussian_likelihood(theta):
     model = emcee_model(params=emcee_params)
 
     #flatten arrays if necessary
-    if len(emcee_data) > 1:
+    if type(emcee_data) == "list":
         data = []
         for array in emcee_data:
             data.extend(array)
