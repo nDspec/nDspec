@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
 from matplotlib import rc, rcParams
 from matplotlib.colors import TwoSlopeNorm
+import scipy.stats
 
 from .JointFit import JointFit
 from .SimpleFit import SimpleFit
@@ -263,6 +264,7 @@ class priorUniform():
         self.min = min
         self.max = max
         self.reflect = False
+        self.distribution = scipy.stats.uniform(self.min,self.max-self.min)
         pass 
         
     def logprob(self,theta):
@@ -284,6 +286,26 @@ class priorUniform():
         if self.min < theta < self.max:
             return 0.0
         return -np.inf
+        
+    def transform_prior(self,quantile):
+        """
+        This method returns the parameter value defined from the quantile of  
+        the cumulative distribution defined in the prior. It effectively 
+        converts an interval from 0-1 to one that samples the prior distribution
+        and is used by nested sampling to define prior likelihoods. 
+        
+        Parameters:
+        -----------
+        quantile: float, 0-1 
+            The quantile for which the prior is to be computed 
+            
+        Returns:
+        --------
+        prior: float 
+            The parameter value for the chosen parameter prior distribution. 
+        """
+        prior = self.distribution.ppf(quantile)
+        return prior 
 
 
 class priorLogUniform():
@@ -329,6 +351,26 @@ class priorLogUniform():
             return -np.log10(theta)
         return -np.inf
 
+    def transform_prior(self,quantile):
+        """
+        This method returns the parameter value defined from the quantile of  
+        the cumulative distribution defined in the prior. It effectively 
+        converts an interval from 0-1 to one that samples the prior distribution
+        and is used by nested sampling to define prior likelihoods. 
+        
+        Parameters:
+        -----------
+        quantile: float, 0-1 
+            The quantile for which the prior is to be computed 
+            
+        Returns:
+        --------
+        prior: float 
+            The parameter value for the chosen parameter prior distribution. 
+        """
+
+        prior = 10.**(self.min + (self.max-self.min) * quantile)
+        return prior 
 
 class priorNormal():
     """
@@ -344,10 +386,11 @@ class priorNormal():
         The expectation of the distribution. 
     """    
     
-    def __init__(self,sigma,mu):
-        self.sigma = sigma
+    def __init__(self,mu,sigma):
         self.mu = mu
+        self.sigma = sigma
         self.reflect = False
+        self.distribution = scipy.stats.norm(self.mu, self.sigma)
         pass 
 
     def logprob(self,theta):
@@ -368,6 +411,25 @@ class priorNormal():
         logprior = -0.5*(theta-self.mu)**2/self.sigma**2+0.5*np.log(2.*np.pi*self.sigma**2)
         return logprior
 
+    def transform_prior(self,quantile):
+        """
+        This method returns the parameter value defined from the quantile of  
+        the cumulative distribution defined in the prior. It effectively 
+        converts an interval from 0-1 to one that samples the prior distribution
+        and is used by nested sampling to define prior likelihoods. 
+        
+        Parameters:
+        -----------
+        quantile: float, 0-1 
+            The quantile for which the prior is to be computed 
+            
+        Returns:
+        --------
+        prior: float 
+            The parameter value for the chosen parameter prior distribution. 
+        """
+        prior = self.distribution.ppf(quantile)
+        return prior 
 
 class priorLogNormal():
     """
@@ -383,10 +445,11 @@ class priorLogNormal():
         The expectation of the distribution. 
     """    
     
-    def __init__(self,sigma,mu):
-        self.sigma = sigma
+    def __init__(self,mu,sigma):
         self.mu = mu
+        self.sigma = sigma
         self.reflect = False
+        self.distribution = scipy.stats.lognorm(self.mu, self.sigma)
         pass 
 
     def logprob(self,theta):
@@ -405,6 +468,26 @@ class priorLogNormal():
         """
         logprior = -0.5*(np.log(theta)-self.mu)**2/self.sigma**2+0.5*np.log(2.*np.pi*self.sigma**2/theta**2)
         return logprior
+
+    def transform_prior(self,quantile):
+        """
+        This method returns the parameter value defined from the quantile of  
+        the cumulative distribution defined in the prior. It effectively 
+        converts an interval from 0-1 to one that samples the prior distribution
+        and is used by nested sampling to define prior likelihoods. 
+        
+        Parameters:
+        -----------
+        quantile: float, 0-1 
+            The quantile for which the prior is to be computed 
+            
+        Returns:
+        --------
+        prior: float 
+            The parameter value for the chosen parameter prior distribution. 
+        """
+        prior = self.distribution.ppf(quantile)
+        return prior 
        
 def log_priors(theta, prior_dict):
     """
