@@ -432,7 +432,7 @@ def log_priors(theta, prior_dict):
         logprior = logprior + obj.logprob(val) 
     return logprior
 
-def cash_likelihood(theta):
+def mcmc_cash_likelihood(theta):
     """
     This function computes the log-likelihood of Poisson-distributed data, and 
     including priors, for a given set of parameter values theta. It requires 
@@ -463,7 +463,6 @@ def cash_likelihood(theta):
     #reflect parameters before computing the priors 
     theta_r = theta.copy()
     index = 0
-    bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
             if emcee_priors[name].reflect is True:
@@ -487,7 +486,7 @@ def cash_likelihood(theta):
     
     model = emcee_model(params=emcee_params) 
  
-    if type(emcee_data) == "numpy.ndarray":
+    if isinstance(emcee_data, numpy.ndarray):
         residual = cstat(emcee_data,model,emcee_exp,emcee_bins,emcee_noise,summed=True)
     else:
         residual = 0
@@ -505,7 +504,7 @@ def cash_likelihood(theta):
     likelihood = -residual + logpriors
     return likelihood
     
-def gaussian_likelihood(theta):
+def mcmc_gaussian_likelihood(theta):
     """
     This function computes the log-likelihood, using a Gaussian distribution
     and including priors, for a given set of parameter values theta. It requires
@@ -536,20 +535,20 @@ def gaussian_likelihood(theta):
     #reflect parameters before computing the priors 
     theta_r = theta.copy()
     index = 0
-    bound_check = 0
     for name in emcee_params:
         if emcee_params[name].vary is True:
             if emcee_priors[name].reflect is True:
                 min_value = emcee_priors[name].min
                 max_value = emcee_priors[name].max       
-            #if we're too far from the original boundary just set a hard bound 
-            #on the likelihood
-            if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
-                return -np.inf
-            #otherwise, just bounce the value off the limits
-            ref_value = reflect_parameter(theta[index],min_value,max_value)
-            theta_r[index] = ref_value
-            index = index + 1        
+                #if we're too far from the original boundary just set a hard bound 
+                #on the likelihood
+                if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
+                    return -np.inf
+                #otherwise, just bounce the value off the limits
+                ref_value = reflect_parameter(theta[index],min_value,max_value)
+                theta_r[index] = ref_value
+                index = index + 1        
+    
     logpriors = log_priors(theta_r, emcee_priors)
 
     if not np.isfinite(logpriors):
@@ -560,7 +559,7 @@ def gaussian_likelihood(theta):
     model = emcee_model(params=emcee_params)
 
     #flatten arrays if necessary
-    if type(emcee_data) == "list":
+    if isinstance(emcee_data, list):
         data = []
         for array in emcee_data:
             data.extend(array)

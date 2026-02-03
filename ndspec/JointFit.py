@@ -261,6 +261,61 @@ class JointFit():
             for key in model_hierarchy:
                 model = np.concatenate([model,model_hierarchy[key]])
             return model
+
+    def get_residuals(self,params=None,names=None,flatten=True):
+        """
+        This methods return the residuals based on the statistic, model and 
+        data defined in each of the loaded fitter objects. 
+        
+        Parameters:
+        -----------
+        params: lmfit.Parameters or list[lmfit.Parameters]
+            The parameter values to use in evaluating the models. Defaults to 
+            those stored in the JointFit instance. 
+        
+        names: list(str), default None
+            names of the models that should be evalualated. Defaults to
+            evaluating all models.
+            
+        flatten: bool, default True 
+            A boolean to switch between returning model evaluations as a 
+            dictionary or numpy array (see below).             
+            
+        Returns:
+        --------
+        residuals: np.array(float) or dict{np.array(float)}
+            Either an array of the same size as the total number of data points,
+            or a dictionary with keys named after each loaded SimpleFit instance,
+            containing the model residuals in each channel.         
+        """
+
+        if self.joint == {}:
+            raise AttributeError("No loaded observations or models")
+            
+        if names == None: #retrieves all models
+            names = list(self.joint.keys())
+        elif type(names) == str:
+            names = [names]
+
+        residual_hierarchy = {}            
+        if type(names) != list:
+            raise TypeError("Inputted names are not valid type")
+        else:
+            model_dict = self.eval_model(params,names,flatten=False)
+            residuals = np.array([])
+            for name in names:
+                model = model_dict[name]          
+                likelihood = self.joint[name].likelihood    
+                resids, _ = self.joint[name].get_residuals(likelihood,model=model)
+                residual_hierarchy[name] = resids
+                
+        if flatten == False:
+            return residual_hierarchy
+        else:
+            residuals = np.array([])
+            for key in residual_hierarchy:
+                residuals = np.concatenate([residuals,residual_hierarchy[key]])
+            return residuals
  
     def _minimizer(self,params,names = None):
         """
@@ -285,7 +340,8 @@ class JointFit():
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-        if self.joint == {}:
+        
+        '''if self.joint == {}:
             raise AttributeError("No loaded observations or models")
             
         if names == None: #retrieves all models
@@ -304,6 +360,10 @@ class JointFit():
                 resids = self.joint[name].get_residuals(likelihood,model=model)
                 residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
             residuals = np.asarray(residuals).flatten()
+        '''
+        
+        residuals = self.get_residuals(params,names,flatten=True)
+            
         return residuals
     
     def fit_data(self,algorithm='leastsq',names=None,report_result=True):
