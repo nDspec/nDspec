@@ -1,4 +1,4 @@
-from . import EmceeUtils
+from . import SamplingUtils
 from . import FitCrossSpectrum
 from . import FitPowerSpectrum
 from . import FitTimeAvgSpectrum
@@ -10,7 +10,8 @@ from . import SimpleFit
 from . import Timing
 from . import XspecInterface
 from . import Simulator
+from . import Likelihoods
 
-__all__ = ["EmceeUtils","FitCrossSpectrum","FitPowerSpectrum","FitTimeAvgSpectrum",
+__all__ = ["SamplingUtils","FitCrossSpectrum","FitPowerSpectrum","FitTimeAvgSpectrum",
            "JointFit","Models","Operator","Response","SimpleFit","Simulator","Timing",
-           "XspecInterface"]
+           "XspecInterface","Likelihoods"]

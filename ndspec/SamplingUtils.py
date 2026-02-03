@@ -18,22 +18,22 @@ rc('font',**{'family':'serif','serif':['Computer Modern']})
 fi = 22
 plt.rcParams.update({'font.size': fi-5})
 
-emcee_names = None 
-emcee_values = None
-emcee_priors = None
-emcee_data = None 
-emcee_data_err = None
-emcee_model = None 
-emcee_noise = None
-emcee_noise_err = None
-emcee_exp = None
-emcee_bins = None
+sampling_names = None 
+sampling_values = None
+sampling_priors = None
+sampling_data = None 
+sampling_data_err = None
+sampling_model = None 
+sampling_noise = None
+sampling_noise_err = None
+sampling_exp = None
+sampling_bins = None
 
-def set_emcee_priors(fitobj,priors):
+def set_sampling_priors(fitobj,priors):
     """
     This function is used to set the priors to be used with emcee sampling.  
-    These priors are saved in a global variable called emcee_priors; therefore,  
-    users should never re-use the variable name emcee_priors in their code.
+    These priors are saved in a global variable called sampling_priors; therefore,  
+    users should never re-use the variable name sampling_priors in their code.
     
     Parameters:
     -----------
@@ -46,7 +46,7 @@ def set_emcee_priors(fitobj,priors):
         of the prior evaluated at a given point.
     """
     
-    global emcee_priors
+    global sampling_priors
     input_par_names = list(priors.keys())
     obj_par_names = list(fitobj.model_params.keys())
 
@@ -60,14 +60,14 @@ def set_emcee_priors(fitobj,priors):
             raise ValueError("Incorrectly specified a prior for a fixed parameter")
         else:
             continue
-    emcee_priors = priors 
+    sampling_priors = priors 
     return 
 
-def set_emcee_model(fitobj): 
+def set_sampling_model(fitobj): 
     """
     This function is used to set the model to be used with emcee sampling.  
-    This model is saved in a global variable called emcee_model; therefore,  
-    users should never re-use the variable name emcee_model in their code.
+    This model is saved in a global variable called sampling_model; therefore,  
+    users should never re-use the variable name sampling_model in their code.
     
     Parameters:
     -----------
@@ -75,18 +75,18 @@ def set_emcee_model(fitobj):
         Object containing the data, specified model, and parameters
     """
     
-    global emcee_model
+    global sampling_model
     if type(fitobj) == JointFit:
         fitobj.flatten = True
-    emcee_model = fitobj.eval_model
+    sampling_model = fitobj.eval_model
     return 
     
-def set_emcee_data(fitobj):
+def set_sampling_data(fitobj):
     """
     This function is used to set the data and its error to be used with emcee 
-    sampling. These are saved in global variables called emcee_data and 
-    emcee_data_err; therefore, users should never re-use the variable names 
-    emcee_data and emcee_data_err in their code. If the fitter object includes 
+    sampling. These are saved in global variables called sampling_data and 
+    sampling_data_err; therefore, users should never re-use the variable names 
+    sampling_data and sampling_data_err in their code. If the fitter object includes 
     noise (e.g. a background spectrum) and exposure times, these are included as
     well. 
     
@@ -96,58 +96,58 @@ def set_emcee_data(fitobj):
         Object containing the data, specified model, and parameters
     """
     
-    global emcee_data
-    global emcee_data_err
-    global emcee_noise 
-    global emcee_noise_err
-    global emcee_exp
-    global emcee_bins 
+    global sampling_data
+    global sampling_data_err
+    global sampling_noise 
+    global sampling_noise_err
+    global sampling_exp
+    global sampling_bins 
  
     if type(fitobj) == JointFit:
-        emcee_data = []
-        emcee_data_err = []
-        emcee_noise = []
-        emcee_noise_err = []
-        emcee_exp = []
-        emcee_bins = []
+        sampling_data = []
+        sampling_data_err = []
+        sampling_noise = []
+        sampling_noise_err = []
+        sampling_exp = []
+        sampling_bins = []
         for obs in fitobj.joint:
             if type(fitobj.joint[obs]) == list:
                 for m in fitobj.joint[obs]:
-                    emcee_data.append(m.data)
-                    emcee_data_err.append(m.data_err)
+                    sampling_data.append(m.data)
+                    sampling_data_err.append(m.data_err)
                     if m.noise is not None:
-                        emcee_noise.append(m.noise)
-                        emcee_noise_err(m.noise_err)
+                        sampling_noise.append(m.noise)
+                        sampling_noise_err(m.noise_err)
                     if m.likelihood == "cstat":
-                        emcee_exp.append(m.exposure)
-                        emcee_bins.append(m.ewidths)
+                        sampling_exp.append(m.exposure)
+                        sampling_bins.append(m.ewidths)
             else:
-                emcee_data.append(fitobj.joint[obs].data)
-                emcee_data_err.append(fitobj.joint[obs].data_err) 
+                sampling_data.append(fitobj.joint[obs].data)
+                sampling_data_err.append(fitobj.joint[obs].data_err) 
                 if fitobj.joint[obs].noise is not None:
-                    emcee_noise.append(fitobj.joint[obs].noise)
-                    emcee_noise_err.append(fitobj.joint[obs].noise_err)
+                    sampling_noise.append(fitobj.joint[obs].noise)
+                    sampling_noise_err.append(fitobj.joint[obs].noise_err)
                 if fitobj.joint[obs].likelihood == "cstat": 
-                    emcee_exp.append(fitobj.joint[obs].exposure)
-                    emcee_bins.append(fitobj.joint[obs].ewidths)                
+                    sampling_exp.append(fitobj.joint[obs].exposure)
+                    sampling_bins.append(fitobj.joint[obs].ewidths)                
     else:
-        emcee_data = fitobj.data 
-        emcee_data_err = fitobj.data_err
+        sampling_data = fitobj.data 
+        sampling_data_err = fitobj.data_err
         if fitobj.noise is not None:
-            emcee_noise = fitobj.noise
-            emcee_noise_err = fitobj.noise_err
+            sampling_noise = fitobj.noise
+            sampling_noise_err = fitobj.noise_err
         if fitobj.likelihood == "cstat":
-            emcee_exp = fitobj.exposure
-            emcee_bins = fitobj.ewidths
+            sampling_exp = fitobj.exposure
+            sampling_bins = fitobj.ewidths
             
     return
 
-def set_emcee_parameters(params):
+def set_sampling_parameters(params):
     """
     This function is used to set the parameters of the model to be used with
     emcee sampling. The parameter object (containing all parameters), as well as
     the names and values of the variable parameters are saved in global 
-    variables called emcee_names, emcee_values and emcee_params; therefore, 
+    variables called sampling_names, sampling_values and sampling_params; therefore, 
     users should never re-use these variable names in their code.
     
     Parameters:
@@ -162,18 +162,18 @@ def set_emcee_parameters(params):
         A numpy array containing the values of the free parameters in the model.
     """
     
-    global emcee_names 
-    global emcee_values 
-    global emcee_params
+    global sampling_names 
+    global sampling_values 
+    global sampling_params
     
-    emcee_params = copy.copy(params) 
-    emcee_values = []
-    emcee_names = []
+    sampling_params = copy.copy(params) 
+    sampling_values = []
+    sampling_names = []
     theta = []
     for key in params:
         if params[key].vary is True:
-            emcee_names = np.append(emcee_names,params[key].name)
-            emcee_values = np.append(emcee_values,params[key].value)
+            sampling_names = np.append(sampling_names,params[key].name)
+            sampling_values = np.append(sampling_values,params[key].value)
             theta = np.append(theta,params[key].value)  
     return theta
 
@@ -206,10 +206,10 @@ def initialise_mcmc(fitobj,priors):
     else:
         raise TypeError("Invalid fit object passed")
     
-    theta = set_emcee_parameters(fitobj.model_params)
-    set_emcee_data(fitobj)
-    set_emcee_model(fitobj)
-    set_emcee_priors(fitobj,priors)
+    theta = set_sampling_parameters(fitobj.model_params)
+    set_sampling_data(fitobj)
+    set_sampling_model(fitobj)
+    set_sampling_priors(fitobj,priors)
     return theta
 
 def reflect_parameter(x, a, b):
@@ -436,8 +436,8 @@ def mcmc_cash_likelihood(theta):
     """
     This function computes the log-likelihood of Poisson-distributed data, and 
     including priors, for a given set of parameter values theta. It requires 
-    the global variables emcee_priors, emcee_names, emcee_params, emcee_data,
-    emcee_noise, emcee_exp, and emcee_bins beforehand. 
+    the global variables sampling_priors, sampling_names, sampling_params, sampling_data,
+    sampling_noise, sampling_exp, and sampling_bins beforehand. 
     
     Parameters:
     -----------
@@ -451,23 +451,23 @@ def mcmc_cash_likelihood(theta):
         values.
     """
     
-    global emcee_priors
-    global emcee_names 
-    global emcee_params
-    global emcee_data
-    global emcee_model 
-    global emcee_noise
-    global emcee_exp
-    global emcee_bins
+    global sampling_priors
+    global sampling_names 
+    global sampling_params
+    global sampling_data
+    global sampling_model 
+    global sampling_noise
+    global sampling_exp
+    global sampling_bins
 
     #reflect parameters before computing the priors 
     theta_r = theta.copy()
     index = 0
-    for name in emcee_params:
-        if emcee_params[name].vary is True:
-            if emcee_priors[name].reflect is True:
-                min_value = emcee_priors[name].min
-                max_value = emcee_priors[name].max   
+    for name in sampling_params:
+        if sampling_params[name].vary is True:
+            if sampling_priors[name].reflect is True:
+                min_value = sampling_priors[name].min
+                max_value = sampling_priors[name].max   
                 #if we're too far from the original boundary just set a hard bound 
                 #on the likelihood
                 if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
@@ -477,29 +477,29 @@ def mcmc_cash_likelihood(theta):
                 theta_r[index] = ref_value
                 index = index + 1          
     
-    logpriors = log_priors(theta_r, emcee_priors)
+    logpriors = log_priors(theta_r, sampling_priors)
     
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(emcee_names, theta_r):
-        emcee_params[name].value = val    
+    for name, val in zip(sampling_names, theta_r):
+        sampling_params[name].value = val    
     
-    model = emcee_model(params=emcee_params) 
+    model = sampling_model(params=sampling_params) 
  
-    if isinstance(emcee_data, numpy.ndarray):
-        residual = cstat(emcee_data,model,emcee_exp,emcee_bins,emcee_noise,summed=True)
+    if isinstance(sampling_data, numpy.ndarray):
+        residual = cstat(sampling_data,model,sampling_exp,sampling_bins,sampling_noise,summed=True)
     else:
         residual = 0
-        for index in range(len(emcee_data)):
+        for index in range(len(sampling_data)):
             if index == 0:
                 bins_old = 0
             else:
                 bins_old = bins_new
-            bins_new = bins_old + len(emcee_data[index])
-            residual = residual+ cstat(emcee_data[index],
+            bins_new = bins_old + len(sampling_data[index])
+            residual = residual+ cstat(sampling_data[index],
                                        model[bins_old:bins_new],
-                                       emcee_exp[index],emcee_bins[index],
-                                       emcee_noise[index],
+                                       sampling_exp[index],sampling_bins[index],
+                                       sampling_noise[index],
                                        summed=True)                         
     likelihood = -residual + logpriors
     return likelihood
@@ -508,8 +508,8 @@ def mcmc_gaussian_likelihood(theta):
     """
     This function computes the log-likelihood, using a Gaussian distribution
     and including priors, for a given set of parameter values theta. It requires
-    the user to have set the global variables emcee_priors, emcee_names, 
-    emcee_params, emcee_data, emcee_data_err and emcee_model beforehand. 
+    the user to have set the global variables sampling_priors, sampling_names, 
+    sampling_params, sampling_data, sampling_data_err and sampling_model beforehand. 
     
     Parameters: 
     -----------
@@ -523,23 +523,23 @@ def mcmc_gaussian_likelihood(theta):
         values.
     """    
 
-    global emcee_priors
-    global emcee_names 
-    global emcee_params
-    global emcee_data
-    global emcee_data_err
-    global emcee_noise
-    global emcee_noise_err
-    global emcee_model 
+    global sampling_priors
+    global sampling_names 
+    global sampling_params
+    global sampling_data
+    global sampling_data_err
+    global sampling_noise
+    global sampling_noise_err
+    global sampling_model 
     
     #reflect parameters before computing the priors 
     theta_r = theta.copy()
     index = 0
-    for name in emcee_params:
-        if emcee_params[name].vary is True:
-            if emcee_priors[name].reflect is True:
-                min_value = emcee_priors[name].min
-                max_value = emcee_priors[name].max       
+    for name in sampling_params:
+        if sampling_params[name].vary is True:
+            if sampling_priors[name].reflect is True:
+                min_value = sampling_priors[name].min
+                max_value = sampling_priors[name].max       
                 #if we're too far from the original boundary just set a hard bound 
                 #on the likelihood
                 if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
@@ -549,35 +549,35 @@ def mcmc_gaussian_likelihood(theta):
                 theta_r[index] = ref_value
                 index = index + 1        
     
-    logpriors = log_priors(theta_r, emcee_priors)
+    logpriors = log_priors(theta_r, sampling_priors)
 
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(emcee_names, theta_r):
-        emcee_params[name].value = val 
+    for name, val in zip(sampling_names, theta_r):
+        sampling_params[name].value = val 
    
-    model = emcee_model(params=emcee_params)
+    model = sampling_model(params=sampling_params)
 
     #flatten arrays if necessary
-    if isinstance(emcee_data, list):
+    if isinstance(sampling_data, list):
         data = []
-        for array in emcee_data:
+        for array in sampling_data:
             data.extend(array)
         data = np.asarray(data)
         
         err = []
-        for array in emcee_data_err:
+        for array in sampling_data_err:
             err.extend(array)
         err = np.asarray(err)
         
         noise_err = [] 
-        for array in emcee_noise_err:
+        for array in sampling_noise_err:
             noise_err.extend(array)
         noise_err = np.asarray(noise_err)
     else:
-        data = emcee_data
-        err = emcee_data_err 
-        noise_err = emcee_noise_err
+        data = sampling_data
+        err = sampling_data_err 
+        noise_err = sampling_noise_err
     
     if noise_err is not None:
         err = np.sqrt(err**2+noise_err**2)
