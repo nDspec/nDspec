@@ -223,7 +223,13 @@ class SimpleFit():
             and call set_custom_likelihood(diff).  
             
         *args:  
-            placeholder
+            Additional arguments to be passed to the likelihood calculation, 
+            excluding the data and model (which are always included 
+            automatically by the class). Following the example above:
+            def diff(data,model,factor):
+                return factor*(data-model)
+            and call set_custom_likelihood(diff,5) - if we want to set "factor"
+            to 5.
         """
 
         self.custom_likelihood = likelihood_function
