@@ -220,7 +220,10 @@ class SimpleFit():
             would define:
             def diff(data,model):
                return data-model 
-            and call set_custom_likelihood(diff).    
+            and call set_custom_likelihood(diff).  
+            
+        *args:  
+            placeholder
         """
 
         self.custom_likelihood = likelihood_function
