@@ -529,7 +529,7 @@ def log_priors(theta, prior_dict):
     """
     This function computes the total log-probability of a set of priors, given 
     a st of input parameter values. This function is called automatically within 
-    the likelihood methods labelled "mcmc_".
+    the likelihood methods labelled "mcmc".
     
     Parameters:
     -----------

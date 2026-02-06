@@ -73,8 +73,8 @@ JointFit Class
    :members:
 
    
-Sampling sampling functions
-~~~~~~~~~~~~~~~~~~~~~~~~
+Sampling functions
+~~~~~~~~~~~~~~~~~~
 
 .. autofunction:: ndspec.SamplingUtils.set_sampling_priors
 
