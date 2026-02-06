@@ -237,7 +237,7 @@ class SimpleFit():
         self.likelihood = "custom"
         return
         
-        def get_residuals(self,res_type,model=None,mask=True):    
+    def get_residuals(self,res_type,model=None,mask=True):    
         """
         This methods return the residuals (either as data/model, or as 
         contribution to the total chi squared) of the input model, given the 
