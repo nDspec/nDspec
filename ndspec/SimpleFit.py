@@ -219,7 +219,7 @@ class SimpleFit():
             if we want to minimize the difference between data and model, we 
             would define:
             def diff(data,model):
-                return data-model 
+              return data-model 
             and call set_custom_likelihood(diff).
             
         *args:
@@ -227,17 +227,17 @@ class SimpleFit():
             excluding the data and model (which are always included 
             automatically by the class). Following the example above:
             def diff(data,model,factor):
-                return factor*(data-model)
+               return factor*(data-model)
             and call set_custom_likelihood(diff,5) - if we want to set "factor" 
             to 5.
         """
-    
+
         self.custom_likelihood = likelihood_function
         self.custom_args = args
         self.likelihood = "custom"
         return
-
-    def get_residuals(self,res_type,model=None,mask=True):    
+        
+        def get_residuals(self,res_type,model=None,mask=True):    
         """
         This methods return the residuals (either as data/model, or as 
         contribution to the total chi squared) of the input model, given the 
