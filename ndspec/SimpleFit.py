@@ -218,6 +218,9 @@ class SimpleFit():
             The name of the function which calculates the model residuals; e.g.,
             if we want to minimize the difference between data and model, we 
             would define:
+            def diff(data,model):
+               return data-model 
+            and call set_custom_likelihood(diff).    
         """
 
         self.custom_likelihood = likelihood_function
