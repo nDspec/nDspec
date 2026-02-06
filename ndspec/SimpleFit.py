@@ -211,6 +211,13 @@ class SimpleFit():
         value of the class "likelihood" string to custom, to signal to the other
         methods that a custom likelihood is in use and should be used for plots,
         residuals etc.
+        
+        Parameters:
+        -----------
+        likelihood_function: function
+            The name of the function which calculates the model residuals; e.g.,
+            if we want to minimize the difference between data and model, we 
+            would define:
         """
 
         self.custom_likelihood = likelihood_function
