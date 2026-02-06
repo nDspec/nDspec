@@ -488,11 +488,48 @@ class priorLogNormal():
         """
         prior = self.distribution.ppf(quantile)
         return prior 
+
+def nested_sampling_priors(quantile_cube):
+    """
+    This function samples the prior distribution for the parameters stored in 
+    the sampling_params global variable. This function is to be used to sample 
+    the prior distribution when  using nested sampling algorithms. Given
+    N parameters, the function maps an N-dimensional unitary cube to the 
+    corresponding quantile in the distribution for each prior. For example, 
+    given a parameter with a Gaussian prior centered at 2, and another parameter
+    with a uniform prior from 3 to 5, the quantile cube (0.5,0.5) would return 
+    (2, 4) - the center of each distribution.
+    
+    Parameters:
+    -----------
+    quantile_cube: np.array(float), 0-1
+        An array containing the quantile for each prior distribution from which 
+        to sample a new value
+        
+    Returns:
+    --------
+    params: np.array(float) 
+        An array containing the parameter values sampled from the priors, given 
+        the input quantiles. 
+    """
+        
+    
+    global sampling_priors
+    global sampling_params 
+    
+    params = quantile_cube.copy()
+    
+    for i, val in enumerate(params):
+        name = list(sampling_priors.keys())[i] 
+        params[i] = sampling_priors[name].transform_prior(val)
+        
+    return params
        
 def log_priors(theta, prior_dict):
     """
     This function computes the total log-probability of a set of priors, given 
-    a st of input parameter values. 
+    a st of input parameter values. This function is called automatically within 
+    the likelihood methods labelled "mcmc_".
     
     Parameters:
     -----------
@@ -515,11 +552,66 @@ def log_priors(theta, prior_dict):
         logprior = logprior + obj.logprob(val) 
     return logprior
 
+def sampling_cash_likelihood(theta):
+    """
+    This function computes the log-likelihood of Poisson-distributed data 
+    excluding priors, for a given set of parameter values theta. This is the 
+    likelihood that should be passed to nested sampling algorithms, which 
+    evaluate the priors separately from the likelihood. It requires the global 
+    variables sampling_names, sampling_params, sampling_data, sampling_noise,
+     sampling_exp, and sampling_bins beforehand.  
+    
+    Parameters:
+    -----------
+    theta: np.array(float)
+        An array of parameter values for which to compute the log likelihood. 
+        
+    Returns:
+    --------
+    likelihood: float 
+        The value of the summed Cash log-likelihood for the given parameter 
+        values.
+    """
+
+    global sampling_names
+    global sampling_params
+    global sampling_data
+    global sampling_model 
+    global sampling_noise
+    global sampling_exp
+    global sampling_bins
+     
+    for name, val in zip(sampling_names, theta):
+        sampling_params[name].value = val    
+    
+    model = sampling_model(params=sampling_params) 
+ 
+    if isinstance(sampling_data, numpy.ndarray):
+        residual = cstat(sampling_data,model,sampling_exp,sampling_bins,sampling_noise,summed=True)
+    else:
+        residual = 0
+        for index in range(len(sampling_data)):
+            if index == 0:
+                bins_old = 0
+            else:
+                bins_old = bins_new
+            bins_new = bins_old + len(sampling_data[index])
+            residual = residual+ cstat(sampling_data[index],
+                                       model[bins_old:bins_new],
+                                       sampling_exp[index],sampling_bins[index],
+                                       sampling_noise[index],
+                                       summed=True)                         
+    likelihood = -residual
+    
+    return likelihood
+
 def mcmc_cash_likelihood(theta):
     """
     This function computes the log-likelihood of Poisson-distributed data, and 
-    including priors, for a given set of parameter values theta. It requires 
-    the global variables sampling_priors, sampling_names, sampling_params, sampling_data,
+    including priors, for a given set of parameter values theta. This is the 
+    likelihood that should be passed to MCMC sampling algorithms, which evaluate
+    the priors together with the likelihood. It requires the global variables 
+    sampling_priors, sampling_names, sampling_params, sampling_data, 
     sampling_noise, sampling_exp, and sampling_bins beforehand. 
     
     Parameters:
@@ -534,14 +626,8 @@ def mcmc_cash_likelihood(theta):
         values.
     """
     
-    global sampling_priors
-    global sampling_names 
+    global sampling_priors 
     global sampling_params
-    global sampling_data
-    global sampling_model 
-    global sampling_noise
-    global sampling_exp
-    global sampling_bins
 
     #reflect parameters before computing the priors 
     theta_r = theta.copy()
@@ -564,28 +650,74 @@ def mcmc_cash_likelihood(theta):
     
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(sampling_names, theta_r):
-        sampling_params[name].value = val    
-    
-    model = sampling_model(params=sampling_params) 
- 
-    if isinstance(sampling_data, numpy.ndarray):
-        residual = cstat(sampling_data,model,sampling_exp,sampling_bins,sampling_noise,summed=True)
-    else:
-        residual = 0
-        for index in range(len(sampling_data)):
-            if index == 0:
-                bins_old = 0
-            else:
-                bins_old = bins_new
-            bins_new = bins_old + len(sampling_data[index])
-            residual = residual+ cstat(sampling_data[index],
-                                       model[bins_old:bins_new],
-                                       sampling_exp[index],sampling_bins[index],
-                                       sampling_noise[index],
-                                       summed=True)                         
-    likelihood = -residual + logpriors
+
+    likelihood = sampling_cash_likelihood(theta_r) + logpriors                      
     return likelihood
+
+def sampling_gaussian_likelihood(theta):
+    """
+    This function computes the log-likelihood, using a Gaussian distribution
+    and including priors, for a given set of parameter values theta. This is the 
+    likelihood that should be passed to nested sampling algorithms, which 
+    evaluate the priors separately from the likelihood. It requires the user to 
+    have set the global variables sampling_names, sampling_params, 
+    sampling_data, sampling_data_err and sampling_model beforehand. 
+    
+    Parameters: 
+    -----------
+    theta: np.array(float)
+        An array of parameter values for which to compute the log likelihood. 
+        
+    Returns:
+    --------
+    likelihood: float 
+        The value of the chi-square log-likelihood for the given parameter 
+        values.
+    """   
+
+
+    global sampling_names 
+    global sampling_params
+    global sampling_data
+    global sampling_data_err
+    global sampling_noise
+    global sampling_noise_err
+    global sampling_model     
+    
+    for name, val in zip(sampling_names, theta):
+        sampling_params[name].value = val 
+   
+    model = sampling_model(params=sampling_params)
+
+    #flatten arrays if necessary
+    if isinstance(sampling_data, list):
+        data = []
+        for array in sampling_data:
+            data.extend(array)
+        data = np.asarray(data)
+        
+        err = []
+        for array in sampling_data_err:
+            err.extend(array)
+        err = np.asarray(err)
+        
+        noise_err = [] 
+        for array in sampling_noise_err:
+            noise_err.extend(array)
+        noise_err = np.asarray(noise_err)
+    else:
+        data = sampling_data
+        err = sampling_data_err 
+        noise_err = sampling_noise_err
+    
+    if noise_err is not None:
+        err = np.sqrt(err**2+noise_err**2)
+
+    residual = (data-model)/err
+    statistic = -0.5*np.sum(residual**2)
+    
+    return statistic 
+
     
 def mcmc_gaussian_likelihood(theta):
     """
@@ -636,38 +768,9 @@ def mcmc_gaussian_likelihood(theta):
 
     if not np.isfinite(logpriors):
         return -np.inf        
-    for name, val in zip(sampling_names, theta_r):
-        sampling_params[name].value = val 
-   
-    model = sampling_model(params=sampling_params)
 
-    #flatten arrays if necessary
-    if isinstance(sampling_data, list):
-        data = []
-        for array in sampling_data:
-            data.extend(array)
-        data = np.asarray(data)
-        
-        err = []
-        for array in sampling_data_err:
-            err.extend(array)
-        err = np.asarray(err)
-        
-        noise_err = [] 
-        for array in sampling_noise_err:
-            noise_err.extend(array)
-        noise_err = np.asarray(noise_err)
-    else:
-        data = sampling_data
-        err = sampling_data_err 
-        noise_err = sampling_noise_err
+    likelihood = sampling_gaussian_likelihood(theta_r) + logpriors
     
-    if noise_err is not None:
-        err = np.sqrt(err**2+noise_err**2)
-
-    residual = (data-model)/err
-    statistic = -0.5*np.sum(residual**2)
-    likelihood = statistic + logpriors
     return likelihood
    
 def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_autocorr=True):
