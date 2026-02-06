@@ -205,32 +205,6 @@ class SimpleFit():
         return 
 
     def set_custom_likelihood(self,likelihood_function,*args):
-        """
-        This method allows users to define their own custom likelihood function,
-        which can then optimized during a fit. In addition, this sets the 
-        value of the class "likelihood" string to custom, to signal to the other 
-        methods that a custom likelihood is in use and should be used for plots, 
-        residuals etc.
-
-        Parameters:
-        -----------
-        likelihood_function: function
-            The name of the function which calculates the model residuals; e.g.,
-            if we want to minimize the difference between data and model, we 
-            would define:
-            def diff(data,model):
-              return data-model 
-            and call set_custom_likelihood(diff).
-            
-        *args:
-            Additional arguments to be passed to the likelihood calculation, 
-            excluding the data and model (which are always included 
-            automatically by the class). Following the example above:
-            def diff(data,model,factor):
-               return factor*(data-model)
-            and call set_custom_likelihood(diff,5) - if we want to set "factor" 
-            to 5.
-        """
 
         self.custom_likelihood = likelihood_function
         self.custom_args = args
