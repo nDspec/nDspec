@@ -1,6 +1,12 @@
 import numpy as np
 from scipy.interpolate import interp1d
 
+try:
+    trapezoid = np.trapezoid
+except AttributeError:
+    trapezoid = np.trapz
+
+
 class nDspecOperator(object):
     """
     Generic class from which all nDspec operators are inherited. It contains 
@@ -337,9 +343,9 @@ class nDspecOperator(object):
             raise ValueError("No bins found within the integration bounds")
         
         if (axis == 0):
-            integral =  np.trapezoid(signal[arr_range,:],x=array[arr_range])
+            integral = trapezoid(signal[arr_range,:],x=array[arr_range])
         elif (axis == 1):
-            integral =  np.trapezoid(signal[:,arr_range],x=array[arr_range])
+            integral = trapezoid(signal[:,arr_range],x=array[arr_range])
         else:
             raise ValueError("Incorrect axis specified")        
         return integral
