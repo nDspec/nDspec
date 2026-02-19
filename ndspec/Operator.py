@@ -337,9 +337,9 @@ class nDspecOperator(object):
             raise ValueError("No bins found within the integration bounds")
         
         if (axis == 0):
-            integral =  np.trapz(signal[arr_range,:],x=array[arr_range])
+            integral =  np.trapezoid(signal[arr_range,:],x=array[arr_range])
         elif (axis == 1):
-            integral =  np.trapz(signal[:,arr_range],x=array[arr_range])
+            integral =  np.trapezoid(signal[:,arr_range],x=array[arr_range])
         else:
             raise ValueError("Incorrect axis specified")        
         return integral
