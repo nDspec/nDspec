@@ -70,6 +70,6 @@ setup_cfg = dict(conf.items("metadata"))
 
 autodoc_mock_imports = ['bs4', 'requests','numpy','astropy','matplotlib',
                         'scipy','pyfftw','copy','warnings','lmfit','emcee',
-                        'corner','multiprocessing','stingray']
+                        'corner','multiprocessing','stingray','tqdm']
 
 html_static_path = ['_static']
