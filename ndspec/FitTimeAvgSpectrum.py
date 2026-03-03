@@ -526,6 +526,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                 ylabel = "Folded counts/s/keV"
                 if plot_bkg is True:
                     bkg = self.noise
+                elif self.noise is not None:
+                    data = data - self.noise
             elif units.count("unfold"):        
                 data = self.response.unfold_response(self._data_unmasked)* \
                        self._ebounds_unmasked**power
@@ -537,6 +539,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                     bkg = self.response.unfold_response(self._noise_unmasked)* \
                           self._ebounds_unmasked**power
                     bkg = np.extract(self.ebounds_mask,bkg) 
+                elif self.noise is not None:
+                    bkg = self.response.unfold_response(self._noise_unmasked)* \
+                          self._ebounds_unmasked**power
+                    bkg = np.extract(self.ebounds_mask,bkg) 
+                    data = data - bkg              
             
         if plot_data is False:
             fig, (ax1) = plt.subplots(1,1,figsize=(6.,4.5))   
