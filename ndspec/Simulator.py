@@ -240,7 +240,7 @@ def simulate_time_lags(fitobj,ref_Elo,ref_Ehi,sub_Elo,sub_Ehi,Texp,
     return lagsim
 
 
-def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None, energs=None):
+def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None,ear=None):
     """
     This method simulates a time-averaged spectrum given a set of parameters, 
     by evaluating the model and folding it through the response. It is used 
@@ -267,12 +267,12 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None, ene
     exposure_time: float, default None
         The exposure time to use for the simulation. If None, the exposure
         time stored in the response matrix is used. This is used to convert
-        the model counts to expected counts in each channel.
+        the model count rate to expected counts in each channel.
 
-    energs: np.array(float), default None
-        An optional array of energy channels to use for the simulation. If not
-        provided, the energy channels defined in the FitTimeAvgSpectrum object
-        are used. This allows for simulating the spectrum over a custom energy grid.
+    ear: np.array(float), default None
+        The array of photon energy channel edges over which to evaluate the model. 
+        If none are provided, the same grid contained in the instrument response
+        is used. 
     
     Returns:
     --------
@@ -285,13 +285,18 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None, ene
         "before simulating a spectrum using either set_data() or set_response().")
     if fitobj.model is None:
         raise AttributeError("No model set. Please set a model before simulating a spectrum.")
-    if energs is None:
-        energs = fitobj.energs
     if params is None:
         params = fitobj.model_params
+    if ear is None:
+        ear = fitobj.ear
+        energ = fitobj.energs 
+        energ_bounds = fitobj.energ_bounds
+    else:
+        energ = 0.5*(ear[1:]+ear[:-1])
+        energ_bounds = ear[1:]-ear[:-1]
 
     # evaluate the model with the given parameters and fold it through the response
-    simulated_spectrum = fitobj.model.eval(params=params,energ=energs)
+    simulated_spectrum = fitobj.model.eval(params,energ=energ,ear=ear)*energ_bounds
     simulated_spectrum = fitobj.response.convolve_response(simulated_spectrum,units_in="xspec",units_out="channel") 
     # multiply by exposure time to get expected counts
     if exposure_time is None:
@@ -299,4 +304,7 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None, ene
     simulated_spectrum = simulated_spectrum*exposure_time 
     # Poisson sample the spectrum
     simulated_spectrum = np.random.poisson(simulated_spectrum)
+    #mask the simulated spectrum if desired 
+    if mask is True:
+        model = np.extract(fitobj.ebounds_mask,simulated_spectrum)   
     return simulated_spectrum

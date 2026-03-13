@@ -239,8 +239,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             provided, the model_params attribute is used.
 
         ear: np.array(float), default None
-            The array of photon energy bin edges over which to evaluate the  
-            model. If none are provided, the same grid contained in the 
+            The array of photon energy channel edges over which to evaluate the 
+            model.  If none are provided, the same grid contained in the 
             instrument response is used. 
             
         fold: bool, default True
