@@ -306,5 +306,5 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None,ear=
     simulated_spectrum = np.random.poisson(simulated_spectrum)
     #mask the simulated spectrum if desired 
     if mask is True:
-        model = np.extract(fitobj.ebounds_mask,simulated_spectrum)   
+        simulated_spectrum = np.extract(fitobj.ebounds_mask,simulated_spectrum)   
     return simulated_spectrum
