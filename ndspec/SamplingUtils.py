@@ -586,7 +586,7 @@ def sampling_cash_likelihood(theta):
     
     model = sampling_model(params=sampling_params) 
  
-    if isinstance(sampling_data, numpy.ndarray):
+    if isinstance(sampling_data, np.ndarray):
         residual = cstat(sampling_data,model,sampling_exp,sampling_bins,sampling_noise,summed=True)
     else:
         residual = 0
