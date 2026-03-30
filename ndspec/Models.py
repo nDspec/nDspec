@@ -38,11 +38,11 @@ def lorentz(array,params,grid_edges=False):
         rms = params[:,2][:,np.newaxis]
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    f_res = np.divide(f_pk,np.sqrt(1.0+(1.0/(4.0*np.square(q)))))
-    r = np.divide(rms,np.sqrt(0.5-np.arctan(-2.0*q)/np.pi))
-    lorentz_num = (1/np.pi)*2*np.multiply(np.power(r,2),np.multiply(q,f_res))
-    lorentz_den = 4*np.multiply(np.square(q),np.square(np.subtract(array,f_res)))
-    model = np.divide(lorentz_num,np.square(f_res)+lorentz_den)
+    f_res = f_pk/(1.0+(1.0/(4.0*q**2)))**0.5
+    r = rms/(0.5-np.arctan(-2.0*q)/np.pi)**0.5
+    lorentz_num = (1/np.pi)*2*r**2*q*f_res
+    lorentz_den = 4*q**2*(array-f_res)**2
+    model = lorentz_num/(f_res**2+lorentz_den)
     return np.nan_to_num(model)
 
 def cross_lorentz(array1,array2,params,grid_edges=False):
@@ -88,7 +88,7 @@ def powerlaw(array,params,grid_edges=False):
     if params.ndim == 1:
         norm = params[0]
         slope = params[1]
-        model = norm*np.power(array,slope)
+        model = norm*array**slope
     elif params.ndim == 2:
         norm = params[:,0]
         slope = params[:,1]
@@ -113,10 +113,10 @@ def brokenpower(array,params,grid_edges=False):
         slope1 = params[1]
         slope2 = params[2]
         brk = params[3]
-        scaled_array = np.divide(array,brk)
-        num = norm*np.power(scaled_array,slope1)
-        den = 1.+np.power(scaled_array,slope1-slope2)
-        model = np.divide(num,den)
+        scaled_array = array/brk
+        num = norm*scaled_array**slope1
+        den = 1.+scaled_array**(slope1-slope2)
+        model = num/den
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         slope1 = params[:,1][:,np.newaxis]
@@ -143,15 +143,18 @@ def gaussian(array,params,grid_edges=False):
         center = params[0]
         width = params[1]
         gauss_norm = params[2]
+        norm = (2.0*np.pi)**0.5*width
+        shape = np.exp(-((array - center)/width)**2/2)
+        line = gauss_norm*shape/norm 
     elif params.ndim == 2:
         center = params[:,0][:,np.newaxis]
         width = params[:,1][:,np.newaxis]
         gauss_norm = params[:,1][:,np.newaxis]
+        norm = np.multiply(np.sqrt(2.0*np.pi),width)
+        shape = np.exp(-np.power((array - center)/width,2.0)/2)
+        line = gauss_norm*shape/norm 
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    norm = np.multiply(np.sqrt(2.0*np.pi),width)
-    shape = np.exp(-np.power((array - center)/width,2.0)/2)
-    line = gauss_norm*shape/norm 
     return line
 
 def bbody(array,params,grid_edges=False):
@@ -167,17 +170,23 @@ def bbody(array,params,grid_edges=False):
         #boltzkamnn constant in kev
         norm = params[0]
         temp = params[1]
+        renorm = 8.0525*norm/(temp**4)
+        planck = np.exp(array/temp)-1.
+        #safeguard against diverging exponentials, e.g. for low temperature BB
+        #calculated at highx energy:
+        planck[planck>1e20] = 1e20
+        model = renorm*array**2/planck
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
+        renorm = 8.0525*norm/np.power(temp,4.)
+        planck = np.exp(array/temp)-1.
+        #safeguard against diverging exponentials, e.g. for low temperature BB
+        #calculated at highx energy:
+        planck[planck>1e20] = 1e20
+        model = renorm*np.power(array,2.)/planck
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    #safeguard against diverging exponentials, e.g. for low temperature BB
-    #calculated at highx energy:
-    renorm = 8.0525*norm/np.power(temp,4.)
-    planck = np.exp(array/temp)-1.
-    planck[planck>1e20] = 1e20
-    model = renorm*np.power(array,2.)/planck
     return model
     
 def varbbody(array,params,grid_edges=False):
@@ -194,19 +203,27 @@ def varbbody(array,params,grid_edges=False):
         #boltzkamnn constant in kev
         norm = params[0]
         temp = params[1]
+        #safeguard against diverging exponentials, e.g. for low temperature BB
+        #calculated at highx energy:
+        planck = np.exp(array/temp)
+        planck[planck>1e30] = 1e30
+        denom = planck-1.
+        renorm = 2.013*norm/(temp**5)*planck
+        renorm[renorm>1e30] = 1e30
+        model = renorm*array**3/denom**2
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
-    #safeguard against diverging exponentials, e.g. for low temperature BB
-    #calculated at highx energy:
+        #safeguard against diverging exponentials, e.g. for low temperature BB
+        #calculated at highx energy:
+        planck = np.exp(array/temp)
+        planck[planck>1e30] = 1e30
+        denom = planck-1.
+        renorm = 2.013*norm/np.power(temp,5.)*planck
+        renorm[renorm>1e30] = 1e30
+        model = renorm*np.power(array,3.)/np.power(denom,2)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    planck = np.exp(array/temp)
-    planck[planck>1e30] = 1e30
-    denom = planck-1.
-    renorm = 2.013*norm/np.power(temp,5.)*planck
-    renorm[renorm>1e30] = 1e30
-    model = renorm*np.power(array,3.)/denom**2
     return model     
     
 def gauss_fred(array1,array2,params,return_full=False,grid_edges=False):
