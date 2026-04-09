@@ -384,6 +384,9 @@ class SimpleFit():
             raise ValueError("No model to fit. Please set the model using the .set_model() method.")
         elif self.model_params == None:
             raise ValueError("No model parameters to fit. Please set the model parameters using the .set_params() method.")
+
+        if algorithm == 'emcee':
+            raise ValueError("EMCEE IS NOT AN OPTIMIZER AND SHOULD NOT BE USED SUCH! PICK A DIFFERENT METHOD")
         
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm)
