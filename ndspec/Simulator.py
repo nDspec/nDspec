@@ -1,7 +1,7 @@
 import numpy as np
 from stingray.simulator import simulator
 
-def simulate_lightcurve(Fitobj,obs_time,dt,countrate,rms=None,
+def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
                        params=None):
     """
     This function is used to simulate a lightcurve of the set model
@@ -20,13 +20,11 @@ def simulate_lightcurve(Fitobj,obs_time,dt,countrate,rms=None,
     
     Parameters:
     -----------       
-    Fitobj: ndspec.FitPowerSpectrum
-        An instance of the FitPowerSpectrum class, which contains the model
-        to use for simulating the lightcurve. The FitPowerSpectrum object 
-        must have a model defined and a frequency grid set before calling 
-        this function. The model is used to evaluate the power spectrum 
-        at the frequencies measurable by the observation time and time
-        resolution.
+    psd_obj: ndspec.PowerSpectrum
+        An instance of the PowerSpectrum class, which contains the model
+        to use for simulating the lightcurve. This object is used to evaluate 
+        the power spectrum at the frequencies measurable by the observation 
+        time and time resolution.
 
     obs_time: float
         The total observation time, in seconds, over which the lightcurve
@@ -59,23 +57,27 @@ def simulate_lightcurve(Fitobj,obs_time,dt,countrate,rms=None,
         lightcurve of the model evaluated over the given Fourier frequency
         array, for the given input parameters.
     """
-    if Fitobj.model is None:
+    if psd_obj.model is None:
         raise AttributeError("No model defined. Please define a model before simulating a lightcurve.")
-    if Fitobj.freqs is None:
+    if psd_obj.freqs is None:
         raise AttributeError("No frequency grid defined. Please set a frequency grid before simulating a lightcurve.")
     if params is None:
-        params = Fitobj.model_params
+        params = psd_obj.model_params
+    else:
+        psd_obj.set_model(psd_obj.model,params)
 
     # Transform the observation time and time resolution into a number of bins
     # and a frequency grid for the simulation
     N = int(obs_time/dt)
     w = np.fft.rfftfreq(N, d=dt)[1:]
     #simulate
-    power_spectrum = Fitobj.eval_model(params=params,freq=w)
+    psd_obj.compute_psd(params=params,freq=w)
+    power_spectrum = psd_obj.power_spec
 
     if rms is None:
-        # Calculate the rms from the power spectrum
-        rms = np.sqrt(np.sum(power_spectrum**2*np.diff(w)))
+        # Calculate the rms from the power spectrum, integrating from 0
+        bins = np.append(0,w)
+        rms = np.sqrt(np.sum(power_spectrum**2*np.diff(bins)))
 
     mean_flux = countrate * dt  # mean count rate per bin
     sim = simulator.Simulator(N=N, mean=mean_flux, dt=dt, rms=rms,poisson=True)
@@ -86,7 +88,7 @@ def simulate_lightcurve(Fitobj,obs_time,dt,countrate,rms=None,
 def simulate_time_lags(fitobj,ref_Elo,ref_Ehi,sub_Elo,sub_Ehi,Texp,
                               coh2,pow,time_avg_model,
                               bkg_file_path=None,params=None):
-    r"""
+    """
     This method will simulate a lag spectrum based on the model. The model
     must be able to evaluate the cross spectrum and a background file must be provided.
     You must also provide the energy bounds of the reference and subject bands,

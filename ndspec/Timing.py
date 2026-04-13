@@ -424,7 +424,7 @@ class PowerSpectrum(FourierProduct):
         FourierProduct.__init__(self,times,freqs,method,verbose)        
         pass 
 
-    def compute_psd(self,signal):
+    def compute_psd(self,signal=None,freq=None,params=None):
         """   
         This method calculates the power spectrum, defined over the class 
         "freqs" Fourier frequency array, of an input array, and assigns it to   
@@ -432,15 +432,63 @@ class PowerSpectrum(FourierProduct):
         
         Parameters:
         -----------
-        signal: np.array(float)
-            The quantity from which to calculate the power spectrum.        
+        signal: np.array(float), default None
+            The quantity from which to calculate the power spectrum. If it is 
+            not provided, the class will use the model object stored in 
+            the ``model'' attribute instead.
+            
+        freq: np.array(float), default None 
+            The array of Fourier frequencies over which to compute the model. 
+            If none is passed and evaluating a Fourier-domain model, uses the
+            frequency stored in the object at initialization. 
+            
+        params: lmfit.Parameters, default None
+            The parameter values to use in evaluating the model. If none are 
+            provided, the ''model_params'' attribute stored in the object is 
+            used.    
+        """  
+        
+        if signal is None:
+            if freq is None:
+                freq = self.freqs   
+            if params is None:
+                model = self.model.eval(self.model_params,freq=freq)
+            else:
+                model = self.model.eval(params,freq=freq)
+            self.power_spec = model          
+        else:
+            if len(signal) != self.n_times:
+                raise TypeError("Input signal size different from time array")
+            transform = self.transform(signal)
+            self.power_spec = np.multiply(transform,np.conj(transform))                
+        return 
+
+    def set_psd_model(self,model,params=None):
         """
-        
-        if len(signal) != self.n_times:
-            raise TypeError("Input signal size different from time array")
-        
-        transform = self.transform(signal)
-        self.power_spec = np.multiply(transform,np.conj(transform))                
+        This method sets a LMFit CompositeModel object to be used to evaluate the 
+        power spectrum; useful if you want your model to be defined in the Fourier 
+        rather than time domain.
+    
+        Parameters:
+        -----------            
+        model: lmfit.model or lmfit.compositemodel 
+            The lmfit wrapper of the model one wants to fit to the data. 
+            
+        params: lmfit.Parameters, default: None 
+            The parameter values from which to start evalauting the model during
+            the fit. If it is not provided, all model parameters will default 
+            to 0, set to be free, and have no minimum or maximum bound. 
+        """
+
+        if ((getattr(model, '__module__', None) != "lmfit.compositemodel")&
+            (getattr(model, '__module__', None) != "lmfit.model")):  
+            raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
+
+        self.model = model 
+        if params is None:
+            self.model_params = self.model.make_params(verbose=True)
+        else:
+            self.model_params = params
         return 
 
     def rebin_frequency(self,new_grid,use_log=True):

@@ -100,6 +100,9 @@ Sampling functions
 .. autoclass:: ndspec.SamplingUtils.priorLogNormal
     :members:
 
+.. autoclass:: ndspec.SamplingUtils.priorTruncNormal
+    :members:
+
 .. autofunction:: ndspec.SamplingUtils.nested_sampling_priors
 
 .. autofunction:: ndspec.SamplingUtils.log_priors
