@@ -2,7 +2,7 @@ import numpy as np
 from stingray.simulator import simulator
 
 def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
-                       params=None):
+                        params=None):
     """
     This function is used to simulate a lightcurve of the set model
     for a given set of parameters for a given timespan at a given
@@ -242,7 +242,7 @@ def simulate_time_lags(fitobj,ref_Elo,ref_Ehi,sub_Elo,sub_Ehi,Texp,
     return lagsim
 
 
-def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None,ear=None):
+def simulate_time_averaged(res_obj,model,params,exposure_time=None):
     """
     This method simulates a time-averaged spectrum given a set of parameters, 
     by evaluating the model and folding it through the response. It is used 
@@ -250,22 +250,18 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None,ear=
     
     Parameters:
     -----------
-    fitobj: ndspec.FitTimeAvgSpectrum
-        An instance of the FitTimeAvgSpectrum class, which contains the model
-        to use for simulating the spectrum. The FitTimeAvgSpectrum object must
-        have a model defined and a response matrix set before calling this function.
+    res_obj: ndspec.ResponseMatrix
+        An instance of the ResponseMatrix class, which contains the response 
+        matrix of the instrument for which to simulate the data 
+        
+    model: lmfit.model or lmfit.compositemodel 
+        An instance of an LMFit model object which contains the model to use 
+        to simulate the spectrum
 
     params: lmfit.Parameters, default None
         The parameter values to use in evaluating the model. If none are 
         provided, the model_params attribute is used.
         
-    mask: bool, default False
-        A boolean switch to choose whether to mask the model output to only 
-        include the noticed energy channels, or to also return the ones 
-        that have been ignored by the users. Default is False, so that
-        the simulated spectrum is returned in the same energy grid as the
-        full response matrix.
-
     exposure_time: float, default None
         The exposure time to use for the simulation. If None, the exposure
         time stored in the response matrix is used. This is used to convert
@@ -282,31 +278,20 @@ def simulate_time_averaged(fitobj,params=None,mask=False,exposure_time=None,ear=
         The simulated spectrum evaluated over the noticed energy channels
         and Poisson sampled. The spectrum is in units of counts/channel.
     """
-    if fitobj.response is None:
-        raise AttributeError("No response matrix set. Please set a response matrix " \
-        "before simulating a spectrum using either set_data() or set_response().")
-    if fitobj.model is None:
-        raise AttributeError("No model set. Please set a model before simulating a spectrum.")
-    if params is None:
-        params = fitobj.model_params
-    if ear is None:
-        ear = fitobj.ear
-        energ = fitobj.energs 
-        energ_bounds = fitobj.energ_bounds
-    else:
-        energ = 0.5*(ear[1:]+ear[:-1])
-        energ_bounds = ear[1:]-ear[:-1]
+
+    #set the energy grids as appropriate
+    ear = np.append(res_obj.energ_lo,res_obj.energ_hi[-1])   
+    energ = 0.5*(res_obj.energ_hi+res_obj.energ_lo)
+    energ_bounds = res_obj.energ_hi-res_obj.energ_lo
 
     # evaluate the model with the given parameters and fold it through the response
-    simulated_spectrum = fitobj.model.eval(params,energ=energ,ear=ear)*energ_bounds
-    simulated_spectrum = fitobj.response.convolve_response(simulated_spectrum,units_in="xspec",units_out="channel") 
+    simulated_spectrum = model.eval(params,energ=energ,ear=ear)*energ_bounds
+    simulated_spectrum = res_obj.convolve_response(simulated_spectrum,units_in="xspec",units_out="channel") 
     # multiply by exposure time to get expected counts
     if exposure_time is None:
-        exposure_time = fitobj.response.exposure_time
+        exposure_time = res_obj.exposure_time
     simulated_spectrum = simulated_spectrum*exposure_time 
     # Poisson sample the spectrum
     simulated_spectrum = np.random.poisson(simulated_spectrum)
-    #mask the simulated spectrum if desired 
-    if mask is True:
-        simulated_spectrum = np.extract(fitobj.ebounds_mask,simulated_spectrum)   
+ 
     return simulated_spectrum
