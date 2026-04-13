@@ -408,7 +408,7 @@ class priorNormal():
             The value of the likelihood for the input parameter.
         """
         
-        logprior = -0.5*(theta-self.mu)**2/self.sigma**2+0.5*np.log(2.*np.pi*self.sigma**2)
+        logprior = -0.5*(theta-self.mu)**2/self.sigma**2-0.5*np.log(2.*np.pi*self.sigma**2)
         return logprior
 
     def transform_prior(self,quantile):
@@ -466,7 +466,77 @@ class priorLogNormal():
         --------
             The value of the likelihood for the input parameter.
         """
-        logprior = -0.5*(np.log(theta)-self.mu)**2/self.sigma**2+0.5*np.log(2.*np.pi*self.sigma**2/theta**2)
+        logprior = -0.5*(np.log(theta)-self.mu)**2/self.sigma**2-0.5*np.log(2.*np.pi*self.sigma**2/theta**2)
+        return logprior
+
+    def transform_prior(self,quantile):
+        """
+        This method returns the parameter value defined from the quantile of  
+        the cumulative distribution defined in the prior. It effectively 
+        converts an interval from 0-1 to one that samples the prior distribution
+        and is used by nested sampling to define prior likelihoods. 
+        
+        Parameters:
+        -----------
+        quantile: float, 0-1 
+            The quantile for which the prior is to be computed 
+            
+        Returns:
+        --------
+        prior: float 
+            The parameter value for the chosen parameter prior distribution. 
+        """
+        prior = self.distribution.ppf(quantile)
+        return prior 
+
+class priorTruncNormal():
+    """
+    This class is used to compute a truncated, normal prior distribution during 
+    Bayesian sampling, for a given model parameter. 
+    
+    Parameters:
+    -----------
+    sigma: float 
+        The standard deviation of the distribution. 
+        
+    mu: float 
+        The expectation of the distribution. 
+
+    min: float
+        The minimum value below which the distribution is truncated.
+
+    max: float
+        The maximum value above which the distribution is truncated.
+    """    
+    
+    def __init__(self,mu,sigma,min,max):
+        self.mu = mu
+        self.sigma = sigma
+        #due to the scipy conversion, min/max for them are in
+        #units of sigma, NOT in actual model values like we're passing here
+        self.min = (min-self.mu)/self.sigma
+        self.max = (max-self.mu)/self.sigma
+        self.reflect = False
+        self.distribution = scipy.stats.truncnorm(a=self.min,b=self.max,
+                                                  loc=self.mu, scale=self.sigma)
+        pass 
+
+    def logprob(self,theta):
+        """
+        This method returns the log probability of the distribution for the 
+        given parameter theta.
+        
+        Parameters:
+        -----------
+        theta: float 
+            The parameter value for which the likelihood is to be computed. 
+            
+        Returns:
+        --------
+            The value of the likelihood for the input parameter.
+        """
+        
+        logprior = self.distribution.logpdf(theta)
         return logprior
 
     def transform_prior(self,quantile):
