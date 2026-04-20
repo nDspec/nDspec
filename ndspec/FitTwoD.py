@@ -169,8 +169,8 @@ class FitTwoD(SimpleFit):
         self.rows = data.shape[0]
         self.columns = data.shape[1]
         #here: compare the size of the grid, with rows/columns.
-        self.data = data.flatten()
-        self.data_err = data_err.flatten()
+        self.data = data.T.flatten()
+        self.data_err = data_err.T.flatten()
         self.column_grid = column_grid
         self.column_mask = np.full((self.columns), True)  
         
@@ -476,6 +476,38 @@ class FitTwoD(SimpleFit):
         
         return model 
 
+    def _minimizer(self,params):
+        """
+        This method is used exclusively when running a minimization algorithm.
+        It evaluates the model for an input set of parameters, and then returns 
+        the residuals in units of contribution to the total chi squared 
+        statistic.
+        
+        Parameters:
+        -----------                         
+        params: lmfit.Parameters
+            The parameter values to use in evaluating the model. These will vary 
+            as the fit runs.
+            
+        Returns:
+        --------
+        residuals: np.array(float)
+            An array of the same size as the data, containing the model 
+            residuals in each bin.            
+        """
+
+        model = self.eval_model(params)
+    
+        if self.likelihood == "chisq":
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "cstat":
+            residuals, _ = self.get_residuals("cstat",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
+        else:
+            raise AttributeError("Chosen likelihood not supported")
+        return residuals
+
     def plot_data(self,x_name=None,y_name=None,return_plot=False):
         """
         This method creates a 2d plot of the data loaded by the user as a 
@@ -611,7 +643,7 @@ class FitTwoD(SimpleFit):
         model_plot = ax2.pcolormesh(x_axis,y_axis,plot_model,cmap="plasma",shading='auto',linewidth=0)
         fig.colorbar(model_plot, ax=ax2)
         ax2.set_xlabel(x_name)
-        ax2.set_ylabel(y_name)
+        #ax2.set_ylabel(y_name)
         ax2.set_title("Model") 
         if self.response is not None:
             ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
@@ -624,7 +656,7 @@ class FitTwoD(SimpleFit):
         res_plot = ax3.pcolormesh(x_axis,y_axis,plot_res,cmap="RdYlBu",shading='auto',linewidth=0)
         fig.colorbar(res_plot, ax=ax3)
         ax3.set_xlabel(x_name)
-        ax3.set_ylabel(y_name)
+        #ax3.set_ylabel(y_name)
         ax3.set_title("Residuals") 
         if self.response is not None:
             ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
