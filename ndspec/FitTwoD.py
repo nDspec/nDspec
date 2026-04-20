@@ -200,7 +200,8 @@ class FitTwoD(SimpleFit):
 
         #assign the arrays from the response - note that ear is called row_grid to generalize in this class
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
-        self.energ_bounds = self.response.energ_hi-self.response.energ_lo    
+        self.energ_bounds = self.response.energ_hi-self.response.energ_lo 
+        self.ear = np.append(self.response.energ_lo,self.response.energ_hi[-1])    
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
         self.row_mask = np.full((self.response.n_chans), True)
@@ -450,16 +451,13 @@ class FitTwoD(SimpleFit):
         
         if column_grid is None:
             column_grid = self._column_grid_unmasked
-        if row_grid is None:
+        #handle the simple case of not needing a response
+        if row_grid is None and self.response is None:
             row_grid = self._row_grid_unmasked
-            if self.response is not None:
-                energ_bounds = self.energ_bounds
-                #this is only used for the ndspec energy dependent models 
-                energ = self.energs
-        #set up the rest of the energy grid if we're providing the interval ourselves
+        #if we do need a response we also must prepare to multiply by bin width 
+        #to keep units consistent across fits 
         elif self.response is not None:
-            energ = 0.5*(row_grid[1:]+row_grid[:-1])
-            energ_bounds = row_grid[1:]-row_grid[:-1]            
+            row_grid = self.ear                      
         
         if params is None:
             model = self.model.eval(self.model_params,x_axis=column_grid,y_axis=row_grid)
@@ -467,12 +465,15 @@ class FitTwoD(SimpleFit):
             model = self.model.eval(params,x_axis=column_grid,y_axis=row_grid)            
 
         #add folding of the response if necessary here 
+        #the transpositions are necessary because of the weirdness introduce 
+        #by .flatten(). TBD check that this makes sense with xpsec models
         if self.response is not None and fold is True:
-            model = model*energ_bounds
-            model = self.response.convolve_response(model) 
+            model = self.response.convolve_response(model.T).T 
         
         if mask is True:
             model = self._filter_2d_by_mask(model)
+
+        model = model.flatten()
         
         return model 
 
@@ -542,7 +543,10 @@ class FitTwoD(SimpleFit):
             y_name = "Y axis"
 
         x_axis = self._column_grid_unmasked
-        y_axis = self._row_grid_unmasked
+        if self.response is None:
+            y_axis = self._row_grid_unmasked
+        else:
+            y_axis = self._ebounds_unmasked
         
         twod_mask = self.row_mask.reshape((1,self._all_rows))* \
                     self.column_mask.reshape((self._all_columns,1))
@@ -614,7 +618,10 @@ class FitTwoD(SimpleFit):
             y_name = "Y axis"
 
         x_axis = self._column_grid_unmasked
-        y_axis = self._row_grid_unmasked
+        if self.response is None:
+            y_axis = self._row_grid_unmasked
+        else:
+            y_axis = self._ebounds_unmasked
         
         twod_mask = self.row_mask.reshape((1,self._all_rows))* \
                     self.column_mask.reshape((self._all_columns,1))
