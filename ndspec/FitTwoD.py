@@ -16,7 +16,122 @@ from .Response import ResponseMatrix
 from .SimpleFit import SimpleFit
 from .Likelihoods import chisq, ratio
 
-class TwoDFit(SimpleFit):
+class FitTwoD(SimpleFit):
+    """
+    This class is designed for fitting generic types of two-dimensional data, 
+    regardless of what units it may be in. Models used in this fitter are 
+    expected to be provided already in the same unit as the data.
+    
+    As an exception, users can optionally pass an istrument response matrix 
+    object, in which case the y axis is assumed to be in units of photon 
+    channels and the model should produce units of integrated photon flux 
+    over that axis.
+    
+    Attributes inherited from SimpleFit:
+    ------------------------------------
+    model: lmfit.CompositeModel 
+        A lmfit CompositeModel object, which contains a wrapper to the model 
+        component(s) one wants to fit to the data. 
+   
+    model_params: lmfit.Parameters 
+        A lmfit Parameters object, which contains the parameters for the model 
+        components.
+   
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
+        likelihood
+   
+    fit_result: lmfit.MinimizeResult
+        A lmfit MinimizeResult, which stores the result (including best-fitting 
+        parameter values, fit statistics etc) of a fit after it has been run.         
+   
+    data: np.array(float)
+        An array storing the data to be fitted. Only contains noticed bins. 
+   
+    data_err: np.array(float)
+        An array containing the uncertainty on the data to be fitted. Only 
+        contains noticed bins. 
+        
+    _data_unmasked, _data_err_unmasked: np.array(float)
+        The arrays of every data bin and its error, regardless of which ones are
+        ignored or noticed during the fit. Used exclusively to enable book 
+        keeping internal to the fitter class.  
+        
+    Other attributes:
+    -----------------
+    rows, columns: int 
+        Two integers keeping track of the number of rows and columns in the 
+        data loaded. Only tracks the number of rows/columns that are noticed 
+        during the fit. 
+        
+    column_grid: np.array(float)
+        The grid of values along which the x-axis of the model is computed.        
+    
+    column_mask: np.array(bool)
+        A masking array used to ignore or notice data bins along the x axis. 
+    
+    row_grid: np.array(float)
+        The grid of values along which the y-axis of the model is computed. If 
+        an instrument response is loaded, it contains the photon channels.       
+    
+    column_mask: np.array(bool)
+        A masking array used to ignore or notice data bins along the y axis. 
+        
+    _column_grid_unmasked,_row_grid_unmasked: np.array(float)
+        The unmasked arrays over which the entire data is define, whether they 
+        are noticed duing the fit or not.
+
+    _all_rows,_all_columns,_all_bins: int
+        Integers keeping track of all the rows, columns, or total number of 
+        data points, whether they are noticed in the fit or not.  
+   
+    dependence, units: str
+        Two strings used to specify the units the data is in, used to handle 
+        filtering in/out data bins in the fitter.    
+    
+    response: nDspec.ResponseMatrix, default None 
+        The instrument response matrix corresponding to the data to be fitted.
+        It is required to define the energy grids over which model and data are
+        defined. The following arrays are only defined when a response matrix 
+        is loaded:      
+        
+    energs: np.array(float)
+        The array of physical photon energies over which the model is computed. 
+        Defined as the middle of each bin in the energy range stored in the 
+        instrument response provided.    
+        
+    energ_bounds: np.array(float)
+        The array of energy bin widths, for each bin over which the model is 
+        computed. Defined as the difference between the uppoer and lower bounds 
+        of the energy bins stored in the insrument response provided. 
+        
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+               
+    ebounds: np.array(float) 
+        The array of energy channel bin centers for the instrument energy
+        channels,  as stored in the instrument response provided. Only contains 
+        the channels that are noticed during the fit.
+
+    ewidths: np.array(float) 
+        The array of energy channel bin widths for the instrument energy
+        channels,  as stored in the instrument response provided. Only contains 
+        the channels that are noticed during the fit.
+    """
+
     def __init__(self,likelihood="chisq"):
         SimpleFit.__init__(self,likelihood)
         self.response=None
@@ -25,6 +140,32 @@ class TwoDFit(SimpleFit):
         pass
 
     def set_data(self,data,data_err,column_grid,row_grid,response=None,noise=None,noise_err=None):
+        """
+        This method is used to pass the data users want to fit. The input has 
+        to be in the form of numpy arrays for the data, its errors, and the
+        grids over which it is defined. Users can optionally pass an instrument 
+        response, as well as background arrays. 
+        
+        Parameters:
+        -----------        
+        data, data_err: np.array([float,float])
+            Two-dimensional arrays containing the data to be fitted and its 
+            uncertainties. 
+            
+        column_grid, row_grid: np.array(float)
+            The arrays over which the data is defined. If users pass an 
+            instrument response (see below), then row_grid is the array of 
+            energy bin bounds, for each channel over which the data is defined.
+            This is identical to the 'ear' array in Xspec models. 
+            
+        response: nDspec.ResponseMatrix, default None 
+            An instrument response (including both rmf and arf) loaded into a 
+            nDspec ResponseMatrix object. 
+            
+        noise, noise_err: np.array(float), default None
+            Optional arrays including the background/noise floor and its error. 
+        """
+        
         self.rows = data.shape[0]
         self.columns = data.shape[1]
         #here: compare the size of the grid, with rows/columns.
@@ -47,6 +188,10 @@ class TwoDFit(SimpleFit):
         return
 
     def _set_energy_arrays(self,response,grid):
+        """
+        This initializer method is used to set the appropriate energy-dependent 
+        arrays in case an instrument response is used in the fit.        
+        """
         self.row_grid = grid
         #rebin the response to row_grid here
         bounds_lo = self.row_grid[:-1]
@@ -62,6 +207,10 @@ class TwoDFit(SimpleFit):
         return
 
     def _set_unmasked_data(self):
+        """
+        This initializer method is used to set up the unmasked arrays for later 
+        book-keeping.      
+        """
         self._data_unmasked = self.data
         self._data_err_unmasked = self.data_err  
         self._column_grid_unmasked = self.column_grid
@@ -101,11 +250,24 @@ class TwoDFit(SimpleFit):
             statistic, see https://ui.adsabs.harvard.edu/abs/1979ApJ...228..939C/abstract,
             appropriate for Poisson-distributed data). 
         """
+        
         if (stat != "chisq" and stat != "cstat" and stat != "custom"):
             raise ValueError("Fit statistic not recognized")
         self.likelihood = stat 
 
     def ignore_columns(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        ignore selected columns based on their bounds.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of ignored column interval.
+        bound_hi : float
+            Higher bound of ignored column interval.    
+        """
+    
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
             raise TypeError("Grid bounds bounds must be floats or integers")        
@@ -127,6 +289,18 @@ class TwoDFit(SimpleFit):
         return
 
     def notice_columns(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        notice selected columns based on their bounds.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of noticed column interval.
+        bound_hi : float
+            Higher bound of noticed column interval.    
+        """
+    
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
             raise TypeError("Grid bounds bounds must be floats or integers")   
@@ -149,6 +323,18 @@ class TwoDFit(SimpleFit):
         return
 
     def ignore_rows(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        ignore selected columns rows on their bounds.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of ignored rows interval.
+        bound_hi : float
+            Higher bound of ignored rows interval.    
+        """
+    
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
             raise TypeError("Energy bounds must be floats or integers")
@@ -177,6 +363,18 @@ class TwoDFit(SimpleFit):
         return
 
     def notice_rows(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        notice selected columns rows on their bounds.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of noticed rows interval.
+        bound_hi : float
+            Higher bound of noticed rows interval.    
+        """
+    
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
             raise TypeError("Energy bounds must be floats or integers")
@@ -207,6 +405,48 @@ class TwoDFit(SimpleFit):
         return
 
     def eval_model(self,params=None,column_grid=None,row_grid=None,fold=True,mask=True):
+        """
+        This method is used to evaluate and return the model values for a given 
+        set of parameters, over given row and column grids. If a response is 
+        loaded, by default it  will evaluate the model over the energy grid 
+        defined in the response, using the parameters values stored internally 
+        in the model_params attribute, without folding the model through the 
+        response.  
+        
+        Parameters:
+        -----------                         
+        params: lmfit.Parameters, default None
+            The parameter values to use in evaluating the model. If none are 
+            provided, the model_params attribute is used.
+
+        column_grid: np.array(float), default None
+            The array of values in the x-axis over which to evaluate the model.
+            If none are provided, the same grid contained in the fitter object 
+            is used.  
+            
+        row_grid: np.array(float), default None
+            The array of values in the y-axis over which to evaluate the model.
+            If none are provided, the same grid contained in the fitter object 
+            is used. If the fitter contains an instrument response, this array 
+            is the energy grid contained in that response. 
+            
+        fold: bool, default True
+            A boolean switch to choose whether to fold the evaluated model 
+            through the instrument response or not. Not that in order for the 
+            model to be folded, the energy grid over which it is defined MUST 
+            be identical to that stored in the response matrix/class.
+            
+        mask: bool, default True
+            A boolean switch to choose whether to mask the model output to only 
+            include the noticed energy channels, or to also return the ones 
+            that have been ignored by the users. 
+            
+        Returns:
+        --------
+        model: np.array(float)
+            The model evaluated over the given energy grid, for the given input 
+            parameters.  
+        """
         
         if column_grid is None:
             column_grid = self._column_grid_unmasked
@@ -237,6 +477,31 @@ class TwoDFit(SimpleFit):
         return model 
 
     def plot_data(self,x_name=None,y_name=None,return_plot=False):
+        """
+        This method creates a 2d plot of the data loaded by the user as a 
+        function of whatever units are in used for the rows and columns. 
+        
+        It is also possible to return the figure object, for instance in order 
+        to save it to file.
+        
+        Parameters:
+        -----------
+        x_name: str, default="None"
+            The units to use to label the X axis.
+            
+        y_name: str, default="None"
+            The units to use to label the Y axis.
+        
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objected containing 
+            the plot or not.
+            
+        Returns: 
+        --------
+        fig: matplotlib.figure, optional 
+            The plot object produced by the method.        
+        """
+    
         fig, ((ax1)) = plt.subplots(1,1,figsize=(6.,4.5))
 
         if x_name is None:
@@ -270,8 +535,43 @@ class TwoDFit(SimpleFit):
         else:
             return  
             
-    def plot_model(self,x_name=None,y_name=None,residuals="chisq",return_plot=False):
-        model = self.eval_model(mask=False)
+    def plot_model(self,residuals="chisq",params=None,
+                   x_name=None,y_name=None,return_plot=False):
+        """
+        This method creates a 2d plot of the data loaded by the user, the 
+        model for the given parameters (either passed as an object, or already 
+        loaded in the fitter), and residuals, as a unction of whatever units 
+        are in used for the rows and columns. 
+        
+        It is also possible to return the figure object, for instance in order 
+        to save it to file.
+        
+        Parameters:
+        -----------
+        residuals: str, default="chisq"
+            The units to be used in the residuals. 
+            
+        params: lmfit.parameters, default=None 
+            The parameters to be used to evaluate the model. If False, the set 
+            of parameters stored in the class is used. 
+        
+        x_name: str, default="None"
+            The units to use to label the X axis.
+            
+        y_name: str, default="None"
+            The units to use to label the Y axis.
+        
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objected containing 
+            the plot or not.
+            
+        Returns: 
+        --------
+        fig: matplotlib.figure, optional 
+            The plot object produced by the method.        
+        """
+        
+        model = self.eval_model(params=params,mask=False)
         model_res,_ = self.get_residuals(residuals,model=model,mask=False)
         
         fig, ((ax1),(ax2),(ax3)) = plt.subplots(1, 3, figsize=(15.,5.), sharex=True) 

@@ -227,7 +227,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     def eval_model(self,params=None,ear=None,fold=True,mask=True):    
         """
         This method is used to evaluate and return the model values for a given 
-        set of parameters,  over a given model energy grid. By default it  
+        set of parameters, over a given model energy grid. By default it  
         will evaluate the model over the energy grid defined in the response,
         using the parameters values stored internally in the model_params 
         attribute, without folding the model through the response.        

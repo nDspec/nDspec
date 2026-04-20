@@ -563,7 +563,7 @@ class EnergyDependentFit():
        
     def ignore_energies(self,bound_lo,bound_hi):
         """
-        This method Aadjusts the arrays stored such that they (and the fit) 
+        This method adjusts the arrays stored such that they (and the fit) 
         ignore selected channels based on their energy bounds.
 
         Parameters:
