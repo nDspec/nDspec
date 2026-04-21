@@ -20,7 +20,9 @@ class FitTwoD(SimpleFit):
     """
     This class is designed for fitting generic types of two-dimensional data, 
     regardless of what units it may be in. Models used in this fitter are 
-    expected to be provided already in the same unit as the data.
+    expected to be provided already in the same unit as the data. Common 
+    examples of using this class might be time-dependent spectroscopy, or 
+    fitting a dynamica power spectrum. 
     
     As an exception, users can optionally pass an istrument response matrix 
     object, in which case the y axis is assumed to be in units of photon 
