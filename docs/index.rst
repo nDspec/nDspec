@@ -32,6 +32,7 @@ Data fitting tutorials:
     fit_cross_1d
     fit_cross_2d
     fit_joint
+    fit_twod
 
 nDspec core functionality:
 
