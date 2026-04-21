@@ -24,8 +24,8 @@ class SimpleFit():
     likelihood: str
         A string that allows to switch between different fit statistics; which 
         one is available depends on the type of fitter object. Uses chi-squared 
-        likelihood by default. Users can set different likelihoods either at 
-        initialization or with the appropriate setter method.
+        likelihood by default. Users can set different likelihoods with the 
+        appropriate setter method.
         
     custom_likelihood: function 
         A function users can set to bypass the supported likelihoods and instead 

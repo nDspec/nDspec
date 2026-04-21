@@ -273,7 +273,7 @@ class FitTwoD(SimpleFit):
     
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
-            raise TypeError("Grid bounds bounds must be floats or integers")        
+            raise TypeError("Grid bounds must be floats or integers")        
         
         self.column_mask = ((self._column_grid_unmasked<bound_lo)|
                             (self._column_grid_unmasked>bound_hi))&self.column_mask        
@@ -306,7 +306,7 @@ class FitTwoD(SimpleFit):
     
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
-            raise TypeError("Grid bounds bounds must be floats or integers")   
+            raise TypeError("Grid bounds must be floats or integers")   
 
         self.column_mask = self.column_mask|np.logical_not(
                             (self._column_grid_unmasked<bound_lo)|
@@ -340,7 +340,7 @@ class FitTwoD(SimpleFit):
     
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
-            raise TypeError("Energy bounds must be floats or integers")
+            raise TypeError("Grid bounds must be floats or integers")
         
         if self.response is not None:
             self.row_mask = ((self._emin_unmasked<bound_lo)|
@@ -380,7 +380,7 @@ class FitTwoD(SimpleFit):
     
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
             (isinstance(bound_hi, (np.floating, float, int)) != True)):
-            raise TypeError("Energy bounds must be floats or integers")
+            raise TypeError("Grid bounds must be floats or integers")
 
         if self.response is not None:
             self.row_mask = self.row_mask|np.logical_not(
