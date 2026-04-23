@@ -84,7 +84,6 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     def __init__(self,likelihood="chisq"):
         SimpleFit.__init__(self,likelihood)
         self.freqs = None 
-        self.dependence = "frequency"
         pass
 
     def set_data(self,data,data_err=None,data_grid=None):

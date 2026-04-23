@@ -226,6 +226,10 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         This setting will NOT affect the phase of a cross spectrum, only the 
         modulus (and therefore it will affect the real and imaginary parts).   
 
+    dependence: str 
+        A string recording whether the data and model to be fitted are in units 
+        of frequency or energy (e.g. lag frequency vs lag energy spectra).
+
    _supported_coordinates: str
         A string that checks the units models/data can be defined as. "lags" is 
         for fitting lag spectra alone, "polar" is for fitting modulus and phase 

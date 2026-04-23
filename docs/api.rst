@@ -65,6 +65,12 @@ FitCrossSpectrum Class
 
 .. autoclass:: ndspec.FitCrossSpectrum.FitCrossSpectrum
    :members:
+   
+FitTwoD Class
+~~~~~~~~~~~~~
+
+.. autoclass:: ndspec.FitTwoD.FitTwoD
+   :members:
 
 JointFit Class
 ~~~~~~~~~~~~~~~~~

@@ -24,8 +24,8 @@ class SimpleFit():
     likelihood: str
         A string that allows to switch between different fit statistics; which 
         one is available depends on the type of fitter object. Uses chi-squared 
-        likelihood by default. Users can set different likelihoods either at 
-        initialization or with the appropriate setter method.
+        likelihood by default. Users can set different likelihoods with the 
+        appropriate setter method.
         
     custom_likelihood: function 
         A function users can set to bypass the supported likelihoods and instead 
@@ -119,8 +119,8 @@ class SimpleFit():
     def _filter_2d_by_mask(self,array):
         """
         This method is used to filter two-dimensional data (for example, a cross
-        spectrum) after users define a range of energy channels or Fourier 
-        frequency bins to ignore. 
+        spectrum) after users define a range of energy channels, or Fourier 
+        frequency, or other data bins, bins to ignore. 
         
         Parametrers:
         ------------
@@ -134,8 +134,11 @@ class SimpleFit():
             The one-dimensional array filtered by the two-d mask defind by the 
             noticed frequency bins and channels.
         """
-        
-        self.n_bins = self.n_chans*self.n_freqs
+
+        if self.dependence == "generic":
+            self.n_bins = self.rows*self.columns
+        else:    
+            self.n_bins = self.n_chans*self.n_freqs
         
         if self.dependence == "energy":
             twod_mask = self.freqs_mask.reshape((self._all_freqs,1))* \
@@ -143,14 +146,21 @@ class SimpleFit():
         elif self.dependence == "frequency":
             twod_mask = self.ebounds_mask.reshape((self._all_chans,1))* \
                         self.freqs_mask.reshape((1,self._all_freqs))  
+        elif self.dependence == "generic":
+            twod_mask = self.row_mask.reshape((self._all_rows,1))* \
+                        self.column_mask.reshape((1,self._all_columns))
         else:
             raise AttributeError("Data dependence not specified")
         twod_mask = np.array(twod_mask).flatten()
 
-        if self.units != "lags":
+        #handle the case of complex data being loaded first, in which case we 
+        #need to mask both real and imaginary parts
+        if self.units != "lags" and self.units != "real":
             filter_first_dim = np.extract(twod_mask,array[:self._all_bins])
             filter_second_dim = np.extract(twod_mask,array[self._all_bins:],)
             filter_arr = np.append(filter_first_dim,filter_second_dim)          
+        #otherwise if we only have real data (or lags in a cross spectrum) the 
+        #mask can be applied just once 
         else:
             filter_arr = np.extract(twod_mask,array)
         return filter_arr
@@ -553,7 +563,7 @@ class EnergyDependentFit():
        
     def ignore_energies(self,bound_lo,bound_hi):
         """
-        This method Aadjusts the arrays stored such that they (and the fit) 
+        This method adjusts the arrays stored such that they (and the fit) 
         ignore selected channels based on their energy bounds.
 
         Parameters:
