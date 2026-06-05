@@ -1,5 +1,9 @@
 import numpy as np
 from stingray.simulator import simulator
+from pyfftw.interfaces.numpy_fft import (
+    fft,
+    fftfreq,
+)
 
 def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
                         params=None):
@@ -69,7 +73,9 @@ def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
     # Transform the observation time and time resolution into a number of bins
     # and a frequency grid for the simulation
     N = int(obs_time/dt)
-    w = np.fft.rfftfreq(N, d=dt)[1:]
+    w = np.fft.fftfreq(N, d=dt)
+    w = w[w>0]
+
     #simulate
     psd_obj.compute_psd(params=params,freq=w)
     power_spectrum = psd_obj.power_spec

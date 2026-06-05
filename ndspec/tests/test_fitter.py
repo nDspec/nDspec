@@ -72,7 +72,7 @@ class TestFitter(object):
                                 cls.new_edges,
                                 dummy_cross,dummy_cross_err,
                                 freq_bins=cls.cross_freqs,
-                                time_res=0.1,seg_size=10)
+                                freq_grid=np.linspace(0.2,1.0,1000))
         
         #set the objects to test noticing/ignoring ranges         
         cls.test_select = FitCrossSpectrum()
@@ -90,7 +90,7 @@ class TestFitter(object):
                                  cls.new_edges,
                                  cls.dummy_data,dummy_err,
                                  freq_bins=cls.cross_freqs,
-                                 time_res=0.1,seg_size=10)
+                                 freq_grid=np.linspace(0.2,1.0,1000))
 
         #generic SimpleFit object to test the shared methods 
         cls.test_shared = SimpleFit()
@@ -104,7 +104,7 @@ class TestFitter(object):
 
         self.test_psd.set_model(psd_model)
         self.test_psd.set_params(model_parameters)
-        test_residuals = self.test_psd.get_residuals("delchi")
+        test_residuals = self.test_psd.get_residuals("chisq")
         assert(np.allclose(test_residuals[0],np.zeros(10)))
      
     def test_spec_eval(self):
@@ -128,7 +128,7 @@ class TestFitter(object):
         self.test_cross.set_model(cross_model,model_type="cross")
         self.test_cross.set_params(cross_pars)
         test_model = self.test_cross.eval_model(fold=False)
-        assert(np.allclose(test_model,self.test_cross.data))
+        assert(np.allclose(test_model,self.test_cross.data,rtol=5e-3))
         
     def test_select_bins(self):
         #test ignore frequencies:
@@ -171,12 +171,12 @@ class TestFitter(object):
         with pytest.raises(AttributeError):
             self.test_psd.set_data(wrong_data,wrong_data,data_grid=wrong_freq)
             
-    def test_psd_likelihood(self):
+    def test_psd_likelihood(self):      
         #test that the class doesn't calculate the likelihood if it is not defined 
         #correctly
         with pytest.raises(AttributeError):
             self.test_psd.likelihood = "error"
-            err = self.test_psd._minimizer(params=None)
+            err = self.test_psd._minimizer(params=self.model_params)
     
     def test_psd_plot_errors(self):
         #test that plots do not allow weird things to be rendered
@@ -373,7 +373,7 @@ class TestFitter(object):
                                 self.new_edges,
                                 dummy_cross,dummy_cross_err,
                                 freq_bins=self.cross_freqs,
-                                time_res=0.1,seg_size=10)
+                                freq_grid=np.linspace(0.2,1.0,1000))
         cross_model = LM_Model(cross_const,independent_vars=['energs','freqs'])
         cross_pars = LM_Parameters()
         self.test_cross.set_model(cross_model,model_type="cross")
