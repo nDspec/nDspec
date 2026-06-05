@@ -13,7 +13,7 @@ from astropy.io import fits
 from scipy.interpolate import interp1d
 
 import ndspec.Timing as timing 
-import ndspec.models as models
+import ndspec.Models as models
 
 class TestTiming(object):
 

@@ -5,7 +5,7 @@ import scipy
 import pyfftw
 from pyfftw.interfaces.numpy_fft import (
     fft,
-    fftfreq,
+    rfftfreq,
 )
 
 import matplotlib.pyplot as plt
@@ -143,9 +143,9 @@ class FourierProduct(nDspecOperator):
         rebin: bool, default=False 
             Used only for the fft method. If false, the method assumes we are 
             initializing the object for the first time, and therefore sets the 
-            frequency grid to the output of the fftfreq function. If true, it 
+            frequency grid to the output of the rfftfreq function. If true, it 
             means we want to switch from the linear frequency grid provided by
-            fftfreq to some other user-specified grid through the appropriate 
+            rfftfreq to some other user-specified grid through the appropriate 
             methods of each object.
 
         Returns:
@@ -159,13 +159,13 @@ class FourierProduct(nDspecOperator):
         #a spectrum, we need to update the frequency array and its size;
         #otherwise, if no rebinning is done and we are just setting the 
         #frequency grid, we get the frequency array from the time array and 
-        #the fftfreq() function in pyfftw.
+        #the rfftfreq() function in pyfftw.
         if (self.method == 'fft'):
             if rebin is True:
                 new_freqs = freqs
             else:
                 fgt0 = self._positive_fft_bins()
-                new_freqs = fftfreq(self.n_times,self.time_bins[0])[fgt0]
+                new_freqs = rfftfreq(self.n_times,self.time_bins[0])[fgt0]
             self.n_freqs = len(new_freqs)
         elif (self.method == 'sinc') or (self.method == 'sinc_cumul'):
             if np.shape(freqs) == () or len(np.shape(freqs)) > 1:
@@ -1368,7 +1368,7 @@ class CrossSpectrum(FourierProduct):
         """
         
         nu_min = freq_bounds[0]
-        nu_max = freq_bounds[1]        
+        nu_max = freq_bounds[1] 
         integrated_resp = self._integrate_range(self.cross,self.freqs,
                                                 nu_min,nu_max,axis=1)
         real_spectrum = np.real(integrated_resp/(nu_max-nu_min))
@@ -1422,10 +1422,11 @@ class CrossSpectrum(FourierProduct):
         """
         
         nu_min = freq_bounds[0]
-        nu_max = freq_bounds[1]        
+        nu_max = freq_bounds[1]     
         integrated_resp = self._integrate_range(self.cross,self.freqs,
                                                 nu_min,nu_max,axis=1)
         mod_spectrum = np.absolute(integrated_resp/(nu_max-nu_min))
+
         mod_spectrum = np.reshape(mod_spectrum,self.n_chans)        
         return mod_spectrum
     

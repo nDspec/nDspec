@@ -4,7 +4,7 @@ import warnings
 import pyfftw
 from pyfftw.interfaces.numpy_fft import (
     fft,
-    fftfreq,
+    rfftfreq,
 )
 
 import matplotlib.pyplot as plt
@@ -418,15 +418,15 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
 
         if ref_bounds[0] < self.response.energ_lo[0]:
             ref_bounds[0] = self.response.energ_lo[0]
-            raise UserWarning("Lower bound of the reference band defined below the "\
-                              "start of the instrument response; re-setting to the lowest"\
-                              "energy bin instead" )
+            warnings.warn("Lower bound of the reference band defined below the "\
+                          "start of the instrument response; re-setting to the lowest"\
+                          "energy bin instead",UserWarning)   
         if ref_bounds[1] > self.response.energ_hi[-1]:
             ref_bounds[1] = self.response.energ_hi[-1]
-            raise UserWarning("Upper bound of the reference band defined above the "\
-                              "start of the instrument response; re-setting to the highest"\
-                              "energy bin instead")                                
-                
+            warnings.warn("Upper bound of the reference band defined above the "\
+                          "start of the instrument response; re-setting to the highest"\
+                          "energy bin instead",UserWarning)                                 
+                       
         self.ref_band = ref_bounds
         EnergyDependentFit.__init__(self)  
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size
@@ -440,7 +440,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                         freq_grid,time_grid,
                                         time_res,seg_size)
         else:
-            print("error")    
+            raise AttributeError("Data dependency not found! Set frequency or energy")    
+        
+        if len(self.freqs) < 500:
+            warnings.warn(f"Model frequency grid contains only {len(self.freqs)} bins,"\
+                           "model computations might be inaccurate! Suggest you use "\
+                           "at least 500!",UserWarning)   
+        
         self._set_unmasked_data()
         return
 
@@ -659,11 +665,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.freqs = freq_grid
         #or do so implicetly with a segment size and time resolution
         elif (time_res is not None)&(seg_size is not None):
-            freqs = fftfreq(int(seg_size/time_res),time_res)
+            freqs = rfftfreq(int(seg_size/time_res),time_res)
             self.freqs = freqs[freqs>0]        
             lc_length = (self.freqs.size+1)*2*time_res
             time_samples = int(lc_length/time_res)
             self._times = np.linspace(time_res,lc_length,time_samples)
+
         #or we can explicitely pass a frequency grid alone, and the time grid is 
         #reconstructed automatically 
         elif freq_grid is not None:
@@ -801,6 +808,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
 
         if mask is True:
             model = self._filter_2d_by_mask(model)
+
         return model
     
     def _to_cross_spec(self,model_eval):
@@ -957,7 +965,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         model = []
         
-        if self.units == "lags":   
+        if self.units == "lags":  
             for i in range(self._all_freqs):
                 f_mean = 0.5*(self._freqs_unmasked[1:]+self._freqs_unmasked[:-1])
                 if self.renorm_phase is True:
