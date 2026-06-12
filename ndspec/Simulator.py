@@ -91,161 +91,126 @@ def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
     lc = sim.simulate(power_spectrum)
     return lc
 
-def simulate_time_lags(fitobj,ref_Elo,ref_Ehi,sub_Elo,sub_Ehi,Texp,
-                              coh2,pow,time_avg_model,
-                              bkg_file_path=None,params=None):
+def simulate_lag_energy(response,time_avg_model,cross_model,
+                       bkg_rate,freq_bounds,ref_bounds,coh,pow,exposure):
     """
-    This method will simulate a lag spectrum based on the model. The model
-    must be able to evaluate the cross spectrum and a background file must be provided.
-    You must also provide the energy bounds of the reference and subject bands,
-    the exposure time, the coherence squared value, and the power in rms/mean$^2$/Hz units
-    ($\alpha_{\nu}$), as well as a time-averaged model that shares the same physical
-    assumptions (and thus share relevant parameters) as the set cross-spectrum model. 
-    The method will return a one-dimensional array containing the simulated lags for 
-    each energy channel, based on the model and the specified parameters. 
-
-    For further explanation for how the lag spectrum is simulated, see section 3 of
-    Ingram et al. 2022, https://ui.adsabs.harvard.edu/abs/2022MNRAS.509..619I/abstract.
+    This method will simulate a lag-energy spectrum based a set of user defined 
+    models. The methodology used here is identical to that described in section 
+    3 of Ingram et al. 2022, https://ui.adsabs.harvard.edu/abs/2022MNRAS.509..619I/abstract.
+    
+    Note that users must be extremely careful in their assumption in order for 
+    the simulation to make sense. In particular, in order to calculate the noise 
+    and therefore error bars correctly, they must take care that the models for 
+    the time-averaged spectrum and cross spectrum passed produce consistent 
+    absolute rms. 
 
     Parameters
     ----------- 
-    fitobj: ndspec.FitCrossSpectrum
-        An instance of the FitCrossSpectrum class, which contains the model
-        to use for simulating the lag spectrum. The FitCrossSpectrum object
-        must have a model defined, a frequency grid set, and an instrument
-        response set before calling this function. 
-
-    ref_Elo: float
-        The lower energy bound of the reference band in keV.
-
-    ref_Ehi: float
-        The upper energy bound of the reference band in keV.
-
-    sub_Elo: float
-        The lower energy bound of the subject band in keV.
-
-    sub_Ehi: float 
-        The upper energy bound of the subject band in keV.
-
-    Texp: float
-        The exposure time in seconds for which the lag spectrum is simulated.
-
-    coh2: float
-        The coherence squared value, which is a measure of the correlation 
-        between the reference and subject bands.
-    
-    pow: float
-        The power in rms/mean$^2$/Hz units ($\alpha_{\nu}$), which is used to scale the
-        cross spectrum.
-
-    time_avg_model: lmfit.Model or lmfit.CompositeModel
-        A model that evaluates the time-averaged power spectrum, which is 
-        used to calculate the background noise in the reference and subject 
-        bands. This model should share the same physical assumptions as the
-        model used to evaluate the cross spectrum and share all relevant
-        physical parameters
-
-    bkg_file_path: str, optional
-        The path to the background file containing the background counts 
-        for each energy channel. If not provided, the method will default to
-        the background file already set in the class. A background file must be
-        provided to simulate the lag spectrum.
-    
-    params: lmfit.Parameters, optional
-        The parameters to use for evaluating the model. If not provided, the
-        default parameters stored in the model_params attribute will be used.
+    response: nDspec.ResponseMatrix
+        The response matrix to be used in the simulation. This should always be 
+        re-binned to a coarse channel grid, as is standard for all lag-energy 
+        spectra. 
+        
+    time_avg_model: LMFit.CompositeModel
+        A Model or CompositeModel LMFit object that stores the assumed
+        time-averaged spectrum of the source. Necessary to calculate the noise 
+        and lag errors correctly.
+        
+    cross_model: nDspec.CrossSpectrum
+        An nDspec energy-dependent cross spectrum model from which to derive 
+        the lag spectra, as well as the real and imaginary parts of the cross 
+        spectrum (as required for calculating the errors). This object MUST 
+        contain the computed cross spectrum beforehand.
+        
+    bkg_rate: np.array(float) 
+        A Numpy array containing the background count rate in each channel of 
+        the assumed instrument response. 
+        
+    freq_bounds: (float,foat)
+        The minimum and maximum Fourier frequencies over which to calculate the 
+        lag-energy spectrum. 
+            
+    ref_bounds: (float,float)
+        The energy bounds of the reference band used to calculate the cross 
+        spectrum. These must be identical to those used to calculate the model 
+        in the cross_model object. 
+        
+    coh: float 
+        The assumed coherence in the Fourier frequency interval over which the 
+        lag spectrum is to be simulated. 
+        
+    pow: float 
+        The assumed power in fractional rms in the Fourier frequency interval 
+        over which the lag spectrum is to be simulated.
+        
+    exposure: float 
+        The total exposure time in seconds.
     
     Returns
     --------
     lagsim: np.array(float)
-        A one-dimensional array containing the simulated lags for each energy 
-        channel, based on the model and the specified parameters. The size of 
-        this array is equal to the number of energy channels defined in the 
-        instrument response matrix.
-    
+        An array containing the lag values in each energy channel. 
+        
+    dlag: np.array(float)
+        An array containing the error on the lags in each energy channel.
+        
+    response.emin, response.emax: np.array(float) 
+        The lower and upper energy bounds of each energy channel.    
     """
-    if fitobj.model is None:
-        raise AttributeError("Model not set. Please set a model before simulating.")
-    if bkg_file_path is None and fitobj.needbkg is True:
-        raise AttributeError("Background file not set. Please provide a background file to simulate the lag spectrum.")
-    if params is None and fitobj.model_params is None:
-        raise AttributeError("Model parameters not set. Please provide parameters to simulate the lag spectrum.")
-    if fitobj.response is None:
-        raise AttributeError("Instrument response not set. Please set the instrument response before simulating.")
-    if fitobj.freqs is None:
-        raise AttributeError("Frequency grid not set. Please set the frequency grid before simulating.")
+    #convolve our time-averaged and cross spectra with the response
+    spectrum_model = response.convolve_response(time_avg_model)
+    convolved_model = response.convolve_response(cross_model)    
+    #get the lags, real and imaginary parts of our convolved cross spectrum
+    lag_model = convolved_model.lag_energy(freq_bounds)    
+    real_model = convolved_model.real_energy(freq_bounds)
+    imag_model = convolved_model.imag_energy(freq_bounds)
     
-    ear = fitobj.energs
-    ne = len(ear)
-    flo = fitobj.freqs[:-1]
-    fhi = fitobj.freqs[1:]
-    fc = (flo+fhi)/2.
-    # Read in background array if needed
-    if fitobj.needbkg or bkg_file_path is not None:
-        fitobj.set_background(bkg_file_path)
-        fitobj.needbkg = False
-
-    #saves units and dependence to reset after simulation
-    reset_units = fitobj.units
-    reset_dependence = fitobj.dependence
-
-    #evaluate the folded lags model
-    fitobj.set_product_dependence("energy")
-    fitobj.set_coordinates("lags")
-    lags = fitobj.eval_model(params=params,fold=True)
-
-    #evaluate the cross spectrum
-    fitobj.set_coordinates("cartesian")
-    cross_spectrum = fitobj.eval_model(params=params)
-
-    #evaluate the time-averaged spectrum
-    time_avg_spectrum = time_avg_model.eval(params=params)
-    #finds the closest eneergy channels to the reference band edges
-    #ilo is reference band channel number low, ihi is channel number high
-    ilo = np.argmin(np.abs(ear-ref_Elo))
-    ihi = np.argmin(np.abs(ear-ref_Ehi))
-    #find the closest energy channels to the subject band edges
-    #Elo is subject band channel number low, Ehi is channel number high
-    Elo = np.argmin(np.abs(ear-sub_Elo))
-    Ehi = np.argmin(np.abs(ear-sub_Ehi))
-
-    # Calculate background in reference band
-    br = np.sum(fitobj.bkg_rate[ilo:ihi+1])
-
-    # Calculate background in subject
-    bs = np.sum(fitobj.bkg_rate[Elo:Ehi+1])
-
+    #now we calculate the power and noise in the reference band, given the models we have
+    ref_ilo = np.argmin(np.abs(response.emin-ref_bounds[0]))
+    ref_ihi = np.argmin(np.abs(response.emax-ref_bounds[1]))
+    # Calculate background in reference band - the +1 is necessary because the bounds are open rather than closed, ie [,) rather than [,]
+    br = np.sum(bkg_rate[ref_ilo:ref_ihi+1])
     # Calculate reference band power (absolute rms^2)
-    Pr = pow * np.sum(cross_spectrum[0,Elo:Ehi+1])
+    ref_pow = pow*(freq_bounds[1]+freq_bounds[0])*0.5
+    Pr = ref_pow * np.sum(real_model[ref_ilo:ref_ihi+1])
     # Calculate reference band Poisson noise (absolute rms^2)
-    mur = np.sum(time_avg_spectrum[Elo:Ehi+1])
+    mur = np.sum(spectrum_model[ref_ilo:ref_ihi+1])
     # Calculate total noise
     Prnoise = 2.0 * (br + mur)
 
-    # Loop through energy bins
-    lagsim = np.zeros(ne)
-    dlag = np.zeros(ne)
-    for i in range(1,ne):
-        mus = np.sum(time_avg_spectrum[ear[i-1]:ear[i]])
-        Psnoise = 2.0 * (mus + bs[i])
-        ReG = np.sum(cross_spectrum[0,ear[i-1]:ear[i]])
-        ImG = np.sum(cross_spectrum[1,ear[i-1]:ear[i]])
-        G2 = pow**2 * (ReG**2 + ImG**2)
-        # Calculate error
-        dlag[i] = 1.0 + Prnoise/Pr
-        dlag[i] *= (G2*(1.0-coh2) + Psnoise*Pr)
-        dlag[i] /= (coh2*G2)
-        dlag[i] /= (2.0 * Texp * (fhi-flo))
-        dlag[i] = np.sqrt(dlag[i])
-        dlag[i] /= (2.0 * np.pi * fc)
-        # Generate simulated data
-        lagsim[i] = lags[i] + np.random.normal(loc=0,scale=1,size=1) * dlag[i]
+    #next we set up the channels of interest
+    sub_Elo = response.emin
+    sub_Ehi = response.emax    
+    #we already have rebinned the matrix in the channels appropriately, so we only need one set of
+    #indexes rather than two like for the reference which can cover multiple channels
+    sub_i = np.array([np.argmin(np.abs(response.emin - e)) for e in sub_Elo],dtype=int)
+    
+    #now finally run the simulation, given the input coherence and exposure   
+    lagsim = []
+    dlag = []
 
-    # Reset units and dependence
-    fitobj.set_product_dependence(reset_dependence)
-    fitobj.set_coordinates(reset_units)
-
-    return lagsim
+    for index in sub_i:
+        #calculate the total noise in each subject band
+        mus = np.sum(spectrum_model[index:index+1])
+        bs = np.sum(bkg_rate[index:index+1])
+        Psnoise = 2*(mus+bs)
+        #calculate the cross spectrum contributions for the error
+        realcross = np.sum(real_model[index:index+1])
+        imagcross = np.sum(imag_model[index:index+1])
+        crosssquared = pow**2*(realcross**2+imagcross**2)
+        #calculate the error
+        lag_err = 1+Prnoise/Pr
+        lag_err *= (crosssquared*(1-coh) - Psnoise*Pr)
+        lag_err /= (crosssquared*coh)
+        lag_err /= (2*exposure * (freq_bounds[1]-freq_bounds[0]))
+        lag_err = np.abs(lag_err)**0.5
+        lag_err /= (2.0*np.pi*np.diff(freq_bounds))
+        #generate lags with Gaussian noise rescaled by the error
+        lag_val = lag_model[index] + np.random.normal(loc=0,scale=1,size=1) * lag_err
+        dlag = np.append(dlag,lag_err)
+        lagsim = np.append(lagsim,lag_val)
+    
+    return lagsim,dlag, response.emin, response.emax
 
 
 def simulate_time_averaged(res_obj,model,params,exposure_time=None):

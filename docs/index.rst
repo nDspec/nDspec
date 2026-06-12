@@ -42,6 +42,7 @@ nDspec core functionality:
     response_optimization   
     timing
     numerics
+    simulating_observations
 
 References and tables
 ~~~~~~~~~~~~~~~~~~~~~
