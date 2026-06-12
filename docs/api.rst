@@ -167,8 +167,8 @@ Model library
 Simulator utilities
 ~~~~~~~~~~~~~~~~~~~
 
-.. autofunction:: ndspec.Simulator.simulate_lag_energy
+.. autofunction:: ndspec.Simulator.simulate_lightcurve
 
-.. autofunction:: ndspec.Simulator.simulate_time_lags
+.. autofunction:: ndspec.Simulator.simulate_lag_energy
 
 .. autofunction:: ndspec.Simulator.simulate_time_averaged
