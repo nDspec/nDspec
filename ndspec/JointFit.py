@@ -713,11 +713,13 @@ class JointFit():
                                                   plot_bkg=plot_bkg,
                                                   return_plot=True,
                                                   params=self.model_params)   
-            else:
+            elif type(self.joint[key]) == FitPowerSpectrum:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   return_plot=True,
-                                                  params=self.model_params)                       
+                                                  params=self.model_params)
+            else:
+                raise TypeError(f"Fitter {key} can not be displayed in a 1d plot!")                                     
             
             plot_data = get_plot_info(plot,residuals=residuals)
             
@@ -800,7 +802,8 @@ class JointFit():
         else:
             return   
         
-    def all_plots(self,units,residuals="chisq",plot_bkg=None,return_plot=False):
+    def all_plots(self,units,residuals="chisq",plot_bkg=None,plot_components=False,
+                  return_plot=False):
         """
         This method loops over all stored fitter objects and plots the data, 
         model (given the parameters stored), and residuals for all the fits 
@@ -823,6 +826,11 @@ class JointFit():
             
         plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
+            
+        plot_components: bool, default=False 
+            If true, the model components are overplotted; if false, they are 
+            not. Only additive model components will display their values 
+            correctly. 
 
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -843,11 +851,17 @@ class JointFit():
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   plot_bkg=plot_bkg,
+                                                  plot_components=plot_components,
                                                   return_plot=True)
-            else:
+            elif type(self.joint[key]) == FitPowerSpectrum:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
+                                                  plot_components=plot_components,
                                                   return_plot=True)
+            else:
+                #his is a gross way to catch every other case but wcyd
+                plot = self.joint[key].plot_model(return_plot=True)             
+          
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
             if return_plot is True:
