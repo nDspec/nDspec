@@ -707,10 +707,15 @@ class JointFit():
         for key in names:
             if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
-            else:
+            elif type(self.joint[key]) == FitTimeAvgSpectrum:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   plot_bkg=plot_bkg,
+                                                  return_plot=True,
+                                                  params=self.model_params)   
+            else:
+                plot = self.joint[key].plot_model(residuals=residuals,
+                                                  units=units,
                                                   return_plot=True,
                                                   params=self.model_params)                       
             
@@ -834,10 +839,14 @@ class JointFit():
         for key in self.joint:
             if type(self.joint[key]) == FitCrossSpectrum:
                 plot = self.joint[key].plot_model_1d(return_plot=True)
-            else:
+            elif type(self.joint[key]) == FitTimeAvgSpectrum:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
                                                   plot_bkg=plot_bkg,
+                                                  return_plot=True)
+            else:
+                plot = self.joint[key].plot_model(residuals=residuals,
+                                                  units=units,
                                                   return_plot=True)
             plot.axes[0].set_title(str(key))
             plot.tight_layout()
