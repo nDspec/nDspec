@@ -22,6 +22,7 @@ from lmfit import Parameters as LM_Parameters
 
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
+from .FitPowerSpectrum import FitPowerSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from .Utils import get_plot_info, darken_colour
 from .Likelihoods import cstat, chisq, ratio
