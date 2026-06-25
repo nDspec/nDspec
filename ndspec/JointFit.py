@@ -341,28 +341,7 @@ class JointFit():
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-        
-        '''if self.joint == {}:
-            raise AttributeError("No loaded observations or models")
-            
-        if names == None: #retrieves all models
-            names = list(self.joint.keys())
-        elif type(names) == str:
-            names = [names]
-            
-        if type(names) != list:
-            raise TypeError("Inputted names are not valid type")
-        else:
-            model_dict = self.eval_model(params,names,flatten=False)
-            residuals = np.array([])
-            for name in names:
-                model = model_dict[name]          
-                likelihood = self.joint[name].likelihood    
-                resids = self.joint[name].get_residuals(likelihood,model=model)
-                residuals = np.concatenate([residuals,np.asarray(resids).flatten()])
-            residuals = np.asarray(residuals).flatten()
-        '''
-        
+               
         residuals = self.get_residuals(params,names,flatten=True)
             
         return residuals
@@ -393,6 +372,7 @@ class JointFit():
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm,args=[names])
         fit_params = self.fit_result.params
+        print("after fit")
         self.set_params(fit_params)
 
         self.print_fit_report()
@@ -518,6 +498,7 @@ class JointFit():
         
         #maybe find a way to go through the parameters of the model, and make sure 
         #the object passed contains the same parameters?
+        print("In set params")
         if type(params) != lmfit.Parameters:  
             raise AttributeError("The parameters input must be an LMFit Parameters object")
         #updates the individually linked parameters rather than overwriting them.
@@ -527,10 +508,14 @@ class JointFit():
                 if type(self.joint[key]) == list:
                     for m in self.joint[key]:
                         if par in list(m.model_params.keys()):
-                            m.model_params[par] = params[par]
+                            m.model_params[par].min = params[par].min
+                            m.model_params[par].max = params[par].max
+                            m.model_params[par].value = params[par].value                     
                 else:
                     if par in list(self.joint[key].model_params.keys()):
-                        self.joint[key].model_params[par] = params[par]
+                        self.joint[key].model_params[par].min = params[par].min
+                        self.joint[key].model_params[par].max = params[par].max
+                        self.joint[key].model_params[par].value = params[par].value
         return 
 
     def print_models(self,names=None):
