@@ -87,7 +87,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         self.freqs = None 
         pass
 
-    def set_data(self,data,data_err=None,data_grid=None):
+    def set_data(self,data,data_err=None,data_grid=None,frebin_fac=None):
         """
         This method is used to pass the data users want to fit. The input can
         be either three arrays including the power, its erorr, and the Fourier 
@@ -108,9 +108,15 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             The Fourier frequency grid over which the data (and model) are 
             defined. If passing a stingray object, this is not necessary and is 
             therefore ignored      
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            when it is loaded through Stingray, should users choose to do so.
         """
 
-        if getattr(data, '__module__', None) == "stingray.powerspectrum":         
+        if getattr(data, '__module__', None) == "stingray.powerspectrum":
+            if rebin_fac is not None:
+                data = data.rebin_log(rebin_fac)         
             self.data = data.power
             self.data_err = data.power_err
             FrequencyDependentFit.__init__(self,data.freq)            

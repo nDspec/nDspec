@@ -314,7 +314,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     #data and users have a lot of freedom.
     def set_data(self,response,ref_bounds,sub_bounds,data,
                  data_err=None,freq_grid=None,time_grid=None,
-                 freq_bins=None,time_res=None,seg_size=None,norm=None):
+                 freq_bins=None,time_res=None,seg_size=None,norm=None,
+                 frebin_fac=None):
         """
         This method is used to set the cross-spectrum data to be fitted. The 
         exact data is determined by the set_product_dependence and set_coordinates
@@ -395,7 +396,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         norm; str, optionalm default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
-            is used.  
+            is used.
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            over Fourier frequency when it is loaded through Stingray, should 
+            users choose to do so.  
         """
                 
         if self.units is None:
@@ -434,7 +440,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         if self.dependence == "frequency":
             self._freq_dependent_cross(data,data_err,
                                        freq_grid,time_grid,
-                                       time_res,seg_size,norm)
+                                       time_res,seg_size,norm,frebin_fac)
         elif self.dependence == "energy":
             self._energ_dependent_cross(freq_bins,data,data_err,
                                         freq_grid,time_grid,
@@ -452,7 +458,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
 
     def _freq_dependent_cross(self,data,data_err=None,
                               freq_grid=None,time_grid=None,
-                              time_res=None,seg_size=None,norm=None):
+                              time_res=None,seg_size=None,norm=None,
+                              frebin_fac=None):
         """
         This method handles loading a cross spectrum to be fitted, when users 
         specify that they want the data to depend from Fourier frequency rather 
@@ -495,7 +502,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         norm; str, optionalm default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
-            is used.         
+            is used. 
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            over Fourier frequency when it is loaded through Stingray, should 
+            users choose to do so.         
         """
         
         if getattr(data, '__module__', None) == "stingray.events":
@@ -511,14 +523,20 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                        segment_size=seg_size,
                                                        dt=time_res,norm=norm,
                                                        silent=True)
+            if frebin_fac is not None:
+                ps_ref = ps_ref.rebin_log(frebin_fac)
             ctrate_ref = get_average_ctrate(events_ref.time,events_ref.gti,seg_size)
             noise_ref = poisson_level(norm=norm, meanrate=ctrate_ref)     
                 
             #If we use stingray, we always keep linearly-spaced frequency and 
-            #time grids 
+            #time grids unless the data also gets rebinned, in which case we 
+            #use a geometrically spaced time grid
             lc_length = ps_ref.n*time_res
             time_samples = int(lc_length/time_res)
-            self._times = np.linspace(time_res,lc_length,time_samples)
+            if frebin_fac is not None:
+                self._times = np.linspace(time_res,lc_length,time_samples)
+            else:
+                self._times = np.geomspace(time_res,lc_length,time_samples)
             self.freqs = np.array(ps_ref.freq)
 
             self.data = []
@@ -531,6 +549,9 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                        segment_size=seg_size,
                                                        dt=time_res,norm=norm,
                                                        silent=True)
+                if frebin_fac is not None:
+                    cs = cs.rebin_log(frebin_fac)
+                
                 if self.units == "lags":
                     lag, lag_err = cs.time_lag() 
                     self.data = np.append(self.data,lag)
@@ -540,6 +561,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                                segment_size=seg_size,
                                                                dt=time_res,norm=norm,
                                                                silent=True)    
+                    if frebin_fac is not None:
+                        cs = cs.rebin_log(frebin_fac)
                     ctrate_sub = get_average_ctrate(events_sub.time,events_sub.gti,seg_size)                    
                     noise_sub = poisson_level(norm=norm, meanrate=ctrate_sub)                      
                     data_size = len(cs.freq)
@@ -854,27 +877,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             raise AttributeError("Product dependency not supported")
         
         return model
-    
-    def set_background(self,bkg_file_path):
-        """
-        This method is used to set the background file to be used in the 
-        simulation of lag spectra. The background file should contain the 
-        background counts in each energy channel.
-        
-        Parameters:
-        -----------
-        bkg_file: str
-            The path to the background file containing the background counts 
-            for each energy channel.
-        """
-        (bin_bounds_lo, bin_bounds_hi, 
-         counts, error, exposure) = load_pha(bkg_file_path)
-        bkg_rate = counts/exposure
-        self.bkg_counts = counts
-        self.bkg_counts_err = error
-        self.bkg_rate = bkg_rate
-        self.bkg_exposure = exposure
-        return
 
     def _freq_dependent_model(self,cross_eval):
         """

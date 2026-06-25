@@ -737,7 +737,7 @@ class JointFit():
             
             y_res = plot_data["resid"]
             y_reserr = plot_data["reserr"]
-            
+         
             #if the spectra were renormalized, we have to over-write the residuals
             if (self.renorm_spectra is True and residuals=="chisq"):
                 model_folded = self.eval_model(names=key,flatten=True)
