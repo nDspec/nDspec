@@ -714,7 +714,7 @@ class JointFit():
                 min_xrange = plot_data["x_points"][0]   
             if plot_data["x_points"][-1] > max_xrange: 
                 max_xrange = plot_data["x_points"][-1]  
-                    
+
             col="C"+str(i)
             i = i+1
             ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 

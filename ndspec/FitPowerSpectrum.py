@@ -312,13 +312,17 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         else:
             raise ValueError("Residual format not supported")
             
+        #this is a crappy hack to get Fourier frequency bin widths 
+        xerror = np.zeros(self.n_freqs)
+        #xerror[0:-1] = 0.5*np.diff(self.freqs)
+        #xerror[-1] = xerror[-2] 
         if units == "power":
             data = self.data
-            error = self.data_err
+            yerror = self.data_err
             ylabel = "Power"
         elif units == "fpower":
             data = self.data*self.freqs
-            error = self.data_err*self.freqs
+            yerror = self.data_err*self.freqs
             model = model*self.freqs
             ylabel= "Power$\\times$frequency"
         else:
@@ -331,7 +335,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
                                           gridspec_kw={'height_ratios': [2, 1]})
 
         if plot_data is True:
-            ax1.errorbar(self.freqs,data,yerr=error,
+            ax1.errorbar(self.freqs,data,yerr=yerror,xerr=xerror,
                          linestyle='',marker='o')       
        
         ax1.plot(self.freqs,model,lw=3,zorder=3)
@@ -355,7 +359,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         ax1.set_ylim([0.3*np.min(model),3.*np.max(model)])
 
         if plot_data is True:
-            ax2.errorbar(self.freqs,model_res,yerr=res_errors,
+            ax2.errorbar(self.freqs,model_res,yerr=res_errors,xerr=xerror,
                          linestyle='',marker='o')
             if residuals == "chisq":
                 ax2.plot(self.freqs,np.zeros(len(self.freqs)),
