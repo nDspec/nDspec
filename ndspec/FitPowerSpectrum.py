@@ -115,8 +115,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         """
 
         if getattr(data, '__module__', None) == "stingray.powerspectrum":
-            if rebin_fac is not None:
-                data = data.rebin_log(rebin_fac)         
+            if frebin_fac is not None:
+                data = data.rebin_log(frebin_fac)         
             self.data = data.power
             self.data_err = data.power_err
             FrequencyDependentFit.__init__(self,data.freq)            
