@@ -569,7 +569,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     
                     if self.units == "cartesian":    
                         data_first_dim = np.real(cs.power)
-                        data_second_dim = np.imag(cs.power)                
+                        data_second_dim = np.imag(cs.power)          
+                        print(len(cs.m),len(cs.power))      
                         error_first_dim = np.sqrt((ps_sub.power*ps_ref.power+ \
                                                    np.real(cs.power)**2- \
                                                    np.imag(cs.power)**2)/(2.*cs.m))

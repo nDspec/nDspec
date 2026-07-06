@@ -372,7 +372,6 @@ class JointFit():
         self.fit_result = minimize(self._minimizer,self.model_params,
                                    method=algorithm,args=[names])
         fit_params = self.fit_result.params
-        print("after fit")
         self.set_params(fit_params)
 
         self.print_fit_report()
