@@ -7,8 +7,7 @@ name = "ndspec"
 dynamic = ["version"]
 description = "Multi-dimensional modeling for astrophysical X-ray data"
 readme = "README.rst"
-license = "MIT"
-license-files = ["LICENSE"]
+license = { file = "LICENSE" }
 authors = [
     { name = "Matteo Lucchini", email = "m.lucchini@uva.nl" },
 ]
