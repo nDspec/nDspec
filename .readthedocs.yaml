@@ -32,7 +32,6 @@ sphinx:
 #this is still WiP as is the rest of the documentation
 python:
   install:
-    - requirements: docs/requirements.txt
     - method: pip
       path: .
       extra_requirements:
