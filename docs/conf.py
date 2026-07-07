@@ -36,7 +36,7 @@ html_theme_options = {
     'description': 'Jupyter Notebooks + Sphinx',
     'github_banner': True,
     'github_button': True,
-    'github_repo': 'neXTsPec_prototype',
+    'github_repo': 'nDspec',
     'github_type': 'watch',
     'github_user': 'matteolucchini1',
     'body_min_width' : '70%',
