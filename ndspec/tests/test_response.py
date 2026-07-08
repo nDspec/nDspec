@@ -6,7 +6,12 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath('__file__/ndspec
 from ndspec.Response import ResponseMatrix
 
 import pytest
-from xspec import *
+
+#if xspec is not present that's fine, the tests will be skipped for it anyway
+try:
+    from xspec import *
+except ImportError:
+    xspec = None
 
 class TestResponse(object):
 
