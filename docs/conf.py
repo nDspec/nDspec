@@ -1,7 +1,5 @@
 import os
 import sys
-from importlib import import_module
-from configparser import ConfigParser
 # Configuration file for the Sphinx documentation builder.
 #
 # For the full list of built-in configuration values, see the documentation:
@@ -38,7 +36,7 @@ html_theme_options = {
     'description': 'Jupyter Notebooks + Sphinx',
     'github_banner': True,
     'github_button': True,
-    'github_repo': 'neXTsPec_prototype',
+    'github_repo': 'nDspec',
     'github_type': 'watch',
     'github_user': 'matteolucchini1',
     'body_min_width' : '70%',
@@ -64,9 +62,6 @@ html_sidebars = {
 #note that the line below is messy with astropy affiliated packages so it will
 #be a problem in the long run
 sys.path.insert(0, os.path.abspath('../ndspec/'))
-conf = ConfigParser()
-conf.read([os.path.join(os.path.dirname(__file__), "..", "setup.cfg")])
-setup_cfg = dict(conf.items("metadata"))
 
 autodoc_mock_imports = ['bs4', 'requests','numpy','astropy','matplotlib',
                         'scipy','pyfftw','copy','warnings','lmfit','emcee',

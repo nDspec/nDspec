@@ -9,7 +9,7 @@ submodules:
 
 # Set the OS, Python version and other tools you might need
 build:
-  os: ubuntu-20.04
+  os: ubuntu-22.04
   tools:
     python: "3.8"
 
@@ -32,7 +32,6 @@ sphinx:
 #this is still WiP as is the rest of the documentation
 python:
   install:
-    - requirements: docs/requirements.txt
     - method: pip
       path: .
       extra_requirements:
