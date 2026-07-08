@@ -111,6 +111,11 @@ underlines = "-^"
         directory = "trivial"
         name = "Internal Changes"
         showcontent = true
+
+[tool.pytest.ini_options]
+markers = [
+    "xspec: requires PyXspec/HEASoft, skipped when unavailable",
+]
  
 [tool.black]
 line-length = 100
