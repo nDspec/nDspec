@@ -15,7 +15,13 @@ Along with these two core functionalities, the current release of nDspec provide
 Installation and testing
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-The alpha release of the software can only be installed from the repository. 
+The alpha release of the software can be installed from pip:
+
+.. code-block:: bash
+
+    pip install ndspec
+
+If instead you want to use features that are still in developement, you need to download the code from the Github repository and checkout the appropriate branch. 
 
 Unit tests utilize `py-test <https://pytest.org>`_. Running the unit tests simply requires opening the folder in which users downloaded the repository, and running the command `pytest` in the command line. 
 
