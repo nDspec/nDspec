@@ -10,7 +10,7 @@ import pytest
 
 def pytest_collection_modifyitems(config, items):
     try:
-        import xspec  # noqa
+        from xspec import *
         return
     except ImportError:
         skip_xspec = pytest.mark.skip(reason="PyXspec/HEASoft not installed")
