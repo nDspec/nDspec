@@ -56,9 +56,9 @@ tests = [
 ]
  
 [project.urls]
-Homepage = "https://github.com/matteolucchini1/nDspec"
+Homepage = "https://github.com/nDspec/"
 Documentation = "https://ndspec.readthedocs.io/en/latest/"
-Repository = "https://github.com/matteolucchini1/nDspec"
+Repository = "https://github.com/nDspec/nDspec"
  
 [tool.setuptools.packages.find]
 include = ["ndspec*"]
@@ -73,7 +73,7 @@ version_file = "ndspec/_version.py"
 package = "ndspec"
 filename = "CHANGELOG.rst"
 directory = ""
-issue_format = "`#{issue} <https://github.com/matteolucchini1/nDspec/pull/{issue}>`__"
+issue_format = "`#{issue} <https://github.com/nDspec/nDspec/pull/{issue}>`__"
 title_format = "v{version} ({project_date})"
 underlines = "-^"
  
