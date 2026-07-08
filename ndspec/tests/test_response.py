@@ -33,6 +33,9 @@ class TestResponse(object):
         assert hasattr(self.response, "specresp"), "row missing in rmf file"
 
     #compare the convolution with the nicer response to that in xspec 
+    #skipped on the github CLI because we can't install 3gb worth of heasoft 
+    #every time
+    @pytest.mark.xspec
     def test_nicer_convolution_comparison(self):
         nicer_resp = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/nicer.rmf")
         nicer_resp.load_arf(os.getcwd()+"/ndspec/tests/data/nicer.arf") 
@@ -64,7 +67,10 @@ class TestResponse(object):
         assert np.allclose(modVals[:-1],convolved_model[:-1],rtol=1e-6,atol=1e-6) == True
         assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6,atol=1e-6) == True
 
-    #compare the convolution with the nustar response to that in xspec        
+    #compare the convolution with the nustar response to that in xspec       
+    #skipped on the github CLI because we can't install 3gb worth of heasoft 
+    #every time
+    @pytest.mark.xspec 
     def test_nustar_convolution_comparison(self):
         nustar_fpma = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/nustar_fpma.rmf")
         nustar_fpma.load_arf(os.getcwd()+"/ndspec/tests/data/nustar_fpma.arf") 
@@ -97,6 +103,9 @@ class TestResponse(object):
         assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the rxte response to that in xspec
+    #skipped on the github CLI because we can't install 3gb worth of heasoft 
+    #every time
+    @pytest.mark.xspec
     def test_rxte_convolution_comparison(self):
         rxte_pca = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/rxte.rsp")
         Xset.chatter = 0
@@ -127,6 +136,9 @@ class TestResponse(object):
         assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the xrt response to that in xspec
+    #skipped on the github CLI because we can't install 3gb worth of heasoft 
+    #every time
+    @pytest.mark.xspec
     def test_xrt_convolution_comparison(self):
         xrt_resp = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/xrt.rmf")
         xrt_resp.load_arf(os.getcwd()+"/ndspec/tests/data/xrt.arf") 
@@ -159,6 +171,9 @@ class TestResponse(object):
         assert np.allclose(modVals[:-1],convolved_rebinned[:-1],rtol=1e-6) == True
 
     #compare the convolution with the xmm/epic response to that in xspec
+    #skipped on the github CLI because we can't install 3gb worth of heasoft 
+    #every time
+    @pytest.mark.xspec
     def test_xmm_convolution_comparison(self):
         xmm_resp = ResponseMatrix(os.getcwd()+"/ndspec/tests/data/xmm.rmf")
         xmm_resp.load_arf(os.getcwd()+"/ndspec/tests/data/xmm.arf") 
