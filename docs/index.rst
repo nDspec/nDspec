@@ -17,9 +17,9 @@ Installation and testing
 
 The alpha release of the software can be installed from pip:
 
-```
-pip install ndspec
-```
+.. code-block:: bash
+
+    pip install ndspec
 
 If instead you want to use features that are still in developement, you need to download the code from the Github repository and checkout the appropriate branch. 
 
