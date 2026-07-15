@@ -228,7 +228,7 @@ class JointFit():
                                                 fold=False,
                                                 mask=False)
             model_interp = interp1d(self.energy_grid["energ"],joint_eval,
-                                    fill_value='extrapolate',kind='linear')
+                                    fill_value='extrapolate',kind='cubic')
     
         for name in names:
             if name not in self.joint.keys():
@@ -391,7 +391,10 @@ class JointFit():
             first bin and finishing up to the top edge of the last bin in the 
             new grid.
         """
-        raise AttributeError("THIS METHOD CURRENTLY DOES NOT WORK, DO NOT USE")
+        warnings.warn(f"WARNING: using coarse energy grids can introduce numerical "\
+                       "errors in model evaluations! Check your model against the "\
+                       "default energy grids!"
+                       ,UserWarning)
         
         names = list(self.joint.keys())
         model_list = []
@@ -497,7 +500,6 @@ class JointFit():
         
         #maybe find a way to go through the parameters of the model, and make sure 
         #the object passed contains the same parameters?
-        print("In set params")
         if type(params) != lmfit.Parameters:  
             raise AttributeError("The parameters input must be an LMFit Parameters object")
         #updates the individually linked parameters rather than overwriting them.
