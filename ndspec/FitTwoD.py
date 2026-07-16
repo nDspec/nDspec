@@ -168,9 +168,20 @@ class FitTwoD(SimpleFit):
             Optional arrays including the background/noise floor and its error. 
         """
         
+        if data.shape != data_err.shape:
+            raise AttributeError("Size of data and error are not the same")
+        if data.shape[1] != len(column_grid):
+            raise AttributeError("Size of column grid does not match the data")
+        if response is None and data.shape[0] != len(row_grid):
+            raise AttributeError("Size of row grid does not match the data")
+        elif response is not None and data.shape[0] != len(row_grid)-1:
+            raise AttributeError("Size of row grid does not match the data")
+        if noise is not None and noise.shape != data.shape:
+            raise AttributeError("Size of noise and data are not the same")
+
+
         self.rows = data.shape[0]
         self.columns = data.shape[1]
-        #here: compare the size of the grid, with rows/columns.
         self.data = data.T.flatten()
         self.data_err = data_err.T.flatten()
         self.column_grid = column_grid

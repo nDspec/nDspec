@@ -404,11 +404,13 @@ class JointFit():
                 if grid_bounds[0] > self.joint[name].energs[0]:
                     raise ValueError(f"Custom grid bound above the minimum energy of {name}")
                 if grid_bounds[-1] < self.joint[name].energs[-1]:
-                    raise ValueError(f"Custom grid bound below the maximum energy of {name}")    
+                    raise ValueError(f"Custom grid bound below the maximum energy of {name}")
+                    
+        if len(model_list) == 0:
+            raise AttributeError("Only time-averaged spectrum fitters can use a shared energy grid")    
         
         #check that all the models in the time averaged spectrum fitters are the 
-        #same, and assign the model ot be used if that is true
-        
+        #same, and assign the model ot be used if that is true        
         first_model = model_list[0]
         if all(model == first_model for model in model_list):
             self.shared_model = first_model
@@ -447,6 +449,10 @@ class JointFit():
                 searched_names = self.joint.keys()
             else:
                 searched_names = names 
+            for name in searched_names:
+                if name not in self.joint.keys():
+                    raise AttributeError(f"{name} is not among the stored fitters")
+            
             self.renorm_names = []
             for name in searched_names:
                 if type(self.joint[name]) == FitTimeAvgSpectrum:
@@ -547,7 +553,8 @@ class JointFit():
         
     def print_fit_report(self):
         """
-        This method prints the current fit result.
+        This method prints the current fit result. It is essentially identical 
+        to the same function in LMFit.
         """
         
         result = self.fit_result
@@ -692,6 +699,8 @@ class JointFit():
         min_xrange = 1e30
         
         for key in names:
+            if key not in self.joint.keys():
+                raise AttributeError(f"{key} is not among the stored fitters")
             if type(self.joint[key]) == FitCrossSpectrum:
                 raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
             elif type(self.joint[key]) == FitTimeAvgSpectrum:
