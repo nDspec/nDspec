@@ -164,19 +164,25 @@ class JointFit():
             self.model_params = Parameters()
             for par in fitobj.model_params:
                 self.model_params.add_many(fitobj.model_params[par])
-        #pulls parameters names and saves to dictionary for model
-        #evaluation later
-        params = []
-        for key in fitobj.model_params.valuesdict().keys():
-           for joint_obs in self.joint_params:
-                if key in self.shared_keys:
-                    pass
-                elif key in self.joint_params[joint_obs]:
-                    self.shared_keys.append(key)
-                else:
-                    self.model_params.add_many(fitobj.model_params[key])
-                params.append(key)
+
+        params = list(fitobj.model_params.valuesdict().keys())
+        for key in params:
+            #if the parameter has already been shared among all fitters in the 
+            #joint fit, we do not need to do anything
+            if key in self.shared_keys:
+                continue
+            #if the parameter has an identical name to one from a different 
+            #fitter object previously included in the joint fitter, we mark it 
+            #as one that will be shared across the joint fit 
+            if any(key in self.joint_params[joint_obs] for joint_obs in self.joint_params):
+                self.shared_keys.append(key)
+            #if we have never seen the parameter from the individual fitter
+            #before, we store a copy within the joint fitter which is necessary 
+            #for correct joint evaluations
+            elif key not in self.model_params:
+                self.model_params.add_many(fitobj.model_params[key])
         self.joint_params[name] = params
+
         return 
      
     def eval_model(self,params=None,names=None,flatten=True):
