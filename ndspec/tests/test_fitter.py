@@ -15,6 +15,8 @@ from ndspec.SimpleFit import SimpleFit, load_pha
 from ndspec.FitPowerSpectrum import FitPowerSpectrum
 from ndspec.FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from ndspec.FitCrossSpectrum import FitCrossSpectrum
+from ndspec.FitTwoD import FitTwoD
+import ndspec.Models as models
 
 import pytest
 
@@ -27,6 +29,27 @@ def cross_const(energs,freqs):
     model = np.ones((n_freqs,n_energs))
     return model
 
+def twod_ones_model(x_axis,y_axis):
+    return np.ones((len(x_axis),len(y_axis)))
+    
+def sin_wave(phase,norm,center):
+    return norm*np.sin(phase*2*np.pi)+center
+
+def pulsing_bb(ear,x_axis,norm_bb,kT,norm_mod):
+    var_norm = sin_wave(x_axis,norm_mod,norm_bb)
+    energ = 0.5*(ear[1:]+ear[:-1])
+    model = np.zeros((len(x_axis),len(energ)))
+    for i, phasenorm in enumerate(var_norm):
+        bb_array = np.array([phasenorm,kT])
+        model[i,:] = models.bbody(energ,bb_array)*np.diff(ear)
+    model = model.T
+    return model
+
+def pulsing_bb_eval(y_axis,x_axis,norm_bb,kT,norm_mod):
+    model = pulsing_bb(y_axis,x_axis,norm_bb,kT,norm_mod)
+    model = model.T
+    return model
+     
 
 class TestFitPowerSpectrum(object):
  
@@ -415,6 +438,140 @@ class TestFitCrossSpectrum(object):
         with pytest.raises(AttributeError):
             self.test_cross.likelihood = "error"
             err = self.test_cross._minimizer(params=None)         
+
+class TestFitTwoD(object):
+ 
+    @classmethod
+    def setup_class(cls):
+        #set up a response, purely to test the response-dependent branch of 
+        #set_data
+        rmffile = os.getcwd()+"/ndspec/tests/data/xrt.rmf"
+        arffile = os.getcwd()+"/ndspec/tests/data/xrt.arf"
+        cls.response = ResponseMatrix(rmffile)
+        cls.response.load_arf(arffile)
+ 
+        #a minimal, valid 2d dataset and model, needed so that methods further 
+        #down the pipeline (e.g. _minimizer) can be tested without also 
+        #having to test the underlying model calculation
+        cls.dummy_data = np.ones((3,4))
+        cls.dummy_err = 0.1*np.ones((3,4))
+        cls.column_grid = np.linspace(0,3,4)
+        cls.row_grid = np.linspace(0,2,3)
+ 
+        cls.test_twod_base = FitTwoD()
+        cls.test_twod_base.set_data(cls.dummy_data,cls.dummy_err,
+                                    cls.column_grid,cls.row_grid)
+ 
+        twod_model = LM_Model(twod_ones_model,independent_vars=['x_axis','y_axis'])
+        twod_pars = LM_Parameters()
+        cls.test_twod_base.set_model(twod_model)
+        cls.test_twod_base.set_params(twod_pars)
+        
+        #setup to test the energy dependent case
+        #first build a sensible response 
+        rebin_bounds = np.geomspace(0.5,10,20)
+        rebin_bounds = np.append(np.min(cls.response.emin),rebin_bounds)
+        rebin_bounds = np.append(rebin_bounds,np.max(cls.response.emax))
+        rebin_bounds_lo = rebin_bounds[:-1]
+        rebin_bounds_hi = rebin_bounds[1:]
+        cls.rebin_response = cls.response.rebin_channels(rebin_bounds_lo,rebin_bounds_hi)
+        
+        #then build a pulsing BB model and get data from it
+        ear_bins = np.append(cls.rebin_response.energ_lo,cls.rebin_response.energ_hi[-1])
+        energ_bins = 0.5*(cls.rebin_response.energ_lo+cls.rebin_response.energ_hi)
+        phase_grid = np.linspace(0,1,30)
+        model_varbb = pulsing_bb(ear_bins,np.linspace(0,1,30),1,1,0.3)
+        folded_varbb = cls.rebin_response.convolve_response(model_varbb)
+        simulate_pulse = folded_varbb
+        simulate_pulse_err = 0.05*folded_varbb
+        pulse_model = LM_Model(pulsing_bb_eval,independent_vars=['y_axis','x_axis'])
+        start_params = pulse_model.make_params(norm_bb=dict(value=1,min=0,max=10),
+                                               kT=dict(value=1,min=0,max=10),
+                                               norm_mod=dict(value=0.3,min=0,max=1),
+                                               )       
+        
+        #set up the second fitter 
+        cls.test_twod_energ = FitTwoD()
+        cls.test_twod_energ.set_data(simulate_pulse,simulate_pulse_err,
+                                     column_grid=phase_grid,row_grid=rebin_bounds,
+                                     response=cls.rebin_response)
+        cls.test_twod_energ.set_model(pulse_model)
+        cls.test_twod_energ.set_params(start_params)
+        
+        return
+ 
+    #test that the class does not allow data, error, and grids of mismatched 
+    #sizes to be loaded
+    def test_set_data_errors(self):
+        #data and its error must have the same shape
+        with pytest.raises(AttributeError):
+            wrong_err = np.ones((2,4))
+            self.test_twod_base.set_data(self.dummy_data,wrong_err,
+                                         self.column_grid,self.row_grid)
+        #the column grid must match the number of columns in the data
+        with pytest.raises(AttributeError):
+            wrong_columns = np.linspace(0,3,3)
+            self.test_twod_base.set_data(self.dummy_data,self.dummy_err,
+                                         wrong_columns,self.row_grid)
+        #the row grid must match the number of rows in the data, if no 
+        #response is loaded
+        with pytest.raises(AttributeError):
+            wrong_rows = np.linspace(0,2,2)
+            self.test_twod_base.set_data(self.dummy_data,self.dummy_err,
+                                         self.column_grid,wrong_rows)
+        #the row grid (i.e. the ear array) must have one more bin edge than 
+        #the number of rows in the data, if a response is loaded
+        with pytest.raises(AttributeError):
+            wrong_ear = np.linspace(0,2,3)
+            self.test_twod_base.set_data(self.dummy_data,self.dummy_err,
+                                         self.column_grid,wrong_ear,
+                                         response=self.response)
+        #noise and data must have the same shape
+        with pytest.raises(AttributeError):
+            wrong_noise = np.ones((2,4))
+            self.test_twod_base.set_data(self.dummy_data,self.dummy_err,
+                                         self.column_grid,self.row_grid,
+                                         noise=wrong_noise,noise_err=wrong_noise)
+ 
+    #test that the class does not allow an unsupported fit statistic to be set
+    def test_set_fit_statistic_errors(self):
+        with pytest.raises(ValueError):
+            self.test_twod_base.set_fit_statistic("wrong")
+ 
+    #test that the ignore/notice methods require float or integer bounds
+    def test_ignore_notice_errors(self):
+        with pytest.raises(TypeError):
+            self.test_twod_base.ignore_columns("wrong",1)
+        with pytest.raises(TypeError):
+            self.test_twod_base.notice_columns("wrong",1)
+        with pytest.raises(TypeError):
+            self.test_twod_base.ignore_rows("wrong",1)
+        with pytest.raises(TypeError):
+            self.test_twod_base.notice_rows("wrong",1)
+ 
+    #test that the class doesn't calculate the likelihood if it is not 
+    #defined correctly
+    def test_twod_base_likelihood(self):
+        with pytest.raises(AttributeError):
+            self.test_twod_base.likelihood = "error"
+            err = self.test_twod_base._minimizer(params=None)
+
+    #test that the model and residuals are calculated correctly in the energy 
+    #independent case
+    def test_twod_base_residuals(self):
+        test = self.test_twod_base.eval_model()
+        assert np.allclose(test,np.ones(12)) == True
+        test, _ = self.test_twod_base.get_residuals(res_type="chisq")
+        assert np.allclose(test,np.zeros(12)) == True
+        test, _ = self.test_twod_base.get_residuals(res_type="ratio")
+        assert np.allclose(test,np.ones(12)) == True
+        
+    #now do the same in the energy independent case
+    def test_twod_energ_residuals(self):
+        test, _ = self.test_twod_energ.get_residuals(res_type="chisq")
+        assert np.allclose(test,np.zeros(630)) == True
+        test, _ = self.test_twod_energ.get_residuals(res_type="ratio")
+        assert np.allclose(test,np.ones(630)) == True
 
 class TestSimpleFit(object):
  
