@@ -61,4 +61,4 @@ All content © 2023 The Authors. The code is distributed under the MIT license; 
 .. _issue: https://github.com/nDspec/nDspec/issues
 .. _pull request: https://github.com/nDspec/nDspec/pulls
 .. _code of conduct: https://github.com/nDspec/nDspec/blob/beta/code_of_conduct.md
-.. _code conventions: https://github.com/nDspec/nDspec/blob/beta/code_conventions.md
+.. _coding conventions: https://github.com/nDspec/nDspec/blob/beta/code_conventions.md
