@@ -43,7 +43,7 @@ Contributing
 
 nDspec is a fully open source software, so we welcome your contribution and feedback!
 The best way to contact the developers is through the `issues`_ page - even a simple comment on what you find useful or intuitive (or vice versa) goes a long way in helping the project. 
-If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. Before you do so, you should read the `code of conduct`_ and `coding convention standards`_.
+If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. Before you do so, you should read the `code of conduct`_ and `coding conventions`_.
 
 Citing
 ------
