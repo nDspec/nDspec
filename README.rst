@@ -43,7 +43,7 @@ Contributing
 
 nDspec is a fully open source software, so we welcome your contribution and feedback!
 The best way to contact the developers is through the `issues`_ page - even a simple comment on what you find useful or intuitive (or vice versa) goes a long way in helping the project. 
-If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. 
+If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. Before you do so, you should read the `code of conduct`_ and `coding convention standards`_.
 
 Citing
 ------
@@ -57,6 +57,8 @@ All content © 2023 The Authors. The code is distributed under the MIT license; 
 
 .. |Docs| image:: https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat
    :target: https://ndspec.readthedocs.io/en/latest/
-.. _issues: https://github.com/matteolucchini1/ndspec/issues
-.. _issue: https://github.com/matteolucchini1/ndspec/issues
-.. _pull request: https://github.com/matteolucchini1/ndspec/pulls
+.. _issues: https://github.com/nDspec/nDspec/issues
+.. _issue: https://github.com/nDspec/nDspec/issues
+.. _pull request: https://github.com/nDspec/nDspec/pulls
+.. _code of conduct: https://github.com/nDspec/nDspec/blob/beta/code_of_conduct.md
+.. _code conventions: https://github.com/nDspec/nDspec/blob/beta/code_conventions.md
