@@ -248,13 +248,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     _supported_products: str 
         A string that checks whether the data provided (e.g. lags) is a function 
         of Fourier frequency or energy.    
-
-    needbkg: bool, default=True
-        A boolean that indicates whether the background is needed for the simulation
-        of the cross spectrum. If it is set to True, the class will attempt to read
-        the background from a file specified by the user and set this attribute to 
-        False. If it is set to False, it is assumed that the background file has
-        already been read in and will not be read again.
     """
     
     def __init__(self,likelihood="chisq"):
@@ -268,7 +261,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         self._supported_products = ["frequency","energy"]
         self.renorm_phase = False
         self.renorm_modulus = False
-        self.needbkg = True
         pass
 
     def set_product_dependence(self,depend):

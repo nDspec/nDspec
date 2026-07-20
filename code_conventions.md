@@ -53,3 +53,9 @@ def blah(arguments)
 3. ```FitterObjects``` should each be set in their separate file. They are all inherited from the ```SimpleFit``` class.
 4. Functionality that does not belong to the above groups can go in dedicated files - e.g. XspecInterface.py for calling Xspec models, or SamplingUtils.py for interfacing with sampling algorithms.
 5. The file naming convention is Pascal case, identically to classes - e.g. FitCrossSpectrum.py, not fit_cross_spectrum.py.
+
+# Repository rules
+
+1. Direct commits to main are not allowed. Changes to the main branch should only ever come from pull requests from a stand-alone developement branch.
+2. Pull requests to main that include entirely new features should only be accepted if the new feature is included in a stand-alone tutorial notebook in the documentation, and if the documentation (with the new tutorial) builds correctly.
+3. New releases (both on github and on PyPi) trigger automatically upon pushing a tag to the main branch. The correct format for each tag is ```v*```, where ```*``` is the version number (e.g. ```v0.5.3```). 

@@ -27,6 +27,8 @@ from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from .Utils import get_plot_info, darken_colour
 from .Likelihoods import cstat, chisq, ratio
 
+ndspec_oned_fit_types = (FitTimeAvgSpectrum, FitPowerSpectrum)
+
 class JointFit():
     """
     Generic joint fitting class. Use this class if you have multiple datasets
@@ -115,12 +117,12 @@ class JointFit():
                 if issubclass(type(obj),SimpleFit):
                     pass
                 else:
-                    raise TypeError("Invalid object passed")
+                    raise TypeError("Attempted to load invalid fitter object(s)")
         else:
             if issubclass(type(fitobj),SimpleFit):
                 pass
             else:
-                raise TypeError("Invalid object passed")
+                raise TypeError("Attempted to load invalid fitter object(s)")
             
         if type(fitobj) == list: 
             #multiple observations loaded at the same time 
@@ -297,7 +299,7 @@ class JointFit():
         """
 
         if self.joint == {}:
-            raise AttributeError("No loaded observations or models")
+            raise AttributeError("No loaded fitters found")
             
         if names == None: #retrieves all models
             names = list(self.joint.keys())
@@ -306,7 +308,7 @@ class JointFit():
 
         residual_hierarchy = {}            
         if type(names) != list:
-            raise TypeError("Inputted names are not valid type")
+            raise TypeError("Input names do not match loaded fitter objects")
         else:
             model_dict = self.eval_model(params,names,flatten=False)
             residuals = np.array([])
@@ -408,9 +410,9 @@ class JointFit():
             if type(self.joint[name]) == FitTimeAvgSpectrum:
                 model_list = np.append(model_list,self.joint[name].model)
                 if grid_bounds[0] > self.joint[name].energs[0]:
-                    raise ValueError(f"Custom grid bound above the minimum energy of {name}")
+                    raise ValueError(f"Custom grid lower bound above the minimum energy of {name} fitter object")
                 if grid_bounds[-1] < self.joint[name].energs[-1]:
-                    raise ValueError(f"Custom grid bound below the maximum energy of {name}")
+                    raise ValueError(f"Custom grid upper bound below the maximum energy of {name} fitter object")
                     
         if len(model_list) == 0:
             raise AttributeError("Only time-averaged spectrum fitters can use a shared energy grid")    
@@ -421,7 +423,7 @@ class JointFit():
         if all(model == first_model for model in model_list):
             self.shared_model = first_model
         else:
-            raise AttributeError("Not all models in the fitters are identical!")
+            raise AttributeError("The same model has to be defined across all fitters to share energy grids")
         
         self.energy_grid = dict(ear=grid_bounds,
                                 energ=0.5*(grid_bounds[1:]+grid_bounds[:-1]),
@@ -542,20 +544,25 @@ class JointFit():
             names of the models to be printed. The default is to print all 
             models.
         """
+        
         if names == None:
             names = list(self.joint.keys())
         
         if type(names) == list:
             for name in names:
-                print(f"{name}: \n")
-                print("-----------------------")
+                if name not in self.joint.keys():
+                    raise AttributeError(f"{name} is not among the stored fitters")
+            for name in names:
+                print(f"{name}:" )
                 self.joint[name].print_model()
-                print("-----------------------")
+                print("----------------------- \n")
         else:
-            print(f"{names}: \n")
-            print("-----------------------")
+            if names not in self.joint.keys():
+                raise AttributeError(f"{names} is not among the stored fitters")
+            print(f"{names}:")
             self.joint[names].print_model()
-            print("-----------------------")
+            print("----------------------- \n")
+        return
         
     def print_fit_report(self):
         """
@@ -707,8 +714,8 @@ class JointFit():
         for key in names:
             if key not in self.joint.keys():
                 raise AttributeError(f"{key} is not among the stored fitters")
-            if type(self.joint[key]) == FitCrossSpectrum:
-                raise TypeError("You can not display fits to 1d and 2d data on the same plot!")
+            if not isinstance(self.joint[key],ndspec_oned_fit_types):
+                raise TypeError("You can not display fits to 1d and 2d data on the same plot")
             elif type(self.joint[key]) == FitTimeAvgSpectrum:
                 plot = self.joint[key].plot_model(residuals=residuals,
                                                   units=units,
@@ -721,7 +728,7 @@ class JointFit():
                                                   return_plot=True,
                                                   params=self.model_params)
             else:
-                raise TypeError(f"Fitter {key} can not be displayed in a 1d plot!")                                     
+                raise TypeError(f"Fitter {key} plotter method not found")                                     
             
             plot_data = get_plot_info(plot,residuals=residuals)
             
