@@ -51,7 +51,7 @@ def chisq(data,err,model,noise=None,noise_err=None,summed=False):
         chisq = (data-model)/err
     
     if summed is True:
-        return np.sum(chisq)
+        return np.sum(chisq**2)
     else:
         return chisq
     
@@ -172,7 +172,13 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
     model = model*conv_factor
 
     if noise is None:   
-        cstat = model - data + data*(np.log(data)-np.log(model))        
+        #these two lines are necessary to handle bins with 0 counts without 
+        #returning infinities; in that case, the infinities are handled by 
+        #just taking full=model, because every other term goes to zero in the 
+        #limit of data->0
+        with np.errstate(divide='ignore',invalid='ignore'):
+            full = model - data + data*(np.log(data)-np.log(model))
+        cstat = np.where(data==0, model, full)     
     else:
         #convert the background array to counts 
         noise = noise*conv_factor       
