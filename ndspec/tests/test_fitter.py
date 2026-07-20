@@ -16,12 +16,16 @@ from ndspec.FitPowerSpectrum import FitPowerSpectrum
 from ndspec.FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from ndspec.FitCrossSpectrum import FitCrossSpectrum
 from ndspec.FitTwoD import FitTwoD
+from ndspec.JointFit import JointFit
 import ndspec.Models as models
 
 import pytest
 
 def ones_model(len):
     return np.ones(len)
+    
+def zeros_model(len):
+    return np.zeros(len)
 
 def cross_const(energs,freqs):
     n_energs = len(energs)
@@ -58,8 +62,7 @@ class TestFitPowerSpectrum(object):
         dummy_psd = np.ones(10)
         freqs = np.linspace(1,10,10)
         cls.test_psd = FitPowerSpectrum()
-        cls.test_psd.set_data(dummy_psd,0.1*dummy_psd,freqs)
- 
+        cls.test_psd.set_data(dummy_psd,0.1*dummy_psd,freqs) 
         return 
  
     def test_psd_eval(self):
@@ -110,8 +113,7 @@ class TestFitTimeAvgSpectrum(object):
  
         #set up data+fitter to test the time averaged spectrum 
         cls.test_spec = FitTimeAvgSpectrum()
-        cls.test_spec.set_data(cls.response,os.getcwd()+"/ndspec/tests/data/xrt.fak")
- 
+        cls.test_spec.set_data(cls.response,os.getcwd()+"/ndspec/tests/data/xrt.fak") 
         return 
  
     def test_spec_eval(self):
@@ -207,8 +209,7 @@ class TestFitCrossSpectrum(object):
                                  cls.new_edges,
                                  cls.dummy_data,dummy_err,
                                  freq_bins=cls.cross_freqs,
-                                 freq_grid=np.linspace(0.2,1.0,1000))
- 
+                                 freq_grid=np.linspace(0.2,1.0,1000)) 
         return 
  
     def test_cross_eval(self):
@@ -496,8 +497,7 @@ class TestFitTwoD(object):
                                      column_grid=phase_grid,row_grid=rebin_bounds,
                                      response=cls.rebin_response)
         cls.test_twod_energ.set_model(pulse_model)
-        cls.test_twod_energ.set_params(start_params)
-        
+        cls.test_twod_energ.set_params(start_params)        
         return
  
     #test that the class does not allow data, error, and grids of mismatched 
@@ -572,6 +572,136 @@ class TestFitTwoD(object):
         assert np.allclose(test,np.zeros(630)) == True
         test, _ = self.test_twod_energ.get_residuals(res_type="ratio")
         assert np.allclose(test,np.ones(630)) == True
+
+class TestJointFit(object):
+    @classmethod
+    def setup_class(cls):
+        #a minimal power spectrum fitter
+        dummy_psd = np.ones(10)
+        freqs = np.linspace(1,10,10)
+        cls.psd_fit = FitPowerSpectrum()
+        cls.psd_fit.set_data(dummy_psd,0.1*dummy_psd,freqs)
+        psd_model = LM_Model(ones_model)
+        psd_pars = LM_Parameters()
+        psd_pars.add_many(('len', 10, False, 1, 20))
+        cls.psd_fit.set_model(psd_model)
+        cls.psd_fit.set_params(psd_pars)
+        
+        #response used for the energy dependant tests 
+        rmffile = os.getcwd()+"/ndspec/tests/data/xrt.rmf"
+        arffile = os.getcwd()+"/ndspec/tests/data/xrt.arf"
+        test_response = ResponseMatrix(rmffile)
+        test_response.load_arf(arffile)
+
+        #a minimal time-averaged spectrum fitter
+        cls.spec_fit = FitTimeAvgSpectrum()
+        cls.spec_fit.set_data(test_response,os.getcwd()+"/ndspec/tests/data/xrt.fak")
+        spec_model = LM_Model(ones_model)
+        spec_pars = LM_Parameters()
+        spec_pars.add_many(('len', 2400, False, 1, 3000))
+        cls.spec_fit.set_model(spec_model,params=spec_pars)
+
+        #a second time-averaged spectrum fitter, used only to test that the class  
+        #rejects mismatched shared grid if models are also not shared 
+        cls.spec_fit2 = FitTimeAvgSpectrum()
+        cls.spec_fit2.set_data(test_response,os.getcwd()+"/ndspec/tests/data/xrt.fak")
+        spec_model2 = LM_Model(zeros_model)
+        spec_pars2 = LM_Parameters()
+        spec_pars2.add_many(('len', 2400, False, 1, 3000))
+        cls.spec_fit2.set_model(spec_model2,params=spec_pars2)
+        
+        #a minimal two-dimensional fitter to check plotting errors only 
+        dummy_data = np.ones((3,4))
+        dummy_err = 0.1*np.ones((3,4))
+        column_grid = np.linspace(0,3,4)
+        row_grid = np.linspace(0,2,3)
+
+        cls.twod_fit = FitTwoD()
+        cls.twod_fit.set_data(dummy_data,dummy_err,column_grid,row_grid)
+
+        twod_model = LM_Model(twod_ones_model,independent_vars=['x_axis','y_axis'])
+        twod_pars = LM_Parameters()
+        cls.twod_fit.set_model(twod_model)
+        cls.twod_fit.set_params(twod_pars)
+        return 
+
+    #test that only Fit... objects (or lists thereof) can be added to a joint fit
+    def test_add_fitobj_errors(self):
+        joint = JointFit()
+        with pytest.raises(TypeError):
+            joint.add_fitobj(np.ones(3),"wrong")
+        with pytest.raises(TypeError):
+            joint.add_fitobj([self.psd_fit,np.ones(3)],["psd","wrong"])
+
+    #test that residuals throw errors if the fitters/arguments are poorly defined
+    def test_get_residuals_errors(self):
+        joint = JointFit()
+        with pytest.raises(AttributeError):
+            JointFit().get_residuals()
+        joint.add_fitobj(self.psd_fit,"psd")
+        with pytest.raises(TypeError):
+            joint.get_residuals(names=123)
+
+    #test that shared energy grids throw errors when the wrong fitters are passed,
+    #or when bad grid bounds are passed 
+    def test_set_energy_grid_errors(self):
+        joint = JointFit()
+        joint.add_fitobj(self.psd_fit,"psd")
+        with pytest.raises(AttributeError):
+            joint.set_energy_grid(np.linspace(0.1,10,50))
+        joint = JointFit()
+        joint.add_fitobj(self.spec_fit,"spec")
+        low = self.spec_fit.energs[0]
+        high = self.spec_fit.energs[-1]
+        with pytest.raises(ValueError):
+            newgrid = np.linspace(1.5*low,high,50)
+            joint.set_energy_grid(newgrid)
+        with pytest.raises(ValueError):
+            newgrid = np.linspace(low,0.5*high,50)
+            joint.set_energy_grid(newgrid)
+        joint = JointFit()
+        joint.add_fitobj(self.spec_fit,"spec1")
+        joint.add_fitobj(self.spec_fit2,"spec2")
+        newgrid = np.linspace(0.1*low,1.5*high,50)
+        with pytest.raises(AttributeError):
+            joint.set_energy_grid(newgrid)
+
+    #test that parameters can only be set through lmfit
+    def test_set_params_errors(self):
+        joint = JointFit()
+        joint.add_fitobj(self.psd_fit,"psd")
+        with pytest.raises(AttributeError):
+            joint.set_params(np.ones(3))
+
+    #test that renorm_timeavg doesn't look for fitters that do not exist
+    def test_renorm_timeavg_errors(self):
+        joint = JointFit()
+        joint.add_fitobj(self.spec_fit,"spec")
+        with pytest.raises(AttributeError):
+            joint.renorm_timeavg(True,names=["not_loaded"])
+
+    #check that print model doesn't look for fitters that do not exist
+    def test_print_models_errors(self):
+        joint = JointFit()
+        joint.add_fitobj(self.psd_fit,"psd")
+        with pytest.raises(AttributeError):
+            joint.print_models(names=["not_loaded"])
+        with pytest.raises(AttributeError):
+            joint.print_models(names="not_loaded")
+ 
+    #test that the class tells users it can't jointly plot a fitter that 
+    #hasn't been loaded and can't plot 1d and 2d fitters together
+    def test_joint_plot_errors(self):
+        joint = JointFit()
+        joint.add_fitobj(self.psd_fit,"psd")
+        with pytest.raises(ValueError):
+            joint.joint_plot(units="wrong")
+        with pytest.raises(AttributeError):
+            joint.joint_plot(units="fpower",names=["not_loaded"])
+        joint = JointFit()
+        joint.add_fitobj(self.twod_fit,"twod")
+        with pytest.raises(TypeError):
+            joint.joint_plot(units="eeunfold")
 
 class TestSimpleFit(object):
  
