@@ -58,4 +58,5 @@ def blah(arguments)
 
 1. Direct commits to main are not allowed. Changes to the main branch should only ever come from pull requests from a stand-alone developement branch.
 2. Pull requests to main that include entirely new features should only be accepted if the new feature is included in a stand-alone tutorial notebook in the documentation, and if the documentation (with the new tutorial) builds correctly.
-3. New releases (both on github and on PyPi) trigger automatically upon pushing a tag to the main branch. The correct format for each tag is ```v*```, where ```*``` is the version number (e.g. ```v0.5.3```). 
+3. Pull requests with new features should not be accepted if those new features are not covered by unit tests. 
+4. New releases (both on github and on PyPi) trigger automatically upon pushing a tag to the main branch. The correct format for each tag is ```v*```, where ```*``` is the version number (e.g. ```v0.5.3```). 
