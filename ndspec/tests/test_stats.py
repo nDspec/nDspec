@@ -39,12 +39,9 @@ def flat_model(freq, value=1.0):
     return value*np.ones(_N_DATA)
 
 
+#this is used to build a dummy FitPowerSpectrum object used to check the sampling 
+#functionality 
 def make_psd_fitter(data_value=1.0, data_err=1.0, likelihood="chisq"):
-    """
-    Build a minimal, valid FitPowerSpectrum whose data is a constant array.
-    Used throughout the tests as dummy object to interface with the sampling 
-    functions. 
-    """
     data = data_value*np.ones(_N_DATA)
     err = data_err*np.ones(_N_DATA)
     freqs = np.linspace(1, _N_DATA, _N_DATA)
@@ -60,13 +57,10 @@ def make_psd_fitter(data_value=1.0, data_err=1.0, likelihood="chisq"):
     fitter.set_params(params)
     return fitter
 
-
+#This is used to reset the global variables to avoid contaminating the sampling 
+#unit tests. It is an unfortunate byproduct of the gross global variable stuff 
+#the sampling interfaces need.
 def reset_globals():
-    """
-    Reset all module-level globals in SamplingUtils between tests. This is 
-    necessary to avoid the global values contaminating tests they would not 
-    be used in during regular use. 
-    """
     sampling_utils.sampling_names = None
     sampling_utils.sampling_values = None
     sampling_utils.sampling_priors = None
