@@ -591,17 +591,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             #or we can explicitely pass a frequency grid alone, and the time 
             #grid is reconstructed automatically 
             elif freq_grid is not None:
-                self.freqs = freq_grid
                 time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-                lc_length = (self.freqs.size+1)*2*time_res
-                time_samples = int(lc_length/time_res)
-                #switching between linearly/geometrically spaced grids allows 
-                #the crossspec class attribute to switch automatically between 
-                #sinc and fftw methods upon initialization 
-                if (np.allclose(self.freqs, self.freqs[0]) is False):
-                    self._times = np.geomspace(time_res,lc_length,time_samples)
-                else:
-                    self._times = np.linspace(time_res,lc_length,time_samples)              
+                time_samples = (self.freqs.size+1)*2
+                lc_length = time_samples*time_res
+                #since we are passing a grid by hand, we just default to the 
+                #sinc method for safety 
+                self._times = np.geomspace(time_res,lc_length,time_samples)        
             else:
                 raise ValueError("Frequency and/or time grids undefined")
             self.data = data
@@ -681,26 +676,20 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.freqs = freq_grid
         #or do so implicetly with a segment size and time resolution
         elif (time_res is not None)&(seg_size is not None):
-            freqs = rfftfreq(int(seg_size/time_res),time_res)
+            n_samples = int(seg_size/time_res)
+            freqs = rfftfreq(n_samples,time_res)
             self.freqs = freqs[freqs>0]        
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            self._times = np.linspace(time_res,lc_length,time_samples)
-
+            self._times = np.linspace(time_res,n_samples*time_res,n_samples)
         #or we can explicitely pass a frequency grid alone, and the time grid is 
         #reconstructed automatically 
         elif freq_grid is not None:
             self.freqs = freq_grid
             time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            #switching between linearly/geometrically spaced grids allows 
-            #the crossspec class attribute to switch automatically between 
-            #sinc and fftw methods upon initialization 
-            if (np.allclose(self.freqs, self.freqs[0]) is False):
-                self._times = np.geomspace(time_res,lc_length,time_samples)
-            else:
-                self._times = np.linspace(time_res,lc_length,time_samples)              
+            time_samples = (self.freqs.size+1)*2
+            lc_length = time_samples*time_res
+            #since we are passing a grid by hand, we just default to the 
+            #sinc method for safety 
+            self._times = np.geomspace(time_res,lc_length,time_samples)               
         else:
             raise ValueError("Frequency and/or time grids undefined")         
         

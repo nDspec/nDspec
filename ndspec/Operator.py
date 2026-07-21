@@ -333,6 +333,18 @@ class nDspecOperator(object):
         arr_range = np.where(np.logical_and(array>=arr_min,array<=arr_max))
         if len(arr_range[0]) == 0:
             raise ValueError("No bins found within the integration bounds")
+
+        if len(arr_range[0]) == 1:
+            #with a single frequency bin, np.trapz actually returns 0. In this 
+            #case, we just calculate the integral in the single bin by hand.
+            if (axis == 0):
+                integral = signal[arr_range,:]*(arr_max-arr_min)
+            elif (axis == 1):
+                integral = signal[:,arr_range]*(arr_max-arr_min)
+            else:
+                raise ValueError("Incorrect axis specified")
+            return integral
+
             
         if (axis == 0):
             integral =  np.trapz(signal[arr_range,:],x=array[arr_range])

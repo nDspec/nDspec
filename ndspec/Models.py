@@ -171,23 +171,30 @@ def bbody(array,params,grid_edges=False):
         norm = params[0]
         temp = params[1]
         renorm = 8.0525*norm/(temp**4)
-        planck = np.exp(array/temp)-1.
         #safeguard against diverging exponentials, e.g. for low temperature BB
         #calculated at highx energy:
-        planck[planck>1e20] = 1e20
-        model = renorm*array**2/planck
+        with np.errstate(over='ignore', invalid='ignore'):
+            planck = np.exp(array/temp)-1.
+            planck[planck>1e20] = 1e20
+            model = renorm*array**2/planck
+        #if nans appear in the temperature/whatever, just set the bin to 0
+        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
         renorm = 8.0525*norm/np.power(temp,4.)
-        planck = np.exp(array/temp)-1.
         #safeguard against diverging exponentials, e.g. for low temperature BB
         #calculated at highx energy:
-        planck[planck>1e20] = 1e20
-        model = renorm*np.power(array,2.)/planck
+        with np.errstate(over='ignore', invalid='ignore'):
+            planck = np.exp(array/temp)-1.
+            planck[planck>1e20] = 1e20
+            model = renorm*np.power(array,2.)/planck
+        #if nans appear in the temperature/whatever, just set the bin to 0
+        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model
+
     
 def varbbody(array,params,grid_edges=False):
     """
@@ -205,23 +212,29 @@ def varbbody(array,params,grid_edges=False):
         temp = params[1]
         #safeguard against diverging exponentials, e.g. for low temperature BB
         #calculated at highx energy:
-        planck = np.exp(array/temp)
-        planck[planck>1e30] = 1e30
-        denom = planck-1.
-        renorm = 2.013*norm/(temp**5)*planck
-        renorm[renorm>1e30] = 1e30
-        model = renorm*array**3/denom**2
+        with np.errstate(over='ignore', invalid='ignore'):
+            planck = np.exp(array/temp)
+            planck[planck>1e30] = 1e30
+            denom = planck-1.
+            renorm = 2.013*norm/(temp**5)*planck
+            renorm[renorm>1e30] = 1e30
+            model = renorm*array**3/denom**2
+        #if nans appear in the temperature/whatever, just set the bin to 0
+        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
         #safeguard against diverging exponentials, e.g. for low temperature BB
         #calculated at highx energy:
-        planck = np.exp(array/temp)
-        planck[planck>1e30] = 1e30
-        denom = planck-1.
-        renorm = 2.013*norm/np.power(temp,5.)*planck
-        renorm[renorm>1e30] = 1e30
-        model = renorm*np.power(array,3.)/np.power(denom,2)
+        with np.errstate(over='ignore', invalid='ignore'):
+            planck = np.exp(array/temp)
+            planck[planck>1e30] = 1e30
+            denom = planck-1.
+            renorm = 2.013*norm/np.power(temp,5.)*planck
+            renorm[renorm>1e30] = 1e30
+            model = renorm*np.power(array,3.)/np.power(denom,2)
+        #if nans appear in the temperature/whatever, just set the bin to 0
+        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model     
