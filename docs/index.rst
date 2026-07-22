@@ -33,6 +33,7 @@ Data fitting tutorials:
     fit_cross_2d
     fit_twod
     fit_joint
+    bayesian_sampling
     
 nDspec core functionality:
 
