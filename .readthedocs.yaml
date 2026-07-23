@@ -6,9 +6,6 @@ build:
     python: "3.12"
   apt_packages:
     - pandoc          # REQUIRED by nbsphinx
-  jobs:
-    post_checkout:
-      - git fetch --unshallow || true    # setuptools_scm needs full history
 
 sphinx:
   configuration: docs/conf.py
