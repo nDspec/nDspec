@@ -24,7 +24,7 @@ def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
     
     Parameters:
     -----------       
-    psd_obj: ndspec.PowerSpectrum
+    psd_obj: ndspec.Timing.PowerSpectrum
         An instance of the PowerSpectrum class, which contains the model
         to use for simulating the lightcurve. This object is used to evaluate 
         the power spectrum at the frequencies measurable by the observation 
@@ -116,7 +116,7 @@ def simulate_lag_energy(response,time_avg_model,cross_model,
         time-averaged spectrum of the source. Necessary to calculate the noise 
         and lag errors correctly.
         
-    cross_model: nDspec.CrossSpectrum
+    cross_model: nDspec.Timing.CrossSpectrum
         An nDspec energy-dependent cross spectrum model from which to derive 
         the lag spectra, as well as the real and imaginary parts of the cross 
         spectrum (as required for calculating the errors). This object MUST 
@@ -126,7 +126,7 @@ def simulate_lag_energy(response,time_avg_model,cross_model,
         A Numpy array containing the background count rate in each channel of 
         the assumed instrument response. 
         
-    freq_bounds: (float,foat)
+    freq_bounds: (float,float)
         The minimum and maximum Fourier frequencies over which to calculate the 
         lag-energy spectrum. 
             
