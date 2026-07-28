@@ -48,6 +48,7 @@ docs = [
     "nbsphinx",
     "pandoc",
     "sphinx-copybutton",
+    "pydata-sphinx-theme",
 ]
 tests = [
     "pytest",
