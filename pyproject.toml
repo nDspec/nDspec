@@ -49,6 +49,7 @@ docs = [
     "pandoc",
     "sphinx-copybutton",
     "pydata-sphinx-theme",
+    "ipython",
 ]
 tests = [
     "pytest",
