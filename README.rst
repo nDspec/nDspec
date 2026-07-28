@@ -20,12 +20,12 @@ The goal of the software is to provide users with an Xspec-like package, but to 
 Documentation
 -------------
 
-The software documentation is `found on readthedocs <https://ndspec.readthedocs.io/en/latest/>`_. You can also find notebooks discussing the features of each class in the /notebooks/ folder.
+The software documentation, including installation instructions, tutorials, and the full API, is `found on readthedocs <https://ndspec.readthedocs.io/en/latest/>`_. You can also find notebooks discussing the features of each class in the /notebooks/ folder.
 
 Installation and testing
 ------------------------
 
-The current version of the software can only be installed from the repository. Unit tests make use of `py.test <https://pytest.org>`_. Running the unit tests simply requires opening the folder in which users downloaded the repository, and running the command `pytest` in the command line. 
+The stable version of the software can be installed via pip; if you want to use (or contribute to!) features that are still in-developement, you should install the software directly from the repository. Unit tests make use of `py.test <https://pytest.org>`_. Running the unit tests simply requires opening the folder in which users downloaded the repository, and running the command `pytest` in the command line. 
 
 Related Packages
 ----------------

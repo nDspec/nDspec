@@ -662,7 +662,7 @@ def sampling_cash_likelihood(theta):
     likelihood that should be passed to nested sampling algorithms, which 
     evaluate the priors separately from the likelihood. It requires the global 
     variables sampling_names, sampling_params, sampling_data, sampling_noise,
-     sampling_exp, and sampling_bins beforehand.  
+    sampling_exp, and sampling_bins beforehand.  
     
     Parameters:
     -----------

@@ -14,7 +14,7 @@ The stable version of the software can be installed via pip:
 
 .. code-block:: bash
 
-   pip install ndspec 
+   pip install ndspec
 
 Alternatively, If you want to use (or contribute to!) features that are still in developement, you should install the software directly from the repository:
 

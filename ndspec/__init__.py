@@ -1,3 +1,5 @@
+from ._version import version as __version__
+
 from . import SamplingUtils
 from . import FitCrossSpectrum
 from . import FitPowerSpectrum

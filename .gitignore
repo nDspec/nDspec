@@ -13,7 +13,6 @@ ndspec.egg-info/
 .vscode/
 
 docs/_build/
-docs/api/_autosummary/
 **/.ipynb_checkpoints/
 
 vvv/
