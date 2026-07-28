@@ -104,19 +104,19 @@ def simulate_lag_energy(response,time_avg_model,cross_model,
     the time-averaged spectrum and cross spectrum passed produce consistent 
     absolute rms. 
 
-    Parameters
+    Parameters:
     ----------- 
-    response: nDspec.ResponseMatrix
+    response: ndspec.Response.ResponseMatrix
         The response matrix to be used in the simulation. This should always be 
         re-binned to a coarse channel grid, as is standard for all lag-energy 
         spectra. 
         
-    time_avg_model: LMFit.CompositeModel
+    time_avg_model: lmfit.CompositeModel
         A Model or CompositeModel LMFit object that stores the assumed
         time-averaged spectrum of the source. Necessary to calculate the noise 
         and lag errors correctly.
         
-    cross_model: nDspec.Timing.CrossSpectrum
+    cross_model: ndspec.Timing.CrossSpectrum
         An nDspec energy-dependent cross spectrum model from which to derive 
         the lag spectra, as well as the real and imaginary parts of the cross 
         spectrum (as required for calculating the errors). This object MUST 

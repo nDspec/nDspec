@@ -165,7 +165,7 @@ def set_sampling_parameters(params):
         constant. 
         
     Returns:
-    -------
+    --------
     theta: np.array 
         A numpy array containing the values of the free parameters in the model.
     """

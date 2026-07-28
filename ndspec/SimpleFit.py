@@ -234,7 +234,7 @@ class SimpleFit():
                 
             and call set_custom_likelihood(diff).  
             
-        *args:  
+        \*args:  
             Additional arguments to be passed to the likelihood calculation, 
             excluding the data and model (which are always included 
             automatically by the class). Following the example above:

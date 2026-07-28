@@ -68,11 +68,17 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         
     Attributes inherited from FrequencyDependentFit: 
     ------------------------------------------------    
-     _freqs_unmasked 
+    _freqs_unmasked: np.array(float) 
+        The array of Fourier frequency over which all data and model are 
+        defined, including bins that are ignored in the fit. 
     
-    freqs_mask     
+    freqs_mask: np.array(bool)
+        The array of Fourier frequencies that are either ignored or noticed 
+        during the fit. A given channel i is noticed if freqs_mask[i] is True,
+        and ignored if it is false.      
     
-    n_freqs
+    n_freqs: int 
+        The number of Fourier frequency bins that are noticed in the fit. 
         
     Other attributes:
     -----------------    

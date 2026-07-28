@@ -317,7 +317,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     def plot_data(self,units="data",plot_bkg=False,return_plot=False):
         """
         This method plots the spectrum loaded by the user as a function of 
-        energy. It is possible to plot both in detector and ``unfolded'' space, 
+        energy. It is possible to plot both in detector and "unfolded" space, 
         with the caveat that unfolding data is EXTREMELY dangerous and should
         be interpreted with care (or not at all). 
         
@@ -416,14 +416,16 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
-        residuals. It is possible to plot both in detector and ``unfolded'' space, 
+        residuals. It is possible to plot both in detector and "unfolded" space, 
         with the caveat that unfolding data is EXTREMELY dangerous and should
         be interpreted with care (or not at all). 
         
         The definition of unfolded data is subjective; nDspec adopts the same 
         convention as ISIS, and defines an unfolded count spectrum Uf(h) as a 
         function of energy channel h as :
+        
         Uf(h) = C(h)/sum(R(E)),
+        
         where C(h) is the detector space spectrum, R(E) is the instrument response 
         and sum denotes the sum over energy bins. This definition has the 
         advantage of being model-independent and is analogous to the Xspec 

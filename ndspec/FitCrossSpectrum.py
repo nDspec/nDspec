@@ -161,7 +161,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         of 7 ranges of frequencies to calculate lag energy spectra, but only 
         want to consider the first and last 3, and ignore the middle one.
     
-    freqs_mask np.array(bool)
+    freqs_mask: np.array(bool)
         The array of Fourier frequencies that are either ignored or noticed 
         during the fit. A given channel i is noticed if freqs_mask[i] is True,
         and ignored if it is false.      
@@ -179,7 +179,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     units: str 
         A string that checks the units which the user is providing  - "lags" for 
         fitting lag spectra alone, "polar" or fitting modulus and phase together, 
-        and "cartesian"	 for fitting real and imaginary parts together.        
+        and "cartesian" for fitting real and imaginary parts together.        
             
     ref_band: [np.float,np.float]
         The minimum/maximum energy bounds over which to take the reference band. 
@@ -222,7 +222,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         Fourier frequency bin to match the data. Physically, this allows one to 
         take into account differences between the power spectrum shape assumed 
         in the model to calculate the spectral timing products (e.g. modulus vs 
-        energy), and the ``true'' underyling power spectrum in the source. 
+        energy), and the "true" underyling power spectrum in the source. 
         This setting will NOT affect the phase of a cross spectrum, only the 
         modulus (and therefore it will affect the real and imaginary parts).   
 
@@ -230,7 +230,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         A string recording whether the data and model to be fitted are in units 
         of frequency or energy (e.g. lag frequency vs lag energy spectra).
 
-   _supported_coordinates: str
+    _supported_coordinates: str
         A string that checks the units models/data can be defined as. "lags" is 
         for fitting lag spectra alone, "polar" is for fitting modulus and phase 
         together, and "cartesian" is for fitting real and imaginary parts 

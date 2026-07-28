@@ -447,7 +447,7 @@ class PowerSpectrum(FourierProduct):
         signal: np.array(float), default None
             The quantity from which to calculate the power spectrum. If it is 
             not provided, the class will use the model object stored in 
-            the ``model'' attribute instead.
+            the "model" attribute instead.
             
         freq: np.array(float), default None 
             The array of Fourier frequencies over which to compute the model. 
@@ -456,7 +456,7 @@ class PowerSpectrum(FourierProduct):
             
         params: lmfit.Parameters, default None
             The parameter values to use in evaluating the model. If none are 
-            provided, the ''model_params'' attribute stored in the object is 
+            provided, the "model_params" attribute stored in the object is 
             used.    
         """  
         

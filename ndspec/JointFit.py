@@ -100,7 +100,7 @@ class JointFit():
 
     def add_fitobj(self,fitobj,name):
         """
-        Adds one or more fitters to the joint fit. 
+        Adds one or more fitters to the joint fit.
 
         Parameters
         ----------
@@ -205,6 +205,7 @@ class JointFit():
         flatten: bool, default True 
             A boolean to switch between returning model evaluations as a 
             dictionary or numpy array (see below). 
+        
         Returns:
         --------
         model_hierarchy: either dict(np.array(float)) or np.array(float)
@@ -212,8 +213,7 @@ class JointFit():
             defined by the fitter names, or by flattened numpy arrays. The 
             former allows easy access to the evaluated model for each fitter, 
             the latter is necessary for lmfit optimzers and/or likelihood \
-            calculations. 
-        
+            calculations.         
         """
         
         if names == None: #retrieves all models

@@ -33,11 +33,20 @@ autodoc_default_options = {
 #annoying warnings to ignore while building
 nitpick_ignore = [
     ("py:class", "np.array"),
-    ("py:class", "array_like"),   
+    ("py:class", "array_like"),  
+    ("py:class", "Fit"), 
 ]
 nitpick_ignore_regex = [
     (r"py:.*", r"^\s*(object|objects|optional|None\.?)\s*$"),
 ]
+#alias notation to numpy.ndarray; it doesn't catch everything but close enough
+napoleon_use_param = True
+napoleon_use_rtype = True
+napoleon_type_aliases = {
+    "np.array": "numpy.ndarray",
+    "np.ndarray": "numpy.ndarray",
+    "array_like": "numpy.ndarray",
+}
 
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
@@ -45,6 +54,7 @@ intersphinx_mapping = {
     "scipy": ("https://docs.scipy.org/doc/scipy", None),
     "astropy": ("https://docs.astropy.org/en/stable", None),
     "matplotlib": ("https://matplotlib.org/stable", None),
+    "lmfit": ("https://lmfit.github.io/lmfit-py/", None),
 }
 
 #Dont re-run the notebooks at build time, instead execute each once and

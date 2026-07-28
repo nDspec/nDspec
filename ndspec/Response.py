@@ -586,14 +586,14 @@ class ResponseMatrix(nDspecOperator):
     def diagonal_matrix(self,num):
         """
         Returns a diagonal identity matrix, which by definition contains only
-        ones on the diagonal and zeroes  otherwise.
+        ones on the diagonal and zeroes otherwise.
         
         Parameters:
-        ----------             
+        -----------             
         num: int
             The dimension of the desired matrix.
             
-        Returns: 
+        Returns:
         --------
         diag_resp: np.array(float,float)
             An identity matrix of size (num x num).   
