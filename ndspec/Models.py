@@ -6,6 +6,9 @@ from matplotlib import cm
 from matplotlib.colors import TwoSlopeNorm
 import matplotlib.gridspec as gridspec
 
+#required by the polarimetry models 
+from .Polarimetry import PolarimetryProduct
+
 from matplotlib import rc, rcParams
 rc('text',usetex=True)
 rc('font',**{'family':'serif','serif':['Computer Modern']})
@@ -577,6 +580,156 @@ def pivoting_pl(array1,array2,params):
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")      
     return pivoting    
+
+def pol_constant(energs,params,grid_edges=False):
+    """
+    This model returns a polarization degree and angle which are both constant 
+    with energy. It should be used as a multiplicative model against an array 
+    containing Stokes I, Q and U vectors. The input parameters are:
+    
+    energs: the array of photon energies over which to compute the model \n    
+    pol_degree: the polarization degree, defined between 0 and 1 \n    
+    pol_angle: the polarization angle, in degrees \n    
+    grid_edges: specifies whether the input array contains all the edges of a 
+    binned grid (identically to xspec), or the grid midpoints
+    """
+    if grid_edges is True:
+        energs = 0.5*(energs[1:]+energs[:-1])
+    if params.ndim != 1:
+        raise TypeError("Params has too many dimensions, limit to 1 dimension")
+    pol_degree = params[0]*np.ones(len(energs))
+    pol_angle = np.radians(params[1])*np.ones(len(energs))
+    #a normalized Stokes I of unity turns polarization_to_stokes into exactly 
+    #the normalized Stokes vector this model is required to return
+    product = PolarimetryProduct(energs,input_type='polarization')
+    product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
+    stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
+    model = np.array([stokes_I,stokes_Q,stokes_U])
+    return model
+    
+def pol_degree_linear(energs,params,grid_edges=False):
+    """
+    This model returns a polarization degree which varies linearly with energy, 
+    and a polarization angle which is constant with it. It should be used as a 
+    multiplicative model against an array  containing Stokes I, Q and U vectors. 
+    The input parameters are:
+    
+    energs: the array of photon energies over which to compute the model \n    
+    pol_degree: the polarization degree at the pivot energy, defined between 0 
+    and 1 \n    
+    degree_slope: the slope of the polarization degree, in units of inverse keV 
+    \n    
+    pol_angle: the polarization angle, in degrees \n    
+    energ_pivot: the pivot energy, in keV, at which the polarization degree is 
+    equal to pol_degree \n    
+    grid_edges: specifies whether the input array contains all the edges of a 
+    binned grid (identically to xspec), or the grid midpoints
+    """
+    if grid_edges is True:
+        energs = 0.5*(energs[1:]+energs[:-1])
+    if params.ndim != 1:
+        raise TypeError("Params has too many dimensions, limit to 1 dimension")
+    pol_degree = params[0]+params[1]*(energs-params[3])
+    pol_angle = np.radians(params[2])*np.ones(len(energs))
+    product = PolarimetryProduct(energs,input_type='polarization')
+    product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
+    stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
+    model = np.array([stokes_I,stokes_Q,stokes_U])
+    return model    
+
+def pol_angle_linear(energs,params,grid_edges=False):
+    """
+    This model returns a polarization angle which varies linearly with energy, 
+    and a polarization degree which is constant with it. It should be used as a 
+    multiplicative model against an array  containing Stokes I, Q and U vectors. 
+    The input parameters are:
+    
+    energs: the array of photon energies over which to compute the model \n    
+    pol_degree: the polarization degree, defined between 0 and 1 \n    
+    pol_angle: the polarization angle at the pivot energy, in degrees \n    
+    angle_slope: the slope of the polarization angle, in units of degrees per 
+    keV \n    
+    energ_pivot: the pivot energy, in keV, at which the polarization angle is 
+    equal to pol_angle \n    
+    grid_edges: specifies whether the input array contains all the edges of a 
+    binned grid (identically to xspec), or the grid midpoints
+    """
+    if grid_edges is True:
+        energs = 0.5*(energs[1:]+energs[:-1])
+    if params.ndim != 1:
+        raise TypeError("Params has too many dimensions, limit to 1 dimension")
+    pol_degree = params[0]*np.ones(len(energs))
+    pol_angle = np.radians(params[1]+params[2]*(energs-params[3]))
+    product = PolarimetryProduct(energs,input_type='polarization')
+    product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
+    stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
+    model = np.array([stokes_I,stokes_Q,stokes_U])
+    return model
+
+def pol_linear(energs,params,grid_edges=False):
+    """
+    This model returns a polarization degree and angle which both vary linearly 
+    with energy. It should be used as a multiplicative model against an array 
+    containing Stokes I, Q and U vectors. The input parameters are:
+        
+    energs: the array of photon energies over which to compute the model \n    
+    pol_degree: the polarization degree at the pivot energy, defined between 0 
+    and 1 \n    
+    degree_slope: the slope of the polarization degree, in units of inverse keV 
+    \n    
+    pol_angle: the polarization angle at the pivot energy, in degrees \n    
+    angle_slope: the slope of the polarization angle, in units of degrees per 
+    keV \n    
+    energ_pivot: the pivot energy, in keV, at which the polarization degree and 
+    angle are equal to pol_degree and pol_angle \n    
+    grid_edges: specifies whether the input array contains all the edges of a 
+    binned grid (identically to xspec), or the grid midpoints
+    """
+    if grid_edges is True:
+        energs = 0.5*(energs[1:]+energs[:-1])
+    if params.ndim != 1:
+        raise TypeError("Params has too many dimensions, limit to 1 dimension")
+    pol_degree = params[0]+params[1]*(energs-params[4])
+    pol_angle = np.radians(params[2]+params[3]*(energs-params[4]))
+    product = PolarimetryProduct(energs,input_type='polarization')
+    product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
+    stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
+    model = np.array([stokes_I,stokes_Q,stokes_U])
+    return model
+
+def pol_rotation(seed,params):
+    """
+    This model rotates the polarization angle of another polarization model by 
+    the same amount at every energy, leaving the polarization degree unchanged. 
+        
+    Unlike the other polarization models, this is a convolution rather than 
+    multiplicative model. It takes as input the (3, len(energs)) Stokes seed 
+    vector already returned by another polarization model, and transforms into 
+    a new Stokes vector of the same shape; for instance;
+    
+    ``` python
+        base = pol_angle_linear(energs,base_params)
+        rotated = pol_rotation(base,rotation_params)
+    ```
+    
+    The input parameters are:
+    
+    seed: np.array(float), shape (3, len(energs))
+        The Stokes vector returned by another polarization model, to be 
+        rotated. Its first row is Stokes I, and the second and third are the 
+        corresponding Stokes Q and U \n    
+    params: array_like(float)
+        angle_rotation: the angle by which the whole polarization angle model 
+        is rotated, in degrees
+    """
+    if params.ndim != 1:
+        raise TypeError("Params has too many dimensions, limit to 1 dimension")
+    angle_rotation = params[0]
+    bins = np.arange(seed.shape[1])
+    seed_product = PolarimetryProduct(bins,input_type='stokes')
+    seed_product.set_stokes(seed[0],seed[1],seed[2])
+    model = seed_product.rotate_polarization(angle_rotation)
+    return model
     
 def plot_2d(xaxis,yaxis,impulse_2d,impulse_x,impulse_y,
             xlim=[0.,400.],ylim=[0.1,10.5],xlog=False,ylog=False,

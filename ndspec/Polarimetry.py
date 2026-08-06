@@ -156,6 +156,45 @@ class PolarimetryProduct(Operator.nDspecOperator):
         self.mod_angles = np.asarray(angles, dtype=float)
         return
 
+    def rotate_polarization(self,rotation):
+        """
+        This method rotates the Stokes Q and U stored in the object by a given 
+        angle, following the standard rotation of Stokes parameters:
+ 
+        q' = q*cos(2*delta) - u*sin(2*delta) \n
+        u' = q*sin(2*delta) + u*cos(2*delta)
+ 
+        where delta is the rotation angle. Stokes I, and therefore the 
+        polarization degree, are left unchanged by the rotation. The rotated 
+        Stokes Q and U are stored back into the stokes_Q and stokes_U arrays.
+        
+        Parameters:
+        -----------
+        angle_rotation: float 
+            The angle, in degrees, by which to rotate the stored polarization 
+            state. 
+ 
+        Returns:
+        --------
+        model: np.array(float), shape (3, len(energs))
+            The rotated Stokes vector (stokes_I, stokes_Q, stokes_U), identical 
+            to what is now stored in this object.
+        """
+        if len(rotation) != 1:
+            raise ValueError(f"This method only supports rotating by a single angle, "
+                               "but input size is {len(rotation)}")
+
+        self._require('stokes_I', 'stokes_Q', 'stokes_U')
+        delta = np.radians(angle_rotation)
+        cos_rotation = np.cos(2.*delta)
+        sin_rotation = np.sin(2.*delta)
+        stokes_Q = self.stokes_Q*cos_rotation-self.stokes_U*sin_rotation
+        stokes_U = self.stokes_Q*sin_rotation+self.stokes_U*cos_rotation
+        self.stokes_Q = stokes_Q
+        self.stokes_U = stokes_U
+        model = np.array([self.stokes_I,self.stokes_Q,self.stokes_U])
+        return model
+
     def set_modulation_factor(self, mu):
         """
         This setter method is used to define the values of the modulation
