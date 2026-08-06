@@ -79,15 +79,15 @@ class SimpleFit():
 
     def _set_unmasked_data(self):
         """
-        This initializer method is used to set up the unmasked arrays for later 
-        book-keeping. Depending on the dependence of the fit, it initializes 
-        different internal unmasked arrays.        
+        This initializer method is used to set up the unmasked arrays for later
+        book-keeping. Depending on the dependence of the fit, it initializes
+        different internal unmasked arrays.
         """
 
         self._data_unmasked = self.data
-        self._data_err_unmasked = self.data_err        
-        #if our fit object has a background (e.g. a spectral background, or 
-        #Poisson noise) we also must store it to subtract it correctly from the 
+        self._data_err_unmasked = self.data_err
+        #if our fit object has a background (e.g. a spectral background, or
+        #Poisson noise) we also must store it to subtract it correctly from the
         #data
         if self.noise is not None:
             self._noise_unmasked = self.noise
@@ -96,24 +96,102 @@ class SimpleFit():
             self._noise_unmasked = None
             self._noise_err_unmasked = None
 
-        if isinstance(self,EnergyDependentFit) is True:
+        self._set_axis_arrays()
+        return
+
+    def _set_axis_arrays(self):
+        """
+        This method sets up the unmasked bookkeeping arrays (per-axis grids and
+        bin counts) for whichever combination of axis-dependent mixins this
+        fitter combines - energy, Fourier frequency, and/or polarization. 
+        """
+
+        has_energy = isinstance(self,EnergyDependentFit)
+        has_freq = isinstance(self,FrequencyDependentFit)
+        has_pol = isinstance(self,PolarizationDependentFit)
+
+        if has_energy is True:
             self._emin_unmasked = self.response.emin
             self._emax_unmasked = self.response.emax
             self._ebounds_unmasked = self.ebounds
             self._ewidths_unmasked = self.ewidths
             self._all_chans = self._ebounds_unmasked.size
             self.n_chans = self._all_chans
-            #additional internal arrays if we're doing spectral timing
-            if isinstance(self,FrequencyDependentFit) is True:
-                self._all_bins = self._all_freqs*self._all_chans
-                self.n_bins = self._all_bins                
-            #future: add if spectral polarimetry
-        elif isinstance(self,FrequencyDependentFit) is True:
-            #note: these assignements are redundant for just a PSD fit 
-            self._freqs_unmasked = self.freqs           
+
+        if has_freq is True:
+            #note: these assignments are redundant for just a PSD fit
+            self._freqs_unmasked = self.freqs
             self.n_freqs = self.freqs.size
             self._all_freqs = self.n_freqs
-            #future: add if timing polarimetry within the fit 
+
+        if has_pol is True:
+            self._pol_emin_unmasked = self.response_pol.emin
+            self._pol_emax_unmasked = self.response_pol.emax
+            self._pol_ebounds_unmasked = self.pol_ebounds
+            self._pol_ewidths_unmasked = self.pol_ewidths
+            self._all_pol_chans = self._pol_ebounds_unmasked.size
+            self.n_pol_chans = self._all_pol_chans
+
+        #the total number of flattened data bins depends on which combination of
+        #axes is present; every supported combination is listed explicitly so
+        #that an unsupported one fails loudly instead of silently
+        if (has_energy is True and has_freq is True):
+            self._all_bins = self._all_freqs*self._all_chans
+        elif (has_energy is True and has_pol is True):
+            self._all_bins = self._all_chans+2*self._all_pol_chans
+        elif (has_freq is True and has_pol is True):
+            #e.g. a modulation-angle x Fourier-frequency fit with no energy axis
+            raise NotImplementedError(
+                "Frequency+polarization fits are not yet supported")
+        elif has_energy is True:
+            self._all_bins = self._all_chans
+        elif has_freq is True:
+            self._all_bins = self._all_freqs
+        else:
+            self._all_bins = None
+        self.n_bins = self._all_bins
+        return
+
+    def _reflatten_data(self):
+        """
+        This method re-derives self.data, self.data_err, self.noise and
+        self.noise_err from the unmasked arrays, after an ignore_*/notice_*
+        method updates one of this fit's masks. 
+        
+        New combinations of dimensions/data (e.g. ModulationDependentFit for 
+        stochastic polarimetry timing) should be added as an extra branch here.
+        """
+
+        has_energy = isinstance(self,EnergyDependentFit)
+        has_freq = isinstance(self,FrequencyDependentFit)
+        has_pol = isinstance(self,PolarizationDependentFit)
+
+        #filter data for spectral timing
+        if (has_energy is True and has_freq is True):
+            self.data = self._filter_2d_by_mask(self._data_unmasked)
+            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
+        #filter data for spectro-polarimetry
+        elif has_pol is True:
+            self.data = self._filter_stokes_by_mask(self._data_unmasked)
+            self.data_err = self._filter_stokes_by_mask(self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = self._filter_stokes_by_mask(self._noise_unmasked)
+                self.noise_err = self._filter_stokes_by_mask(self._noise_err_unmasked)
+        #filter data for time averaged spectra
+        elif has_energy is True:
+            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
+            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)
+                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)
+        #filter data for PSDs 
+        elif has_freq is True:
+            self.data = np.extract(self.freqs_mask,self._data_unmasked)
+            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)
+        else:
+            raise NotImplementedError("No known way to flatten this fit's data")
         return
 
     def _filter_2d_by_mask(self,array):
@@ -588,18 +666,8 @@ class EnergyDependentFit():
         self.ewidths = np.extract(self.ebounds_mask,self._ewidths_unmasked)   
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,FrequencyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
-            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)    
-            #if we have a background we need to mask that too 
-            if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
-                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)       
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()      
         return
    
     def notice_energies(self,bound_lo,bound_hi):
@@ -632,16 +700,8 @@ class EnergyDependentFit():
         self.ewidths = np.extract(self.ebounds_mask,self._ewidths_unmasked)   
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size        
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,FrequencyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
-            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
         return
 
 class FrequencyDependentFit():
@@ -728,16 +788,8 @@ class FrequencyDependentFit():
             self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
             self.n_freqs = self.freqs_mask[self.freqs_mask==True].size#-1 
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,EnergyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.freqs_mask,self._data_unmasked)
-            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()   
         return
 
     def notice_frequencies(self,bound_lo,bound_hi):
@@ -772,18 +824,255 @@ class FrequencyDependentFit():
             self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
             self.n_freqs = self.freqs_mask[self.freqs_mask==True].size-1 
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,EnergyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.freqs_mask,self._data_unmasked)
-            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()  
         return
 
+class PolarizationDependentFit():
+    """
+    Internal book-keeping class used during spectro-polarimetry modelling to 
+    manage noticing or ignoring the energy channels of the Stokes Q and U 
+    spectra, for cases when the data consists of all three Stokes parameters. 
+    It is currently only used together with the EnergyDependentFit class, which 
+    handles the Stokes I channel grid.
+    
+    The two grids are tracked separately because Stokes Q and U are almost 
+    always binned more coarsely than Stokes I: they are the difference between 
+    two large numbers, and therefore require far more counts per channel to be 
+    measured with the same significance. Stokes Q and U are instead always 
+    tracked together, because they are measured from the same events and are 
+    therefore always defined over the same channel grid.
+    
+    The data of all three Stokes parameters is stored in a single, flattened 
+    array in the order I, Q, U, identically to how two-dimensional 
+    spectral-timing products are handled elsewhere in the library. 
+        
+    Attributes:
+    -----------
+    pol_emin, pol_emax: np.array(float)
+        The arrays of lower and upper energy channel bounds for the Stokes Q and 
+        U instrument energy channels, as stored in the instrument response 
+        provided. Only contain the channels that are noticed during the fit.
+    
+    pol_ebounds: np.array(float) 
+        The array of energy channel bin centers for the Stokes Q and U 
+        instrument energy channels, as stored in the instrument response 
+        provided. Only contains the channels that are noticed during the fit.
+
+    pol_ewidths: np.array(float) 
+        The array of energy channel bin widths for the Stokes Q and U instrument 
+        energy channels, as stored in the instrument response provided. Only 
+        contains the channels that are noticed during the fit.
+        
+    pol_ebounds_mask: np.array(bool)
+        The array of Stokes Q and U instrument energy channels that are either 
+        ignored or noticed during the fit. A given channel i is noticed if 
+        pol_ebounds_mask[i] is True, and ignored if it is false.
+        
+    n_pol_chans: int 
+        The number of Stokes Q (and U) channels that are to be noticed during 
+        the fit.
+        
+    n_bins: int 
+        The total number of data bins noticed during the fit, defined as the 
+        number of noticed Stokes I channels, plus twice the number of noticed 
+        Stokes Q/U channels.
+        
+    _all_pol_chans: int 
+        The total number of channels in the loaded Stokes Q/U response matrix.
+        
+    _all_bins: int 
+        The total number of data bins loaded, defined as the total number of 
+        Stokes I channels, plus twice the total number of Stokes Q/U channels.
+        
+    _pol_emin_unmasked, _pol_emax_unmasked, _pol_ebounds_unmasked, _pol_ewidths_unmasked: np.array(float)
+        The array of every lower bound, upper bound, channel center and channel 
+        widths stored in the Stokes Q/U response, regardless of which ones are 
+        ignored or noticed during the fit. Used exclusively to facilitate 
+        book-keeping internal to the fitter class.    
+    """
+
+    def __init__(self):
+        self.pol_emin = self.response_pol.emin
+        self.pol_emax = self.response_pol.emax
+        self.pol_ebounds = 0.5*(self.response_pol.emax+self.response_pol.emin)
+        self.pol_ewidths = self.response_pol.emax-self.response_pol.emin
+        self.pol_ebounds_mask = np.full((self.response_pol.n_chans), True)
+        pass
+
+    def _stokes_slice(self,index,mask=True):
+        """
+        This method returns the slice of the flattened data (or model) array 
+        that corresponds to a given Stokes parameter.
+        
+        Parameters:
+        -----------
+        index: int 
+            The index of the Stokes parameter to be returned; 0 for Stokes I, 
+            1 for Stokes Q, and 2 for Stokes U.
+            
+        mask: bool, default True 
+            A flag to decide whether the slice refers to an array containing 
+            only the noticed channels, or to one containing every channel.
+            
+        Output:
+        -------
+        stokes_slice: slice 
+            The slice of the flattened array corresponding to the chosen Stokes 
+            parameter.
+        """
+        
+        if mask is True:
+            n_chans = self.n_chans
+            n_pol_chans = self.n_pol_chans
+        else:
+            n_chans = self._all_chans
+            n_pol_chans = self._all_pol_chans
+        
+        if index == 0:
+            stokes_slice = slice(0,n_chans)
+        elif index == 1:
+            stokes_slice = slice(n_chans,n_chans+n_pol_chans)
+        elif index == 2:
+            stokes_slice = slice(n_chans+n_pol_chans,n_chans+2*n_pol_chans)
+        else:
+            raise ValueError("Stokes index must be 0 (I), 1 (Q) or 2 (U)")
+        return stokes_slice
+
+    def split_stokes(self,array,mask=True):
+        """
+        This method splits a flattened array containing all three Stokes 
+        parameters - for instance the data, or the output of eval_model - into 
+        three separate arrays, each containing one of the Stokes parameters.
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The flattened array containing the Stokes I, Q and U values, in this 
+            order.
+            
+        mask: bool, default True 
+            A flag to decide whether the input array contains only the noticed 
+            channels, or every channel.
+            
+        Output:
+        -------
+        stokes_I, stokes_Q, stokes_U: np.array(float)
+            The three arrays containing the values of each Stokes parameter.
+        """
+        
+        stokes_I = array[self._stokes_slice(0,mask=mask)]
+        stokes_Q = array[self._stokes_slice(1,mask=mask)]
+        stokes_U = array[self._stokes_slice(2,mask=mask)]
+        return stokes_I, stokes_Q, stokes_U
+
+    def _filter_stokes_by_mask(self,array):
+        """
+        This method is used to filter the flattened spectro-polarimetric data 
+        after users define a range of energy channels to ignore. It is necessary 
+        because the Stokes I channel grid is typically different from that of 
+        Stokes Q and U, and therefore the two require separate masks.
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The flattened array containing the Stokes I, Q and U values in every 
+            channel, to be filtered.
+            
+        Output:
+        -------
+        filter_arr: np.array(float)
+            The flattened array filtered by the masks defined by the noticed 
+            Stokes I and Stokes Q/U channels.
+        """
+        
+        self.n_bins = self.n_chans+2*self.n_pol_chans
+        
+        filter_stokes_I = np.extract(self.ebounds_mask,
+                                     array[self._stokes_slice(0,mask=False)])
+        filter_stokes_Q = np.extract(self.pol_ebounds_mask,
+                                     array[self._stokes_slice(1,mask=False)])
+        filter_stokes_U = np.extract(self.pol_ebounds_mask,
+                                     array[self._stokes_slice(2,mask=False)])
+        filter_arr = np.concatenate((filter_stokes_I,filter_stokes_Q,
+                                     filter_stokes_U))
+        return filter_arr
+
+    def _update_polarization_grids(self):
+        """
+        This method takes the unmasked Stokes Q/U channel arrays and keeps only 
+        the channels that are noticed in the fit, after the Stokes Q/U mask has 
+        been updated.
+        """
+        
+        self.pol_emin = np.extract(self.pol_ebounds_mask,
+                                   self._pol_emin_unmasked)
+        self.pol_emax = np.extract(self.pol_ebounds_mask,
+                                   self._pol_emax_unmasked)
+        self.pol_ebounds = np.extract(self.pol_ebounds_mask,
+                                      self._pol_ebounds_unmasked)
+        self.pol_ewidths = np.extract(self.pol_ebounds_mask,
+                                      self._pol_ewidths_unmasked)
+        self.n_pol_chans = self.pol_ebounds_mask[self.pol_ebounds_mask==True].size
+        return
+
+    def ignore_polarization_energies(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        ignore selected Stokes Q and U channels based on their energy bounds. 
+        The Stokes I channels are left untouched; users should call the 
+        ignore_energies method of the FitSpectroPolarimetry class, which handles
+        both channel grids at once.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of ignored energy interval.
+        bound_hi : float
+            Higher bound of ignored energy interval.    
+        """
+        
+        if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
+            (isinstance(bound_hi, (np.floating, float, int)) != True)):
+            raise TypeError("Energy bounds must be floats or integers")
+        
+        self.pol_ebounds_mask = ((self._pol_emin_unmasked<bound_lo)|
+                                 (self._pol_emax_unmasked>bound_hi))& \
+                                 self.pol_ebounds_mask
+        
+        self._update_polarization_grids()
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
+        return
+
+    def notice_polarization_energies(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        notice selected (previously ignored) Stokes Q and U channels based on 
+        their energy bounds. The Stokes I channels are left untouched; users 
+        should call the notice_energies method of the FitSpectroPolarimetry 
+        class, which handles both channel grids at once.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of noticed energy interval.
+        bound_hi : float
+            Higher bound of noticed energy interval.    
+        """
+        
+        if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
+            (isinstance(bound_hi, (np.floating, float, int)) != True)):
+            raise TypeError("Energy bounds must be floats or integers")
+        
+        self.pol_ebounds_mask = self.pol_ebounds_mask|np.logical_not(
+                                (self._pol_emin_unmasked<bound_lo)|
+                                (self._pol_emax_unmasked>bound_hi))
+        
+        self._update_polarization_grids()
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
+        return
 
 def load_pha(path,response):
     '''
