@@ -108,7 +108,7 @@ class SimpleFit():
 
         has_energy = isinstance(self,EnergyDependentFit)
         has_freq = isinstance(self,FrequencyDependentFit)
-        has_pol = isinstance(self,PolarizationDependentFit)
+        has_pol = isinstance(self,StokesDependentFit)
 
         if has_energy is True:
             self._emin_unmasked = self.response.emin
@@ -164,7 +164,7 @@ class SimpleFit():
 
         has_energy = isinstance(self,EnergyDependentFit)
         has_freq = isinstance(self,FrequencyDependentFit)
-        has_pol = isinstance(self,PolarizationDependentFit)
+        has_pol = isinstance(self,StokesDependentFit)
 
         #filter data for spectral timing
         if (has_energy is True and has_freq is True):
@@ -828,7 +828,7 @@ class FrequencyDependentFit():
         self._reflatten_data()  
         return
 
-class PolarizationDependentFit():
+class StokesDependentFit():
     """
     Internal book-keeping class used during spectro-polarimetry modelling to 
     manage noticing or ignoring the energy channels of the Stokes Q and U 
