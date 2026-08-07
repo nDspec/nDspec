@@ -1211,6 +1211,172 @@ def load_pha(path,response):
             spectrum_error = counts_err
         return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure, backscal
 
+
+def load_stokes_pha(path,response,stokes=None):
+    '''
+    This function loads a Stokes parameter spectrum, given an input path to an 
+    OGIP-compatible file and a nDspec ResponseMatrix object to be applied to the 
+    spectrum. 
+    
+    It is analogous to the load_pha function, but unlike a time-averaged 
+    spectrum, the Stokes Q and U spectra are the difference between two 
+    Poisson-distributed quantities: their counts can be negative, and their 
+    errors can not be computed from the counts alone. For this reason this 
+    function requires a STAT_ERR column to be present in the file, and sums the 
+    errors in quadrature when the spectrum has been grouped. 
+    
+    Parameters:
+    -----------
+    path: str 
+        A string pointing to the Stokes spectrum file to be loaded 
+        
+    response: nDspec.ResponseMatrix 
+        The instrument response matrix, loaded in nDspec, corresponding to the 
+        spectrum to be loaded. For Stokes Q and U this is typically the 
+        modulation response function, rather than the standard response.
+        
+    stokes: str, default None 
+        The Stokes parameter ("I", "Q" or "U") the file is expected to contain. 
+        If provided, it is checked against the STOKES keyword in the file 
+        header, if the latter is present.
+        
+    Returns:
+    --------
+    bin_bounds_lo: np.array(float)
+        An array of lower energy channel bounds, in keV, as contained in the 
+        input file. If the spectrum was grouped, this contains the lower bounds 
+        of the spectrum after rebinning.
+        
+    bin_bounds_hi: np.array(float)
+        An array of upper energy channel bounds, in keV, as contained in the 
+        input file. If the spectrum was grouped, this contains the upper bounds 
+        of the spectrum after rebinning.
+        
+    counts_per_group: np.array(float)
+        The total number of photon counts in each energy channel. If the 
+        spectrum was grouped, this contains the counts in each channel after 
+        rebinning. For Stokes Q and U these can be negative.
+        
+    spectrum_error: np.array(float)
+        The error on the counts in each group, including both statistical and 
+        (if present) systematic errors
+        
+    exposure: float
+        The exposure time contained in the spectrum file.   
+        
+    backscal: float 
+        The background scaling factor. Typically used to account for different 
+        extraction region size for the source and background.    
+    '''
+    from astropy.io import fits
+    
+    with fits.open(path,filemap=False) as spectrum:
+        hdr = spectrum["SPECTRUM"].header
+        spectrum_data = spectrum['SPECTRUM'].data
+        #check if exposure is present in either the primary or spectrum headers
+        try:
+            exposure = spectrum['PRIMARY'].header['EXPOSURE']
+        except KeyError:
+             try:
+                exposure = spectrum['SPECTRUM'].header['EXPOSURE']
+             except KeyError:
+                exposure = 1.        
+        try:         
+            counts = spectrum_data['COUNTS']
+            is_rate = False
+        except KeyError:
+            try:         
+                counts = spectrum_data['RATE']*exposure
+                is_rate = True
+            except KeyError:
+                raise FileNotFoundError("Fits file format incompatible, ensure it is OGIP compliant")        
+        try:
+            backscal = spectrum['SPECTRUM'].header['BACKSCAL']
+        except KeyError:
+            try:
+                backscal = spectrum['PRIMARY'].header['BACKSCAL']
+            except KeyError:
+                backscal = 1.
+                warnings.warn("WARNING: backscal keyword not found, check file format",
+                              UserWarning)     
+        if backscal == 0.:
+            backscal = 1.
+            warnings.warn("WARNING: found backscal=0, assuming it is 1",
+                          UserWarning)               
+        
+        #check that the spectrum and response have the same mission and channel 
+        #number         
+        mission_spectrum = hdr["TELESCOP"]
+        instrument_spectrum = hdr["INSTRUME"]
+        if mission_spectrum != response.mission:
+            raise NameError("Observatory in the spectrum different from the response")
+        if instrument_spectrum != response.instrument:
+            raise NameError("Instrument in the spectrum different from the response")        
+        #check the file contains the Stokes parameter the user expects, if the 
+        #keyword tracking it is present
+        if stokes is not None:
+            stokes_index = {"I":0, "Q":1, "U":2}
+            try:
+                stokes_keyword = hdr["STOKES"]
+                if stokes_keyword != stokes_index[stokes]:
+                    raise NameError("Stokes parameter in the spectrum different from the one requested")
+            except KeyError:
+                warnings.warn("WARNING: stokes keyword not found, check file format",
+                              UserWarning)
+        #unlike for a time-averaged spectrum, the errors can not be computed 
+        #from the counts, so they have to be stored in the file
+        try: 
+            counts_err = spectrum_data['STAT_ERR']   
+            if is_rate:
+                counts_err = counts_err*exposure
+        except KeyError:
+            if np.min(counts) < 0:
+                raise FileNotFoundError("Stokes spectrum contains negative counts but no STAT_ERR column")
+            counts_err = np.sqrt(counts)
+            warnings.warn("WARNING: no STAT_ERR column found, assuming Poisson errors",
+                          UserWarning)
+        #check if systematic errors are applied
+        try: 
+            sys_err = spectrum_data['SYS_ERR']   
+        except KeyError:
+            sys_err = np.zeros(len(counts))
+        counts_err = np.sqrt(counts_err**2+(counts*sys_err)**2)
+        #check if the spectrum has been grouped
+        try: 
+            grouping_data = spectrum_data['GROUPING']  
+            has_grouping = True
+        except KeyError:
+            has_grouping = False
+        #calculate the spectrum whether it has been grouped or not, along with 
+        #the energy bounds and errors for each bin in either case
+        if has_grouping:
+            group_start = np.where(grouping_data==1)[0]
+            total_groups = len(group_start)
+            counts_per_group = np.zeros(total_groups)
+            spectrum_error = np.zeros(total_groups)
+            bin_bounds_lo = np.zeros(total_groups)
+            bin_bounds_hi = np.zeros(total_groups)
+            for i in range(total_groups-1):
+                counts_per_group[i] = np.sum(counts[group_start[i]:group_start[i+1]])
+                spectrum_error[i] = np.sqrt(np.sum(counts_err[group_start[i]:group_start[i+1]]**2))
+                bin_bounds_lo[i] = response.emin[group_start[i]]
+                #the upper bounds of this bin are the starting point of the next bin up in the grouping
+                bin_bounds_hi[i] = response.emin[group_start[i+1]]    
+            #the last bin needs to be accounted for explicitely because the photons may not end up
+            #being regrouped
+            counts_per_group[-1] = np.sum(counts[group_start[total_groups-1]:])
+            spectrum_error[-1] = np.sqrt(np.sum(counts_err[group_start[total_groups-1]:]**2))
+            bin_bounds_lo[-1] = bin_bounds_hi[-2]
+            bin_bounds_hi[-1] = response.emax[-1]
+        else:
+            bin_bounds_lo = response.emin
+            bin_bounds_hi = response.emax
+            counts_per_group = counts
+            spectrum_error = counts_err
+        return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure, backscal
+ 
+
+
 def load_lc(path):
     '''
     This function loads an X-ray lightcurve, given an input path to an 

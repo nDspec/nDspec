@@ -14,7 +14,7 @@ plt.rcParams.update({'font.size': 17})
 
 from .Operator import nDspecOperator
 
-class PolarimetryProduct(Operator.nDspecOperator):
+class PolarimetryProduct(nDspecOperator):
     """
     This class is used to operate on polarimetric model products, in 
     particular (but not limited to) spectro-polarimetry. It handles 
