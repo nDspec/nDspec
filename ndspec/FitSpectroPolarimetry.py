@@ -693,13 +693,15 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             stokes_I = self.response.convolve_response(stokes_I)
             stokes_Q = self.response_pol.convolve_response(stokes_Q)
             stokes_U = self.response_pol.convolve_response(stokes_U)
- 
+        elif mask is True:
+            raise ValueError(("mask=True requires fold=True: the ignore/"
+                              "notice mask is defined in channel space, and "
+                              "only applies to the model once it has been "
+                              "folded through the response.")) 
+
         model = np.concatenate((stokes_I,stokes_Q,stokes_U))
 
-        #bugged if mask is True but fold is False  
-        #ALSO BUGGED IN FITTIMEAVGSPECTRUM FUCK AND A BIT IN FITCROSSSPECTRUM 
-        #AND FITTWOD
-        if (mask is True and fold is True):
+        if mask is True:
             model = self._filter_stokes_by_mask(model)
         return model
  

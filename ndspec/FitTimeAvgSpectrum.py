@@ -276,6 +276,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if fold is True:
             model = self.response.convolve_response(model) 
+        elif mask is True:
+            raise ValueError(("mask=True requires fold=True: the ignore/"
+                              "notice mask is defined in channel space, and "
+                              "only applies to the model once it has been "
+                              "folded through the response.")) 
 
         if mask is True:
             model = np.extract(self.ebounds_mask,model)            
