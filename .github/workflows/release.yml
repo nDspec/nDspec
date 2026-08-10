@@ -24,6 +24,14 @@ jobs:
       - name: Build sdist and wheel
         run: python -m build
 
+      - name: Check distribution size
+        run: |
+          oversized=$(find dist -type f -size +25M)
+          if [ -n "$oversized" ]; then
+            echo "::error::Distribution exceeds 25 MB: $oversized"
+            exit 1
+          fi
+
       - uses: actions/upload-artifact@v4
         with:
           name: dist
