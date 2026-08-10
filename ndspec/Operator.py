@@ -228,13 +228,13 @@ class nDspecOperator(object):
             #find out how many bins to sum together by checking whether we're 
             #reaching the end of the (final) grid 
             if (i < len(rebin_array)-1):
-                upper_bin = indexes[i+1]
+                upper_bin = indexes[i]
             else:
                 upper_bin = len(start_lo)
             counter = 0
             #In this case, we assume the bin edges are aligned before calling 
             #the rebinning, so we do not need to care about edge effects
-            for k in range(indexes[i],upper_bin): 
+            for k in range(indexes[i]-1,upper_bin): 
                 rebin_array[i] = rebin_array[i] + array[k] 
                 counter = counter + 1
             if (renorm == True):
@@ -306,8 +306,6 @@ class nDspecOperator(object):
         This method integrates an input two-d array over a defined range and 
         aixs, using the numpy implementation of the trapezoid method. Note that 
         the bounds provided are included in the integration.
-        A generalized method to deal with one- or multi-dimensional data will
-        be implemented in the future.         
         
         Parameters:
         -----------
@@ -341,7 +339,19 @@ class nDspecOperator(object):
         arr_range = np.where(np.logical_and(array>=arr_min,array<=arr_max))
         if len(arr_range[0]) == 0:
             raise ValueError("No bins found within the integration bounds")
-        
+
+        if len(arr_range[0]) == 1:
+            #with a single frequency bin, np.trapz actually returns 0. In this 
+            #case, we just calculate the integral in the single bin by hand.
+            if (axis == 0):
+                integral = signal[arr_range,:]*(arr_max-arr_min)
+            elif (axis == 1):
+                integral = signal[:,arr_range]*(arr_max-arr_min)
+            else:
+                raise ValueError("Incorrect axis specified")
+            return integral
+
+            
         if (axis == 0):
             integral = trapezoid(signal[arr_range,:],x=array[arr_range])
         elif (axis == 1):
@@ -588,11 +598,13 @@ class nDspecOperator(object):
         #this, but the array of grid midpoints is only of size n, so we need one 
         #less degree of freedom (which we fix by also assuming a lower bound)         
         grid_widths = np.zeros(len(grid_midpoint))
-        grid_widths[0] = 2*(grid_midpoint[0]-start_point)        
+        grid_widths[0] = 2*(grid_midpoint[0]-start_point)
         
+        #I hate that I can't find a way to do this without a for loop 
         for i in range(1,len(grid_midpoint)):
             bound = grid_midpoint[i-1] + 0.5*grid_widths[i-1]
             grid_widths[i] = 2*(grid_midpoint[i] - bound)                   
+        
         return grid_widths
    
     def _grid_midpoint_to_bounds(self,grid_midpoint,start_point):
@@ -616,7 +628,7 @@ class nDspecOperator(object):
         -----------
         grid_midpoint: np.array(float)         
             A one-dimensional array of length n, containing the mid point 
-            (defined as the geometric average) of each bin in the grid. 
+            (defined as the arithmetic average) of each bin in the grid. 
     
         start_point: float
             The lowest bound of the first bin in the grid.
@@ -644,12 +656,11 @@ class nDspecOperator(object):
         grid_widths = self._grid_midpoint_to_widths(grid_midpoint,start_point)
         grid_lower_bounds = np.zeros(len(grid_midpoint))
         grid_upper_bounds = np.zeros(len(grid_midpoint))
+        
         grid_lower_bounds[0] = start_point
+        grid_lower_bounds[1:] = grid_midpoint[:-1] + 0.5*grid_widths[:-1]
         
-        for i in range(1,len(grid_midpoint)):
-            grid_lower_bounds[i] = grid_midpoint[i-1] + 0.5*grid_widths[i-1]
-            grid_upper_bounds[i-1] = grid_lower_bounds[i]
-        
+        grid_upper_bounds[:-1] = grid_lower_bounds[1:]
         grid_upper_bounds[-1] = grid_midpoint[-1] + 0.5*grid_widths[-1]
         
         return grid_lower_bounds, grid_upper_bounds     
@@ -692,5 +703,6 @@ class nDspecOperator(object):
             index_lo = np.digitize(new_lo[i],self.emin)
             index_hi = np.digitize(new_hi[i],self.emax)
             return_lo[i] = index_lo
-            return_hi[i] = index_hi        
+            return_hi[i] = index_hi 
+                   
         return return_lo,return_hi          

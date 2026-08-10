@@ -10,6 +10,7 @@ plt.rcParams.update({'font.size': 17})
 from lmfit.model import ModelResult as LM_result
 
 from .SimpleFit import SimpleFit, FrequencyDependentFit
+from .Likelihoods import chisq, ratio
 
 class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     """
@@ -34,8 +35,19 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function 
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -56,11 +68,17 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         
     Attributes inherited from FrequencyDependentFit: 
     ------------------------------------------------    
-     _freqs_unmasked 
+    _freqs_unmasked: np.array(float) 
+        The array of Fourier frequency over which all data and model are 
+        defined, including bins that are ignored in the fit. 
     
-    freqs_mask     
+    freqs_mask: np.array(bool)
+        The array of Fourier frequencies that are either ignored or noticed 
+        during the fit. A given channel i is noticed if freqs_mask[i] is True,
+        and ignored if it is false.      
     
-    n_freqs
+    n_freqs: int 
+        The number of Fourier frequency bins that are noticed in the fit. 
         
     Other attributes:
     -----------------    
@@ -69,13 +87,13 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         in units of Hz. Only contains noticed bins.          
     """ 
 
-    def __init__(self):
-        SimpleFit.__init__(self)
-        self.freqs = None 
+    def __init__(self,likelihood="chisq"):
         self.dependence = "frequency"
+        SimpleFit.__init__(self,likelihood)
+        self.freqs = None 
         pass
 
-    def set_data(self,data,data_err=None,data_grid=None):
+    def set_data(self,data,data_err=None,data_grid=None,frebin_fac=None):
         """
         This method is used to pass the data users want to fit. The input can
         be either three arrays including the power, its erorr, and the Fourier 
@@ -96,9 +114,15 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             The Fourier frequency grid over which the data (and model) are 
             defined. If passing a stingray object, this is not necessary and is 
             therefore ignored      
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            when it is loaded through Stingray, should users choose to do so.
         """
 
-        if getattr(data, '__module__', None) == "stingray.powerspectrum":         
+        if getattr(data, '__module__', None) == "stingray.powerspectrum":
+            if frebin_fac is not None:
+                data = data.rebin_log(frebin_fac)         
             self.data = data.power
             self.data_err = data.power_err
             FrequencyDependentFit.__init__(self,data.freq)            
@@ -156,7 +180,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             model = np.extract(self.freqs_mask,model)
             
         return model
-    
+
     def _minimizer(self,params):
         """
         This method is used exclusively when running a minimization algorithm.
@@ -176,12 +200,14 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-        
-        if self.likelihood is None:
-            model = self.model.eval(params,freq=self.freqs)
-            residuals = (self.data-model)/self.data_err
+        model = self.model.eval(params,freq=self.freqs)     
+           
+        if self.likelihood == "chisq":
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Likelihood type not supported")
             
         return residuals
     
@@ -236,7 +262,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             return           
         
     def plot_model(self,plot_data=True,plot_components=False,params=None,
-                   units="fpower",residuals="delchi",return_plot=False):
+                   units="fpower",residuals="chisq",return_plot=False):
         """
         This method plots the model defined by the user as a function of 
         Fourier frequency, as well as (optionally) its components, and the data
@@ -265,10 +291,11 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             the data in units of power*frequency. units="power" instead plots 
             the data in units of power. 
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If a custom likelihood 
+            is defined, then the residuals are computed from that likelihood.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -288,20 +315,26 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         if plot_data is True:
             model_res, res_errors = self.get_residuals(res_type=residuals,model=model)
 
-        if residuals == "delchi":
+        if residuals == "chisq":
             reslabel = "$\\Delta\\chi$"
         elif residuals == "ratio":
             reslabel = "Data/model"
+        elif self.likelihood == "custom":
+            reslabel = "Residuals"
         else:
             raise ValueError("Residual format not supported")
             
+        #this is a crappy hack to get Fourier frequency bin widths 
+        xerror = np.zeros(self.n_freqs)
+        #xerror[0:-1] = 0.5*np.diff(self.freqs)
+        #xerror[-1] = xerror[-2] 
         if units == "power":
             data = self.data
-            error = self.data_err
+            yerror = self.data_err
             ylabel = "Power"
         elif units == "fpower":
             data = self.data*self.freqs
-            error = self.data_err*self.freqs
+            yerror = self.data_err*self.freqs
             model = model*self.freqs
             ylabel= "Power$\\times$frequency"
         else:
@@ -314,7 +347,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
                                           gridspec_kw={'height_ratios': [2, 1]})
 
         if plot_data is True:
-            ax1.errorbar(self.freqs,data,yerr=error,
+            ax1.errorbar(self.freqs,data,yerr=yerror,xerr=xerror,
                          linestyle='',marker='o')       
        
         ax1.plot(self.freqs,model,lw=3,zorder=3)
@@ -338,9 +371,9 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         ax1.set_ylim([0.3*np.min(model),3.*np.max(model)])
 
         if plot_data is True:
-            ax2.errorbar(self.freqs,model_res,yerr=res_errors,
+            ax2.errorbar(self.freqs,model_res,yerr=res_errors,xerr=xerror,
                          linestyle='',marker='o')
-            if residuals == "delchi":
+            if residuals == "chisq":
                 ax2.plot(self.freqs,np.zeros(len(self.freqs)),
                          ls=":",lw=2,color='black')
             elif residuals == "ratio":

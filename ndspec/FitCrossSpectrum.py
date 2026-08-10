@@ -4,7 +4,7 @@ import warnings
 import pyfftw
 from pyfftw.interfaces.numpy_fft import (
     fft,
-    fftfreq,
+    rfftfreq,
 )
 
 import matplotlib.pyplot as plt
@@ -18,12 +18,15 @@ plt.rcParams.update({'font.size': 17})
 from lmfit import Model as LM_Model
 from lmfit import Parameters as LM_Parameters
 
+from astropy.io import fits
+
 from stingray import AveragedCrossspectrum, AveragedPowerspectrum
 from stingray.fourier import poisson_level, get_average_ctrate
 
 from .Response import ResponseMatrix
 from .Timing import PowerSpectrum, CrossSpectrum
-from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
+from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit, load_pha
+from .Likelihoods import chisq, ratio
 
 pyfftw.interfaces.cache.enable()
 
@@ -59,8 +62,19 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         A lmfit Parameters object, which contains the parameters for the model 
         components.
    
-    likelihood: None
-        Work in progress; currently the software defaults to chi squared 
+    likelihood: str
+        A string that allows to switch between different fit statistics; which 
+        one is available depends on the type of fitter object. Uses chi-squared 
+        likelihood by default. Users can set different likelihoods either at 
+        initialization or with the appropriate setter method.
+        
+    custom_likelihood: function, optional  
+        A function users can set to bypass the supported likelihoods and instead 
+        provide their own. 
+        
+    custom_args: tuple
+        A tuple including any custom arguments (in addition to the data and 
+        model values to be compared) necessary to calculate the custom 
         likelihood
    
     fit_result: lmfit.MinimizeResult
@@ -94,6 +108,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         computed. Defined as the difference between the uppoer and lower bounds 
         of the energy bins stored in the insrument response provided. 
                
+    ear: np.array(float) 
+        The array of energy bin bounds, for each bin over which the model is 
+        computed. Only necessary when calling Xspec models due to their unique 
+        input structure.
+
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
         channels,  as stored in the instrument response provided. Only contains 
@@ -142,7 +161,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         of 7 ranges of frequencies to calculate lag energy spectra, but only 
         want to consider the first and last 3, and ignore the middle one.
     
-    freqs_mask np.array(bool)
+    freqs_mask: np.array(bool)
         The array of Fourier frequencies that are either ignored or noticed 
         during the fit. A given channel i is noticed if freqs_mask[i] is True,
         and ignored if it is false.      
@@ -160,7 +179,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     units: str 
         A string that checks the units which the user is providing  - "lags" for 
         fitting lag spectra alone, "polar" or fitting modulus and phase together, 
-        and "cartesian"	 for fitting real and imaginary parts together.        
+        and "cartesian" for fitting real and imaginary parts together.        
             
     ref_band: [np.float,np.float]
         The minimum/maximum energy bounds over which to take the reference band. 
@@ -203,11 +222,15 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         Fourier frequency bin to match the data. Physically, this allows one to 
         take into account differences between the power spectrum shape assumed 
         in the model to calculate the spectral timing products (e.g. modulus vs 
-        energy), and the ``true'' underyling power spectrum in the source. 
+        energy), and the "true" underyling power spectrum in the source. 
         This setting will NOT affect the phase of a cross spectrum, only the 
         modulus (and therefore it will affect the real and imaginary parts).   
 
-   _supported_coordinates: str
+    dependence: str 
+        A string recording whether the data and model to be fitted are in units 
+        of frequency or energy (e.g. lag frequency vs lag energy spectra).
+
+    _supported_coordinates: str
         A string that checks the units models/data can be defined as. "lags" is 
         for fitting lag spectra alone, "polar" is for fitting modulus and phase 
         together, and "cartesian" is for fitting real and imaginary parts 
@@ -224,11 +247,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     
     _supported_products: str 
         A string that checks whether the data provided (e.g. lags) is a function 
-        of Fourier frequency or energy.             
+        of Fourier frequency or energy.    
     """
     
-    def __init__(self):
-        SimpleFit.__init__(self)
+    def __init__(self,likelihood="chisq"):
+        SimpleFit.__init__(self,likelihood)
         self.ref_band = None
         self.freqs = None 
         self._times = None
@@ -283,7 +306,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     #data and users have a lot of freedom.
     def set_data(self,response,ref_bounds,sub_bounds,data,
                  data_err=None,freq_grid=None,time_grid=None,
-                 freq_bins=None,time_res=None,seg_size=None,norm=None):
+                 freq_bins=None,time_res=None,seg_size=None,norm=None,
+                 frebin_fac=None):
         """
         This method is used to set the cross-spectrum data to be fitted. The 
         exact data is determined by the set_product_dependence and set_coordinates
@@ -361,10 +385,15 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             to build the data. It is necessary to build the grid of Fourier 
             frequency over which to compute the model.     
             
-        norm; str, optionalm default = "abs" 
+        norm; str, optional default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
-            is used.  
+            is used.
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            over Fourier frequency when it is loaded through Stingray, should 
+            users choose to do so.  
         """
                 
         if self.units is None:
@@ -387,15 +416,15 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
 
         if ref_bounds[0] < self.response.energ_lo[0]:
             ref_bounds[0] = self.response.energ_lo[0]
-            raise UserWarning("Lower bound of the reference band defined below the "\
-                              "start of the instrument response; re-setting to the lowest"\
-                              "energy bin instead" )
+            warnings.warn("Lower bound of the reference band defined below the "\
+                          "start of the instrument response; re-setting to the lowest"\
+                          "energy bin instead",UserWarning)   
         if ref_bounds[1] > self.response.energ_hi[-1]:
             ref_bounds[1] = self.response.energ_hi[-1]
-            raise UserWarning("Upper bound of the reference band defined above the "\
-                              "start of the instrument response; re-setting to the highest"\
-                              "energy bin instead")                                
-                
+            warnings.warn("Upper bound of the reference band defined above the "\
+                          "start of the instrument response; re-setting to the highest"\
+                          "energy bin instead",UserWarning)                                 
+                       
         self.ref_band = ref_bounds
         EnergyDependentFit.__init__(self)  
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size
@@ -403,19 +432,26 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         if self.dependence == "frequency":
             self._freq_dependent_cross(data,data_err,
                                        freq_grid,time_grid,
-                                       time_res,seg_size,norm)
+                                       time_res,seg_size,norm,frebin_fac)
         elif self.dependence == "energy":
             self._energ_dependent_cross(freq_bins,data,data_err,
                                         freq_grid,time_grid,
                                         time_res,seg_size)
         else:
-            print("error")    
+            raise AttributeError("Data dependency not found! Set frequency or energy")    
+        
+        if len(self.freqs) < 500:
+            warnings.warn(f"Model frequency grid contains only {len(self.freqs)} bins,"\
+                           "model computations might be inaccurate! Suggest you use "\
+                           "at least 500!",UserWarning)   
+        
         self._set_unmasked_data()
         return
 
     def _freq_dependent_cross(self,data,data_err=None,
                               freq_grid=None,time_grid=None,
-                              time_res=None,seg_size=None,norm=None):
+                              time_res=None,seg_size=None,norm=None,
+                              frebin_fac=None):
         """
         This method handles loading a cross spectrum to be fitted, when users 
         specify that they want the data to depend from Fourier frequency rather 
@@ -458,7 +494,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         norm; str, optionalm default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
-            is used.         
+            is used. 
+            
+        frebin_fac: float, default: None
+            A user-specified factor by which to rebin the data logarithmically 
+            over Fourier frequency when it is loaded through Stingray, should 
+            users choose to do so.         
         """
         
         if getattr(data, '__module__', None) == "stingray.events":
@@ -474,14 +515,20 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                        segment_size=seg_size,
                                                        dt=time_res,norm=norm,
                                                        silent=True)
+            if frebin_fac is not None:
+                ps_ref = ps_ref.rebin_log(frebin_fac)
             ctrate_ref = get_average_ctrate(events_ref.time,events_ref.gti,seg_size)
             noise_ref = poisson_level(norm=norm, meanrate=ctrate_ref)     
                 
             #If we use stingray, we always keep linearly-spaced frequency and 
-            #time grids 
+            #time grids unless the data also gets rebinned, in which case we 
+            #use a geometrically spaced time grid
             lc_length = ps_ref.n*time_res
             time_samples = int(lc_length/time_res)
-            self._times = np.linspace(time_res,lc_length,time_samples)
+            if frebin_fac is not None:
+                self._times = np.linspace(time_res,lc_length,time_samples)
+            else:
+                self._times = np.geomspace(time_res,lc_length,time_samples)
             self.freqs = np.array(ps_ref.freq)
 
             self.data = []
@@ -494,6 +541,9 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                        segment_size=seg_size,
                                                        dt=time_res,norm=norm,
                                                        silent=True)
+                if frebin_fac is not None:
+                    cs = cs.rebin_log(frebin_fac)
+                
                 if self.units == "lags":
                     lag, lag_err = cs.time_lag() 
                     self.data = np.append(self.data,lag)
@@ -503,13 +553,16 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                                segment_size=seg_size,
                                                                dt=time_res,norm=norm,
                                                                silent=True)    
+                    if frebin_fac is not None:
+                        cs = cs.rebin_log(frebin_fac)
                     ctrate_sub = get_average_ctrate(events_sub.time,events_sub.gti,seg_size)                    
                     noise_sub = poisson_level(norm=norm, meanrate=ctrate_sub)                      
                     data_size = len(cs.freq)
                     
                     if self.units == "cartesian":    
                         data_first_dim = np.real(cs.power)
-                        data_second_dim = np.imag(cs.power)                
+                        data_second_dim = np.imag(cs.power)          
+                        print(len(cs.m),len(cs.power))      
                         error_first_dim = np.sqrt((ps_sub.power*ps_ref.power+ \
                                                    np.real(cs.power)**2- \
                                                    np.imag(cs.power)**2)/(2.*cs.m))
@@ -538,17 +591,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             #or we can explicitely pass a frequency grid alone, and the time 
             #grid is reconstructed automatically 
             elif freq_grid is not None:
-                self.freqs = freq_grid
                 time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-                lc_length = (self.freqs.size+1)*2*time_res
-                time_samples = int(lc_length/time_res)
-                #switching between linearly/geometrically spaced grids allows 
-                #the crossspec class attribute to switch automatically between 
-                #sinc and fftw methods upon initialization 
-                if (np.allclose(self.freqs, self.freqs[0]) is False):
-                    self._times = np.geomspace(time_res,lc_length,time_samples)
-                else:
-                    self._times = np.linspace(time_res,lc_length,time_samples)              
+                time_samples = (self.freqs.size+1)*2
+                lc_length = time_samples*time_res
+                #since we are passing a grid by hand, we just default to the 
+                #sinc method for safety 
+                self._times = np.geomspace(time_res,lc_length,time_samples)        
             else:
                 raise ValueError("Frequency and/or time grids undefined")
             self.data = data
@@ -628,25 +676,20 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.freqs = freq_grid
         #or do so implicetly with a segment size and time resolution
         elif (time_res is not None)&(seg_size is not None):
-            freqs = fftfreq(int(seg_size/time_res),time_res)
+            n_samples = int(seg_size/time_res)
+            freqs = rfftfreq(n_samples,time_res)
             self.freqs = freqs[freqs>0]        
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            self._times = np.linspace(time_res,lc_length,time_samples)
+            self._times = np.linspace(time_res,n_samples*time_res,n_samples)
         #or we can explicitely pass a frequency grid alone, and the time grid is 
         #reconstructed automatically 
         elif freq_grid is not None:
             self.freqs = freq_grid
             time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            #switching between linearly/geometrically spaced grids allows 
-            #the crossspec class attribute to switch automatically between 
-            #sinc and fftw methods upon initialization 
-            if (np.allclose(self.freqs, self.freqs[0]) is False):
-                self._times = np.geomspace(time_res,lc_length,time_samples)
-            else:
-                self._times = np.linspace(time_res,lc_length,time_samples)              
+            time_samples = (self.freqs.size+1)*2
+            lc_length = time_samples*time_res
+            #since we are passing a grid by hand, we just default to the 
+            #sinc method for safety 
+            self._times = np.geomspace(time_res,lc_length,time_samples)               
         else:
             raise ValueError("Frequency and/or time grids undefined")         
         
@@ -687,7 +730,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         """
     
         if model_type not in self._supported_models:
-            raise AttributeError("Unsopprted model type")  
+            raise AttributeError("Unsupported model type")  
         self.model_type = model_type
         self.crossspec = CrossSpectrum(self._times,freqs=self.freqs,energ=self.energs)
         self.model = model 
@@ -751,9 +794,44 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         #evaluate the model for the chosen parameters
         if params is None:
             params= self.model_params
-        model_eval = self.model.eval(params,freqs=self.freqs,energs=self.energs,times=self._times)
+        model_eval = self.model.eval(params,ear=self.ear,energs=self.energs,
+                                     freqs=self.freqs,times=self._times)
         #store the model in the cross spectrum, depending on the type
         #transposing is required to ensure the units are correct 
+        crossspec = self._to_cross_spec(model_eval)
+            
+        #fold the instrument response:
+        if fold is True:
+            model_eval = self.response.convolve_response(crossspec,
+                                                          units_in="rate",
+                                                          units_out="channel")
+        else:
+            model_eval = crossspec 
+            
+        #return the appropriately structured products
+        model = self._return_dependent_model(model_eval,params)
+
+        if mask is True:
+            model = self._filter_2d_by_mask(model)
+
+        return model
+    
+    def _to_cross_spec(self,model_eval):
+        """
+        This method converts the model evaluation results into the cross spectrum format
+        and sets the cross spectrum attribute appropriately. Returns the cross-spectrum
+        result.
+
+        Parameters:
+        -----------
+        model_eval: np.array(float)
+            The model evaluation results to convert into the cross spectrum format.
+
+        Returns:
+        --------
+        crossspec: CrossSpectrum
+            The cross spectrum object containing the converted model evaluation results.
+        """
         if self.model_type == "irf":
             self.crossspec.cross_from_irf(signal=np.transpose(model_eval),
                                           ref_bounds=self.ref_band)
@@ -764,25 +842,22 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.crossspec.cross = np.transpose(model_eval)
         else:
             raise AttributeError("Model type not supported")
-            
-        #fold the instrument response:
-        if fold is True:
-            model_eval = self.response.convolve_response(self.crossspec,
-                                                          units_in="rate",
-                                                          units_out="channel")
-        else:
-            model_eval = self.crossspec 
-            
-        #return the appropriately structured products
+        
+        return self.crossspec
+    
+    def _return_dependent_model(self,model_eval,params=None):
+        """
+        This method returns the appropriately structured
+        products based on the energy or frequency dependence
+        of the model.
+        """
         if self.dependence == "frequency":
             model = self._freq_dependent_model(model_eval)
         elif self.dependence == "energy":
             model = self._energ_dependent_model(model_eval,params)
         else:
             raise AttributeError("Product dependency not supported")
-
-        if mask is True:
-            model = self._filter_2d_by_mask(model)
+        
         return model
 
     def _freq_dependent_model(self,cross_eval):
@@ -874,7 +949,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         model = []
         
-        if self.units == "lags":   
+        if self.units == "lags":  
             for i in range(self._all_freqs):
                 f_mean = 0.5*(self._freqs_unmasked[1:]+self._freqs_unmasked[:-1])
                 if self.renorm_phase is True:
@@ -938,7 +1013,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             raise AttributeError("Incorrect model units, set lags, cartesian or polar")                  
         return model
 
-    def renorm_phases(self,value):
+    def renorm_phases(self,switch):
         """
         Setter method to enable the phase renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -951,13 +1026,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
+        switch: bool 
             A boolean to track whether phase renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency        
-        self.renorm_phase = value
+        self.renorm_phase = switch
         if self.renorm_phase is True:
             #if we choose to renormalize the phase, we need to modify the model 
             #definition and its parameters to include the phase renormalization 
@@ -993,7 +1068,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     
         return array + renorm
 
-    def renorm_mods(self,value):
+    def renorm_mods(self,switch):
         """
         Setter method to enable the modulus renormalization when fitting energy 
         depenent products. This renormalization is intended to correct for 
@@ -1005,14 +1080,14 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         
         Parameters:
         -----------
-        value: bool 
-            A boolean to track whether phase renormalization is enabled or not.
+        switch: bool 
+            A boolean to track whether modulus renormalization is enabled or not.
             If it is, the method modifies the defined model and its parameters 
             automatically. 
         """
         #add complaint if people activate this for freq dependency
-        self.renorm_modulus = value
-        if self. renorm_modulus is True:
+        self.renorm_modulus = switch
+        if self.renorm_modulus is True:
             #if we choose to renormalize the modulus, we need to modify the model 
             #definition and its parameters to include the modulus renormalization 
             #factors 
@@ -1068,12 +1143,14 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             An array of the same size as the data, containing the model 
             residuals in each bin.            
         """
-    
-        if self.likelihood is None:
-            model = self.eval_model(params)
-            residuals = (self.data-model)/self.data_err
+        model = self.eval_model(params)  
+          
+        if self.likelihood == "chisq":
+            residuals, _ = self.get_residuals("chisq",model=model,mask=True)
+        elif self.likelihood == "custom":
+            residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
-            raise AttributeError("custom likelihood not implemented yet")
+            raise AttributeError("Likelihood type not supported")
         
         return residuals
     
@@ -1355,10 +1432,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             The parameters to be used to evaluate the model. If False, the set 
             of parameters stored in the class is used   
             
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If using a custom  
+            likelihood, the residuals are computed from it.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -1397,11 +1475,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         model = self.eval_model(params=params)
         
         if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals,model=model)
-            if residuals == "delchi":
+            model_res,res_errors = self.get_residuals(residuals,mask=True)
+            if residuals == "chisq":
                 reslabel = "$\\Delta\\chi$"
-            else:
+            elif residuals == "ratio":
                 reslabel = "Data/model"
+            elif self.likelihood == "custom":
+                reslabel = "Residuals"
 
         if self.units != "lags":
             if plot_data is True:
@@ -1472,7 +1552,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 else:
                     ax1.set_ylabel("Real part")
                     ax2.set_ylabel("Imaginary part")
-                if residuals == "delchi":
+                if residuals == "chisq":
                     ax3.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                     ax4.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                 elif residuals == "ratio":
@@ -1543,7 +1623,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     ax2.errorbar(x_axis,model_res[i*data_bound:(i+1)*data_bound],
                                  yerr=res_errors[i*data_bound:(i+1)*data_bound],
                                  linestyle='',marker='o',color=col,zorder=2)
-                if residuals == "delchi": 
+                if residuals == "chisq": 
                     ax2.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                 elif residuals == "ratio":
                     ax2.hlines(1,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
@@ -1586,7 +1666,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return 
 
-    def plot_model_2d(self,params=None,use_phase=False,residuals="delchi",return_plot=False):
+    def plot_model_2d(self,params=None,use_phase=False,residuals="chisq",return_plot=False):
         """
         This method plots the model and data loaded by the user in two dimensions 
         as a function of both Fourier frequency or energy. Regardless of the data
@@ -1609,10 +1689,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             it converts the lags to phases for ease of visualization over a large 
             range in lag timescales.
 
-        residuals: str, default="delchi"
-            The units to use for the residuals. If residuals="delchi", the plot 
+        residuals: str, default="chisq"
+            The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model.
+            the plot instead uses units of data/model. If using a custom  
+            likelihood, the residuals are computed from it.
             
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
@@ -1640,7 +1721,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             data_bound = self.n_chans 
 
         model = self.eval_model(params=params,mask=False)
-        model_res,_ = self.get_residuals(res_type=residuals,model=model,mask=False)
+        model_res,_ = self.get_residuals(residuals,model=model,mask=False)
 
         #the output of eval_model and get_residuals is not masked because we 
         #need to mask by hand here to get a correct 2d plots when ignoring bins

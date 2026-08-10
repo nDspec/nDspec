@@ -5,7 +5,7 @@ import scipy
 import pyfftw
 from pyfftw.interfaces.numpy_fft import (
     fft,
-    fftfreq,
+    rfftfreq,
 )
 
 import matplotlib.pyplot as plt
@@ -143,9 +143,9 @@ class FourierProduct(nDspecOperator):
         rebin: bool, default=False 
             Used only for the fft method. If false, the method assumes we are 
             initializing the object for the first time, and therefore sets the 
-            frequency grid to the output of the fftfreq function. If true, it 
+            frequency grid to the output of the rfftfreq function. If true, it 
             means we want to switch from the linear frequency grid provided by
-            fftfreq to some other user-specified grid through the appropriate 
+            rfftfreq to some other user-specified grid through the appropriate 
             methods of each object.
 
         Returns:
@@ -159,13 +159,22 @@ class FourierProduct(nDspecOperator):
         #a spectrum, we need to update the frequency array and its size;
         #otherwise, if no rebinning is done and we are just setting the 
         #frequency grid, we get the frequency array from the time array and 
-        #the fftfreq() function in pyfftw.
+        #the rfftfreq() function in pyfftw.
         if (self.method == 'fft'):
             if rebin is True:
                 new_freqs = freqs
             else:
                 fgt0 = self._positive_fft_bins()
-                new_freqs = fftfreq(self.n_times,self.time_bins[0])[fgt0]
+                new_freqs = rfftfreq(self.n_times,self.time_bins[0])[fgt0]                
+                #if users are being pedantic and also specifying a frequency grid, 
+                #this ensures it is consistent with the time grid, as the two 
+                #should be linked through rfftfreq
+                if np.shape(freqs) != ():
+                    freqs_passed = np.asarray(freqs)
+                    if (freqs_passed.shape != new_freqs.shape or 
+                        not np.allclose(freqs_passed, new_freqs)):
+                        raise ValueError("When using the fft method, time and frequency grids"\
+                                          "must be consistent!")                
             self.n_freqs = len(new_freqs)
         elif (self.method == 'sinc') or (self.method == 'sinc_cumul'):
             if np.shape(freqs) == () or len(np.shape(freqs)) > 1:
@@ -227,6 +236,9 @@ class FourierProduct(nDspecOperator):
     
         See https://numpy.org/doc/stable/reference/
                     routines.fft.html#implementation-details
+                    
+        Finally, the convention used here is that the Nyquist frequency is 
+        defined as a positive frequency.
     
         Parameters:
         -----------
@@ -245,7 +257,7 @@ class FourierProduct(nDspecOperator):
             minbin = 0            
         
         if self.n_times % 2 == 0:
-            return slice(minbin, self.n_times // 2)                        
+            return slice(minbin, self.n_times // 2 + 1)                        
         return slice(minbin, (self.n_times + 1) // 2)
 
     def _sinc_decomp(self):
@@ -424,7 +436,7 @@ class PowerSpectrum(FourierProduct):
         FourierProduct.__init__(self,times,freqs,method,verbose)        
         pass 
 
-    def compute_psd(self,signal):
+    def compute_psd(self,signal=None,freq=None,params=None):
         """   
         This method calculates the power spectrum, defined over the class 
         "freqs" Fourier frequency array, of an input array, and assigns it to   
@@ -432,15 +444,63 @@ class PowerSpectrum(FourierProduct):
         
         Parameters:
         -----------
-        signal: np.array(float)
-            The quantity from which to calculate the power spectrum.        
+        signal: np.array(float), default None
+            The quantity from which to calculate the power spectrum. If it is 
+            not provided, the class will use the model object stored in 
+            the "model" attribute instead.
+            
+        freq: np.array(float), default None 
+            The array of Fourier frequencies over which to compute the model. 
+            If none is passed and evaluating a Fourier-domain model, uses the
+            frequency stored in the object at initialization. 
+            
+        params: lmfit.Parameters, default None
+            The parameter values to use in evaluating the model. If none are 
+            provided, the "model_params" attribute stored in the object is 
+            used.    
+        """  
+        
+        if signal is None:
+            if freq is None:
+                freq = self.freqs   
+            if params is None:
+                model = self.model.eval(self.model_params,freq=freq)
+            else:
+                model = self.model.eval(params,freq=freq)
+            self.power_spec = model          
+        else:
+            if len(signal) != self.n_times:
+                raise TypeError("Input signal size different from time array")
+            transform = self.transform(signal)
+            self.power_spec = np.multiply(transform,np.conj(transform))                
+        return 
+
+    def set_psd_model(self,model,params=None):
         """
-        
-        if len(signal) != self.n_times:
-            raise TypeError("Input signal size different from time array")
-        
-        transform = self.transform(signal)
-        self.power_spec = np.multiply(transform,np.conj(transform))                
+        This method sets a LMFit CompositeModel object to be used to evaluate the 
+        power spectrum; useful if you want your model to be defined in the Fourier 
+        rather than time domain.
+    
+        Parameters:
+        -----------            
+        model: lmfit.model or lmfit.compositemodel 
+            The lmfit wrapper of the model one wants to fit to the data. 
+            
+        params: lmfit.Parameters, default: None 
+            The parameter values from which to start evalauting the model during
+            the fit. If it is not provided, all model parameters will default 
+            to 0, set to be free, and have no minimum or maximum bound. 
+        """
+
+        if ((getattr(model, '__module__', None) != "lmfit.compositemodel")&
+            (getattr(model, '__module__', None) != "lmfit.model")):  
+            raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
+
+        self.model = model 
+        if params is None:
+            self.model_params = self.model.make_params(verbose=True)
+        else:
+            self.model_params = params
         return 
 
     def rebin_frequency(self,new_grid,use_log=True):
@@ -1320,7 +1380,7 @@ class CrossSpectrum(FourierProduct):
         """
         
         nu_min = freq_bounds[0]
-        nu_max = freq_bounds[1]        
+        nu_max = freq_bounds[1] 
         integrated_resp = self._integrate_range(self.cross,self.freqs,
                                                 nu_min,nu_max,axis=1)
         real_spectrum = np.real(integrated_resp/(nu_max-nu_min))
@@ -1374,10 +1434,11 @@ class CrossSpectrum(FourierProduct):
         """
         
         nu_min = freq_bounds[0]
-        nu_max = freq_bounds[1]        
+        nu_max = freq_bounds[1]     
         integrated_resp = self._integrate_range(self.cross,self.freqs,
                                                 nu_min,nu_max,axis=1)
         mod_spectrum = np.absolute(integrated_resp/(nu_max-nu_min))
+
         mod_spectrum = np.reshape(mod_spectrum,self.n_chans)        
         return mod_spectrum
     

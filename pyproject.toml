@@ -45,15 +45,17 @@ dependencies = [
 [project.optional-dependencies]
 docs = [
     "sphinx>=1.4",
-    "ipykernel",
     "nbsphinx",
     "pandoc",
-    "nbconvert",
+    "sphinx-copybutton",
+    "pydata-sphinx-theme",
+    "ipython",
 ]
 tests = [
     "pytest",
     "pytest-cov",
 ]
+notebooks = ["ipykernel", "nbconvert", "jupyter"]
  
 [project.urls]
 Homepage = "https://github.com/nDspec/"

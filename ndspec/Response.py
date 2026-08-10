@@ -262,10 +262,11 @@ class ResponseMatrix(nDspecOperator):
         
         if "EXPOSURE" in list(hdr.keys()):
             self.exposure = hdr["EXPOSURE"]
+            print(("Exposure header found in ARF, setting exposure time to"
+                  f" {self.exposure} second"))
         else:
             self.exposure = 1.0
-            print(("No exposure header found in ARF, setting exposure time to"
-                  " 1 second"))
+            
         
         for k in range(self.n_chans):
             for j in range(self.n_energs):
@@ -585,14 +586,14 @@ class ResponseMatrix(nDspecOperator):
     def diagonal_matrix(self,num):
         """
         Returns a diagonal identity matrix, which by definition contains only
-        ones on the diagonal and zeroes  otherwise.
+        ones on the diagonal and zeroes otherwise.
         
         Parameters:
-        ----------             
+        -----------             
         num: int
             The dimension of the desired matrix.
             
-        Returns: 
+        Returns:
         --------
         diag_resp: np.array(float,float)
             An identity matrix of size (num x num).   
@@ -645,6 +646,8 @@ class ResponseMatrix(nDspecOperator):
         energy_widths = self.energ_hi - self.energ_lo 
         unfold_matrix = energy_widths.reshape(self.n_energs,1)*self.resp_matrix
         unfold_array = np.sum(unfold_matrix,axis=0).reshape(self.n_chans,1) 
+        #fix the warning when unfolding 
+        unfold_array[unfold_array==0] = 1e-50       
 
         if units_in == "channel":
             unfold_model = array/unfold_array
@@ -658,7 +661,7 @@ class ResponseMatrix(nDspecOperator):
         #this confuses matplotlib and produces weird plots
         if (unfold_model.size == self.n_chans):
             unfold_model = unfold_model.reshape(self.n_chans)      
-        
+ 
         return unfold_model
        
     def set_exposure_time(self,time):

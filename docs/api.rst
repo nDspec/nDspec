@@ -66,60 +66,97 @@ FitCrossSpectrum Class
 .. autoclass:: ndspec.FitCrossSpectrum.FitCrossSpectrum
    :members:
    
-Emcee sampling functions
-~~~~~~~~~~~~~~~~~~~~~~~~
+FitTwoD Class
+~~~~~~~~~~~~~
 
-.. autofunction:: ndspec.EmceeUtils.set_emcee_priors
+.. autoclass:: ndspec.FitTwoD.FitTwoD
+   :members:
 
-.. autofunction:: ndspec.EmceeUtils.set_emcee_model
+JointFit Class
+~~~~~~~~~~~~~~~~~
 
-.. autofunction:: ndspec.EmceeUtils.set_emcee_data
+.. autoclass:: ndspec.JointFit.JointFit
+   :members:
 
-.. autofunction:: ndspec.EmceeUtils.set_emcee_parameters
+   
+Sampling functions
+~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: ndspec.EmceeUtils.priorUniform
+.. autofunction:: ndspec.SamplingUtils.set_sampling_priors
+
+.. autofunction:: ndspec.SamplingUtils.set_sampling_model
+
+.. autofunction:: ndspec.SamplingUtils.set_sampling_data
+
+.. autofunction:: ndspec.SamplingUtils.set_sampling_parameters
+
+.. autofunction:: ndspec.SamplingUtils.initialise_mcmc
+
+.. autofunction:: ndspec.SamplingUtils.reflect_parameter
+
+.. autoclass:: ndspec.SamplingUtils.priorUniform
     :members:
 
-.. autoclass:: ndspec.EmceeUtils.priorLogUniform
+.. autoclass:: ndspec.SamplingUtils.priorLogUniform
     :members:
 
-.. autoclass:: ndspec.EmceeUtils.priorNormal
+.. autoclass:: ndspec.SamplingUtils.priorNormal
     :members:
 
-.. autoclass:: ndspec.EmceeUtils.priorLogNormal
+.. autoclass:: ndspec.SamplingUtils.priorLogNormal
     :members:
 
-.. autofunction:: ndspec.EmceeUtils.log_priors
+.. autoclass:: ndspec.SamplingUtils.priorTruncNormal
+    :members:
 
-.. autofunction:: ndspec.EmceeUtils.chi_square_likelihood
+.. autofunction:: ndspec.SamplingUtils.nested_sampling_priors
 
-.. autofunction:: ndspec.EmceeUtils.process_emcee
+.. autofunction:: ndspec.SamplingUtils.log_priors
+
+.. autofunction:: ndspec.SamplingUtils.sampling_cash_likelihood
+
+.. autofunction:: ndspec.SamplingUtils.mcmc_cash_likelihood
+
+.. autofunction:: ndspec.SamplingUtils.sampling_gaussian_likelihood
+
+.. autofunction:: ndspec.SamplingUtils.mcmc_gaussian_likelihood
+
+.. autofunction:: ndspec.SamplingUtils.process_emcee
 
 Model library
 ~~~~~~~~~~~~~
 
-.. autofunction:: ndspec.models.lorentz
+.. autofunction:: ndspec.Models.lorentz
 
-.. autofunction:: ndspec.models.cross_lorentz
+.. autofunction:: ndspec.Models.cross_lorentz
 
-.. autofunction:: ndspec.models.powerlaw
+.. autofunction:: ndspec.Models.powerlaw
 
-.. autofunction:: ndspec.models.brokenpower
+.. autofunction:: ndspec.Models.brokenpower
 
-.. autofunction:: ndspec.models.gaussian
+.. autofunction:: ndspec.Models.gaussian
 
-.. autofunction:: ndspec.models.bbody
+.. autofunction:: ndspec.Models.bbody
 
-.. autofunction:: ndspec.models.varbbody
+.. autofunction:: ndspec.Models.varbbody
 
-.. autofunction:: ndspec.models.gauss_fred
+.. autofunction:: ndspec.Models.gauss_fred
 
-.. autofunction:: ndspec.models.gauss_bkn
+.. autofunction:: ndspec.Models.gauss_bkn
 
-.. autofunction:: ndspec.models.bbody_fred
+.. autofunction:: ndspec.Models.bbody_fred
 
-.. autofunction:: ndspec.models.bbody_bkn
+.. autofunction:: ndspec.Models.bbody_bkn
 
-.. autofunction:: ndspec.models.pivoting_pl
+.. autofunction:: ndspec.Models.pivoting_pl
 
-.. autofunction:: ndspec.models.plot_2d
+.. autofunction:: ndspec.Models.plot_2d
+
+Simulator utilities
+~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: ndspec.Simulator.simulate_lightcurve
+
+.. autofunction:: ndspec.Simulator.simulate_lag_energy
+
+.. autofunction:: ndspec.Simulator.simulate_time_averaged
