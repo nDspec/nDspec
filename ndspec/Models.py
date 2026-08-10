@@ -14,7 +14,7 @@ plt.rcParams.update({'font.size': fi-5})
 
 colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 
-def lorentz(array,params,grid_edges=False):
+def lorentz(array,params):
     """
     This model is a Lorentzian function, defined identically to Uttley and Malzac
     2023. The input parameters are:
@@ -22,12 +22,9 @@ def lorentz(array,params,grid_edges=False):
     array: the array over which the Lorentzian is to be computed \n
     f_pk: the peak frequency of the Lorentzian \n   
     q: the q-factor of the Lorentzian \n    
-    rms: the normalization of the Lorentzian \n
-    grid_edges: specifies whether the input array contains all the edges of a 
-    binned grid (identically to xspec), or the grid midpoints
+    rms: the normalization of the Lorentzian
     """
-    if grid_edges is True:
-        array = 0.5*(array[1:]+array[:-1])    
+
     if params.ndim == 1:
         f_pk = params[0]
         q = params[1]
@@ -45,7 +42,7 @@ def lorentz(array,params,grid_edges=False):
     model = lorentz_num/(f_res**2+lorentz_den)
     return np.nan_to_num(model)
 
-def cross_lorentz(array1,array2,params,grid_edges=False):
+def cross_lorentz(array1,array2,params):
     """
     This model is a complex Lorentzian function, defined identically to Uttley 
     and Malzac 2023, and shifted by a fixed phase, defined identically to Mendez
@@ -71,12 +68,12 @@ def cross_lorentz(array1,array2,params,grid_edges=False):
         phase = params[:,3][:,np.newaxis]
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    lorentz_arr = lorentz(array2,params)*np.exp(1j*phase)
+    lorentz_arr = lorentz(array2,params,grid_edges=grid_edges)*np.exp(1j*phase)
     twod_lorentz = np.tile(lorentz_arr,n_energs).reshape((n_energs,n_freqs))
     twod_lorentz = np.transpose(twod_lorentz)
     return twod_lorentz
 
-def powerlaw(array,params,grid_edges=False):
+def powerlaw(array,params):
     """
     This model is a standard power-law. The input parameters are: 
     
@@ -97,7 +94,7 @@ def powerlaw(array,params,grid_edges=False):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model
 
-def brokenpower(array,params,grid_edges=False):
+def brokenpower(array,params):
     """
     This model is a smoothly broken powerlaw, defined identically to eq. 10 in 
     Ghisellini and Tavecchio 2009. The input parameters are:
@@ -130,14 +127,14 @@ def brokenpower(array,params,grid_edges=False):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model 
 
-def gaussian(array,params,grid_edges=False):
+def gaussian(array,params):
     """
     This model is a Gaussian function. The input parameters are: 
     
     array: the array over which the Gaussian is defined \n    
     center: the centroid of the Gaussian \n    
     width: the width of the Gaussian \n
-    gauss_norm: the normalization of the Gaussian
+    gauss_norm: the normalization of the Gaussian 
     """
     if params.ndim == 1:
         center = params[0]
@@ -157,7 +154,7 @@ def gaussian(array,params,grid_edges=False):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return line
 
-def bbody(array,params,grid_edges=False):
+def bbody(array,params):
     """
     This model is a constant black body. The input parameters are:
     
@@ -196,7 +193,7 @@ def bbody(array,params,grid_edges=False):
     return model
 
     
-def varbbody(array,params,grid_edges=False):
+def varbbody(array,params):
     """
     This model is a variable black body, defined identically to Uttley and 
     Malzac 2023. The input parameters are:
@@ -239,7 +236,7 @@ def varbbody(array,params,grid_edges=False):
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     return model     
     
-def gauss_fred(array1,array2,params,return_full=False,grid_edges=False):
+def gauss_fred(array1,array2,params,return_full=False):
     """
     This is a two-dimensional model for an impulse response function. The time 
     dependence is a fast rise, exponential decay pulse. The dependence over the 

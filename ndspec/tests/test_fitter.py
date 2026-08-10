@@ -21,6 +21,7 @@ import ndspec.Models as models
 
 import pytest
 
+#dummy model functions
 def ones_model(len):
     return np.ones(len)
     
@@ -39,6 +40,8 @@ def twod_ones_model(x_axis,y_axis):
 def sin_wave(phase,norm,center):
     return norm*np.sin(phase*2*np.pi)+center
 
+#for the two-d fitter models here, we re-use the same functions/models in the 
+#documentation notebook because I could not think of a better idea
 def pulsing_bb(ear,x_axis,norm_bb,kT,norm_mod):
     var_norm = sin_wave(x_axis,norm_mod,norm_bb)
     energ = 0.5*(ear[1:]+ear[:-1])

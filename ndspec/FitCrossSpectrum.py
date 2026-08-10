@@ -68,7 +68,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         likelihood by default. Users can set different likelihoods either at 
         initialization or with the appropriate setter method.
         
-    custom_likelihood: function 
+    custom_likelihood: function, optional  
         A function users can set to bypass the supported likelihoods and instead 
         provide their own. 
         
@@ -385,7 +385,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             to build the data. It is necessary to build the grid of Fourier 
             frequency over which to compute the model.     
             
-        norm; str, optionalm default = "abs" 
+        norm; str, optional default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
             is used.
