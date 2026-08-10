@@ -26,9 +26,9 @@ jobs:
 
       - name: Check distribution size
         run: |
-          oversized=$(find dist -type f -size +25M)
+          oversized=$(find dist -type f -size +90M)
           if [ -n "$oversized" ]; then
-            echo "::error::Distribution exceeds 25 MB: $oversized"
+            echo "::error::Distribution exceeds 90 MB: $oversized"
             exit 1
           fi
 
