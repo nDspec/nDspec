@@ -410,6 +410,49 @@ class ResponseMatrix(nDspecOperator):
         bin_resp.resp_matrix = rebinned_response
         return bin_resp
 
+    def diagonal_matrix(self,num):
+        """
+        Returns a diagonal identity matrix, which by definition contains only
+        ones on the diagonal and zeroes  otherwise.
+        
+        Parameters:
+        ----------             
+        num: int
+            The dimension of the desired matrix.
+            
+        Returns: 
+        --------
+        diag_resp: np.array(float,float)
+            An identity matrix of size (num x num).   
+        """
+    
+        diag_resp = np.diag(np.ones(num))
+        return diag_resp 
+
+    def set_exposure_time(self,time):
+        """
+        Adjusts the response matrix to a new time. Some mission's FITS files
+        do not contain this information and thus need to be set manually.
+
+        Parameters
+        ----------
+        time : float
+            Exposure time of observation.
+
+        Returns
+        -------
+        None.
+
+        """
+        if (isinstance(time, (np.floating, float, int)) != True):
+            raise TypeError("Time must be a float or integer")
+        
+        factor = time/self.exposure
+        
+        self.resp_matrix = self.resp_matrix*factor
+        self.exposure = time        
+        return
+
     def convolve_response(self,model_input,units_in="xspec",units_out="kev"):
         """
         This method applies the response matrix loaded in the class to a user
@@ -501,6 +544,211 @@ class ResponseMatrix(nDspecOperator):
             output_model = conv_model                
         return output_model
 
+    def _gain_weights(self,slope,offset):
+        """
+        This method computes a matrix of weights required to shift a model,
+        which has already been folded through the response, from the nominal
+        channel grid to one shifted by a gain miscalibration. If gain is 
+        miscalibrated, then the true photon energy E' collected by a channel
+        with nominal bound E is 
+        
+        E' = E/slope - offset,
+        
+        with the offset in units of keV. Each element (h,k) of the weight matrix
+        contains the fraction of the starting channel k which overlaps with the
+        shifted bounds of channel h, under the assumption that the counts are
+        distributed uniformly within each channel.
+
+        Channels whose shifted bounds fall partially or entirely outside of the
+        starting grid by definition can not be accounted for correctly. It is up 
+        to the user to ensure that these channels at the extremes of the 
+        response are ignored during a fit.
+
+        Parameters:
+        -----------
+        slope: float
+            The multiplicative term of the gain shift. A value of 1 corresponds
+            to the same energy scale stored in the response.
+
+        offset: float
+            The additive term of the gain shift, in units of keV. A value of 0
+            corresponds to the same energy scale stored in the response.
+
+        Returns:
+        --------
+        weights: np.array(float,float)
+            The matrix of weights, of size (n_chans x n_chans), to be applied to
+            a model folded through the response and expressed in units of counts
+            per channel.
+        """
+
+        if slope <= 0.:
+            raise ValueError("The gain slope must be greater than zero")
+
+        shift_lo = self.emin/slope - offset
+        shift_hi = self.emax/slope - offset
+
+        #the overlap between every shifted channel and every nominal channel;
+        #the transpose in the first term is to broadcast the shifted grid over
+        #the rows and the nominal grid over the columns
+        overlap = (np.minimum(shift_hi.reshape(self.n_chans,1),self.emax) -
+                   np.maximum(shift_lo.reshape(self.n_chans,1),self.emin))
+        overlap = np.clip(overlap,0.,None)
+        weights = overlap/(self.emax-self.emin)
+        return weights
+
+    def gain_support(self,slope,offset):
+        """
+        This method is intended to let users identify which channels may need to
+        be ignored before applying a given gain shift.
+
+        The method returns the fraction of each shifted channel which is still
+        covered by the starting channel grid, for a given gain shift. A value of
+        one means the channel is fully supported and accounted for by the grid 
+        stored in the response, even when shifting the gain; any value smaller 
+        than one means that part of the shifted channel falls outside of the
+        instrument grid, and that the model folded in that  channel will be 
+        under-estimated unphysically.
+
+        Parameters:
+        -----------
+        slope: float
+            The multiplicative term of the gain shift.
+
+        offset: float
+            The additive term of the gain shift, in units of keV.
+
+        Returns:
+        --------
+        support: np.array(float)
+            An array of size (n_chans), containing the supported fraction of
+            each channel in the shifted grid.
+        """
+
+        support = np.sum(self._gain_weights(slope,offset),axis=1)
+        return support
+
+    def apply_gain(self,array,slope=1.0,offset=0.0,units="kev"):
+        """
+        This method applies a gain shift to an array which has already been
+        folded through the instrument response, by re-distributing it from the
+        starting channel grid to one displaced by the gain.
+
+        The units of the input and output arrays are identical, and need to
+        match those used when calling the convolve_response method. Note that
+        the output is always normalized by the width of the nominal channels,
+        because that is the grid over which the data is defined; the narrowing
+        (or widening) of the channels caused by the slope term is a genuine
+        physical effect and is preserved.
+
+        Parameters:
+        -----------
+        array: np.array(float) or np.array(float,float)
+            Either a 1-d array of size (n_chans), or a 2-d array of size
+            (n_chans x arbitrary length), containing a model which has already
+            been folded through the response.
+
+        slope: float, default=1.0
+            The multiplicative term of the gain shift.
+
+        offset: float, default=0.0
+            The additive term of the gain shift, in units of keV.
+
+        units: string, default="kev"
+            A string setting the normalization of the input and output arrays,
+            identical to the units_out parameter of the convolve_response
+            method. The default "kev" assumes units of counts/s/keV, "channel"
+            instead assumes units of counts/s/channel.
+
+        Returns:
+        --------
+        shift_array: np.array(float) or np.array(float,float)
+            The input array, re-distributed over the shifted channel grid. The
+            size and normalization are identical to those of the input.
+        """
+
+        if np.shape(array)[0] != self.n_chans:
+            raise TypeError(("Input array has a different size from the channel"
+                             " grid stored in the response"))
+        weights = self._gain_weights(slope,offset)
+        chan_widths = self.emax - self.emin
+
+        if units == "kev":
+            if array.ndim == 1:
+                shift_array = np.matmul(weights,array*chan_widths)/chan_widths
+            else:
+                shift_array = np.matmul(weights,
+                                        array*chan_widths.reshape(self.n_chans,1))
+                shift_array = shift_array/chan_widths.reshape(self.n_chans,1)
+        elif units == "channel":
+            shift_array = np.matmul(weights,array)
+        else:
+            raise ValueError(("Units incorrect, specify either kev or"
+                              " channel"))
+        return shift_array           
+              
+    def unfold_response(self,array,units_in="kev"):    
+        """
+        Unfolds an array through the instrument response. Note that plotting 
+        data in this fashion can be EXTREMELY misleading and should be done 
+        with care. In nDspec we define an unfolded model as:
+        unfolded(H) = counts(H)/exposure*sum(rmf*arf),
+        where H is a given bounds in energy channels, exposure is the exposure 
+        time of the observation, rmf*arf is the instrument response, and the sum 
+        is carried out every the energy bins of the response. Users also need to 
+        specify whether the input array is in units of counts/s/keV or 
+        counts/s/channel; if they do so correctly, the output of this method is 
+        in photon density - counts/s/keV/cm^2. Assuming 0 background, this 
+        definition of unfolding is identical to Isis, regardless of model 
+        choice, and Xspec, as long as the model is a constant in each energy 
+        bin. Converting to flux units - ie, energy/s/area, then requires 
+        multiplying the output of this method by H^2, identically to the 
+        "eeunfold" method in Xspec. 
+        Unlike Isis and Xspec, this method also supports unfolding two-d arrays,
+        e.g. cross spectra. 
+        
+        Parameters:
+        -----------             
+        array: np.array(int,int)
+            The input array to be unfolded, of size (n_energs,arbitrary). 
+            In the x-axis it needs to be defined over the instrument energy 
+            grid, in the y-axis it can be any size (e.g., over a grid of Fourier
+            frequencies).
+            
+        Returns: 
+        -------- 
+        unfold_model: np.array(float,float)
+            The array unfolded through the instrument response, of size 
+            (n_chans,arbitrary), defined over the energy bounds of each channel 
+            in the response. The y-axis is identical to the input.
+        """
+        #reshaping the input array needed to treat a 1d array like a 2d one and
+        #use the same array operations later
+        if (array.size == self.n_chans):
+            array = array.reshape(self.n_chans,1)         
+        #reshaping the energy and channel arrays is necessary to get the right 
+        #dimensions when unfolding 2d arrays 
+        energy_widths = self.energ_hi - self.energ_lo 
+        unfold_matrix = energy_widths.reshape(self.n_energs,1)*self.resp_matrix
+        unfold_array = np.sum(unfold_matrix,axis=0).reshape(self.n_chans,1) 
+        #fix the warning when unfolding 
+        unfold_array[unfold_array==0] = 1e-50       
+
+        if units_in == "channel":
+            unfold_model = array/unfold_array
+        elif units_in == "kev":
+            channel_widths = (self.emax - self.emin).reshape(self.n_chans,1)
+            unfold_model = array/unfold_array*channel_widths 
+        else:
+            raise ValueError("Specify whether the input array is normalized per channel or per keV")
+        
+        #if we had a 1d array as input, we convert back to a 1d array; otherwise 
+        #this confuses matplotlib and produces weird plots
+        if (unfold_model.size == self.n_chans):
+            unfold_model = unfold_model.reshape(self.n_chans)      
+ 
+        return unfold_model
+
     def plot_response(self,plot_type="channel",return_plot=False):
         """
         Plots the instrument response as a function of incoming energy and 
@@ -581,110 +829,4 @@ class ResponseMatrix(nDspecOperator):
         if return_plot is True:
             return fig 
         else:
-            return   
-        
-    def diagonal_matrix(self,num):
-        """
-        Returns a diagonal identity matrix, which by definition contains only
-        ones on the diagonal and zeroes  otherwise.
-        
-        Parameters:
-        ----------             
-        num: int
-            The dimension of the desired matrix.
-            
-        Returns: 
-        --------
-        diag_resp: np.array(float,float)
-            An identity matrix of size (num x num).   
-        """
-    
-        diag_resp = np.diag(np.ones(num))
-        return diag_resp            
-              
-    def unfold_response(self,array,units_in="kev"):    
-        """
-        Unfolds an array through the instrument response. Note that plotting 
-        data in this fashion can be EXTREMELY misleading and should be done 
-        with care. In nDspec we define an unfolded model as:
-        unfolded(H) = counts(H)/exposure*sum(rmf*arf),
-        where H is a given bounds in energy channels, exposure is the exposure 
-        time of the observation, rmf*arf is the instrument response, and the sum 
-        is carried out every the energy bins of the response. Users also need to 
-        specify whether the input array is in units of counts/s/keV or 
-        counts/s/channel; if they do so correctly, the output of this method is 
-        in photon density - counts/s/keV/cm^2. Assuming 0 background, this 
-        definition of unfolding is identical to Isis, regardless of model 
-        choice, and Xspec, as long as the model is a constant in each energy 
-        bin. Converting to flux units - ie, energy/s/area, then requires 
-        multiplying the output of this method by H^2, identically to the 
-        "eeunfold" method in Xspec. 
-        Unlike Isis and Xspec, this method also supports unfolding two-d arrays,
-        e.g. cross spectra. 
-        
-        Parameters:
-        -----------             
-        array: np.array(int,int)
-            The input array to be unfolded, of size (n_energs,arbitrary). 
-            In the x-axis it needs to be defined over the instrument energy 
-            grid, in the y-axis it can be any size (e.g., over a grid of Fourier
-            frequencies).
-            
-        Returns: 
-        -------- 
-        unfold_model: np.array(float,float)
-            The array unfolded through the instrument response, of size 
-            (n_chans,arbitrary), defined over the energy bounds of each channel 
-            in the response. The y-axis is identical to the input.
-        """
-        #reshaping the input array needed to treat a 1d array like a 2d one and
-        #use the same array operations later
-        if (array.size == self.n_chans):
-            array = array.reshape(self.n_chans,1)         
-        #reshaping the energy and channel arrays is necessary to get the right 
-        #dimensions when unfolding 2d arrays 
-        energy_widths = self.energ_hi - self.energ_lo 
-        unfold_matrix = energy_widths.reshape(self.n_energs,1)*self.resp_matrix
-        unfold_array = np.sum(unfold_matrix,axis=0).reshape(self.n_chans,1) 
-        #fix the warning when unfolding 
-        unfold_array[unfold_array==0] = 1e-50       
-
-        if units_in == "channel":
-            unfold_model = array/unfold_array
-        elif units_in == "kev":
-            channel_widths = (self.emax - self.emin).reshape(self.n_chans,1)
-            unfold_model = array/unfold_array*channel_widths 
-        else:
-            raise ValueError("Specify whether the input array is normalized per channel or per keV")
-        
-        #if we had a 1d array as input, we convert back to a 1d array; otherwise 
-        #this confuses matplotlib and produces weird plots
-        if (unfold_model.size == self.n_chans):
-            unfold_model = unfold_model.reshape(self.n_chans)      
- 
-        return unfold_model
-       
-    def set_exposure_time(self,time):
-        """
-        Adjusts the response matrix to a new time. Some mission's FITS files
-        do not contain this information and thus need to be set manually.
-
-        Parameters
-        ----------
-        time : float
-            Exposure time of observation.
-
-        Returns
-        -------
-        None.
-
-        """
-        if (isinstance(time, (np.floating, float, int)) != True):
-            raise TypeError("Time must be a float or integer")
-        
-        factor = time/self.exposure
-        
-        self.resp_matrix = self.resp_matrix*factor
-        self.exposure = time        
-        return
-        
+            return           

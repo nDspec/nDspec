@@ -172,7 +172,12 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
     model = model*conv_factor
 
     if noise is None:   
-        cstat = model - data + data*(np.log(data)-np.log(model))        
+        cstat = model - data
+        #guard against bins with zero counts, which would return nan in the term 
+        #data*np.log(data)
+        mask = (data > 0)
+        cstat[mask] = cstat[mask] + data[mask]*(np.log(data[mask]) -
+                                                np.log(model[mask]))     
     else:
         #convert the background array to counts 
         noise = noise*conv_factor       

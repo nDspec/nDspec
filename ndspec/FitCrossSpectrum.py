@@ -148,6 +148,10 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class. 
 
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None. 
+
     Attributes inherited from FrequencyDependentFit:
     ------------------------------------------------
     _freqs_unmasked: np.array(float)

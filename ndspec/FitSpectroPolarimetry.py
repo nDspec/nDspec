@@ -137,6 +137,10 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         ignored or noticed during the fit. Used exclusively to facilitate
         book-keeping internal to the fitter class.
 
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None. 
+
     Attributes inherited from StokesDependentFit:
     ---------------------------------------------------
     pol_emin, pol_emax: np.array(float)
@@ -594,6 +598,31 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         if stokes in ("all", "QU", "Q", "U"):
             self.notice_polarization_energies(bound_lo,bound_hi)
         return
+
+    def _check_gain_bounds(self,slope_bounds,offset_bounds):
+        """
+        This method checks the bounds on the gain parameters against both the
+        Stokes I and the Stokes Q/U channel grids, which are typically grouped
+        differently from one another. 
+ 
+        Parameters:
+        -----------
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+ 
+        self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
+                              self._emax_unmasked,slope_bounds,offset_bounds,
+                              label="the Stokes I response")
+        self._check_gain_grid(self.pol_ebounds_mask,self._pol_emin_unmasked,
+                              self._pol_emax_unmasked,slope_bounds,
+                              offset_bounds,
+                              label="the Stokes Q and U response")
+        return
  
     def set_fit_statistic(self,stat):
         """
@@ -679,20 +708,23 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
  
         if params is None:
             params = self.model_params
- 
+            
         stokes = self.model.eval(params,energ=energ,ear=ear)*energ_bounds
         if np.shape(stokes)[0] != 3:
             raise TypeError(("The model must return an array of Stokes I, Q "
                              "and U; multiply your spectral model by one of "
-                             "the polarization models in nDspec.Models"))
+                             "the polarization models in nDspec.Models or 
+                             "update your model format."))
         stokes_I = stokes[0]
         stokes_Q = stokes[1]
         stokes_U = stokes[2]
- 
         if fold is True:
             stokes_I = self.response.convolve_response(stokes_I)
             stokes_Q = self.response_pol.convolve_response(stokes_Q)
             stokes_U = self.response_pol.convolve_response(stokes_U)
+            stokes_I = self._apply_gain(stokes_I,params,self.response)
+            stokes_Q = self._apply_gain(stokes_Q,params,self.response_pol)
+            stokes_U = self._apply_gain(stokes_U,params,self.response_pol)
         elif mask is True:
             raise ValueError(("mask=True requires fold=True: the ignore/"
                               "notice mask is defined in channel space, and "
@@ -735,7 +767,10 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             The model polarization angle, in radians, in each Stokes Q/U energy
             channel.
         """
- 
+
+        if params is None:
+            params = self.model_params
+
         model = self.eval_model(params=params,fold=False,mask=False)
         #the reason we call np.split (which divides the array in 3) rather than 
         #_split_stokes (which accounts for different binning in Stokes I/Q/U) is 
@@ -747,6 +782,10 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         stokes_I = self.response_polgrid.convolve_response(stokes_I)
         stokes_Q = self.response_pol.convolve_response(stokes_Q)
         stokes_U = self.response_pol.convolve_response(stokes_U)
+        stokes_I = self._apply_gain(stokes_I,params,self.response_polgrid)
+        stokes_Q = self._apply_gain(stokes_Q,params,self.response_pol)
+        stokes_U = self._apply_gain(stokes_U,params,self.response_pol)
+ 
  
         model_product = PolarimetryProduct(self._pol_ebounds_unmasked,
                                            input_type='stokes')

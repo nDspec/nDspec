@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 
 from lmfit import fit_report, minimize 
+from lmfit import Parameters as LM_Parameters
 from lmfit.printfuncs import gformat
 
 from .Likelihoods import cstat, chisq, ratio
@@ -628,7 +629,11 @@ class EnergyDependentFit():
         The array of every lower bound, upper bound, channel center and channel 
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
-        internal to the fitter class.         
+        internal to the fitter class.  
+        
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None.      
     """
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
@@ -637,6 +642,7 @@ class EnergyDependentFit():
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
         self.ebounds_mask = np.full((self.response.n_chans), True)
+        self.gain_params = None
         pass
        
     def ignore_energies(self,bound_lo,bound_hi):
@@ -703,6 +709,191 @@ class EnergyDependentFit():
         #filter and re-flatten the data using the same mask 
         self._reflatten_data() 
         return
+
+    def set_gain(self,slope=1.0,offset=0.0,vary=True,
+                 slope_bounds=(0.9,1.1),offset_bounds=(-0.3,0.3)):
+        """
+        This method sets a gain correction to the instrument channel to energy
+        conversion, which is applied to the model after it has been folded 
+        through the response.
+        nDspec follows the same convention as Xspec, in which the true photon
+        energy E' collected by a channel with nominal bound E is defined as
+
+        E' = E/slope - offset,
+
+        with the offset in units of keV.
+
+        The gain parameters are appended to the model_params attribute, so this
+        method has to be called after the model has been set. Since they are 
+        ordinary lmfit parameters, users should set a prior on them through the 
+        usual interfaces in SamplingUtils when using Bayesian sampling.
+
+        Parameters:
+        -----------
+        slope: float, default=1.0
+            The starting value of the multiplicative term of the gain shift.
+
+        offset: float, default=0.0
+            The starting value of the additive term of the gain shift, in units
+            of keV.
+
+        vary: bool, default=True
+            A boolean switch to choose whether the gain parameters are free
+            during the fit, or frozen at their starting values.
+
+        slope_bounds: tuple, default=(0.9,1.1)
+            The minimum and maximum values the slope is allowed to take.
+
+        offset_bounds: tuple, default=(-0.3,0.3)
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+
+        if self.model_params is None:
+            raise AttributeError(("The model has to be set before setting a"
+                                  " gain correction"))
+
+        self._check_gain_bounds(slope_bounds,offset_bounds)
+
+        self.gain_params = LM_Parameters()
+        self.gain_params.add("gain_slope",value=slope,vary=vary,
+                             min=slope_bounds[0],max=slope_bounds[1])
+        self.gain_params.add("gain_offset",value=offset,vary=vary,
+                             min=offset_bounds[0],max=offset_bounds[1])
+        self.model_params.update(self.gain_params)
+        return
+
+    def _check_gain_bounds(self,slope_bounds,offset_bounds):
+        """
+        This method checks the bounds on the gain parameters against every
+        channel grid tracked by the fitter. Classes which track more than one
+        response are expected to override it, calling _check_gain_grid once for
+        each grid.
+ 
+        Parameters:
+        -----------
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+ 
+        self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
+                              self._emax_unmasked,slope_bounds,offset_bounds)
+        return 
+        
+    def _check_gain_grid(self,mask,emin_unmasked,emax_unmasked,slope_bounds,
+                         offset_bounds,label="the response"):
+        """
+        This method checks that every channel noticed during the fit remains
+        fully covered by a given channel grid, for every gain shift allowed by
+        the bounds on the gain parameters. 
+ 
+        If the check fails, users should either tighten the bounds on the gain
+        parameters, or ignore additional channels at the edges of the grid.
+ 
+        Parameters:
+        -----------
+        mask: np.array(bool)
+            The mask of the channels noticed during the fit, over the grid to be
+            checked.
+ 
+        emin_unmasked, emax_unmasked: np.array(float)
+            The lower and upper bounds of every channel in the grid to be
+            checked, regardless of which ones are noticed or ignored.
+ 
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+ 
+        label: string, default="the response"
+            A string identifying the grid being checked, used to tell users
+            which response caused the check to fail in fits which track more
+            than one.
+        """
+
+        noticed_min = np.min(np.extract(mask,emin_unmasked))
+        noticed_max = np.max(np.extract(mask,emax_unmasked))
+        shift_min = noticed_min/slope_bounds[1] - offset_bounds[1]
+        shift_max = noticed_max/slope_bounds[0] - offset_bounds[0]
+ 
+        if shift_min < emin_unmasked[0]:
+            raise ValueError(("The lower bound of the noticed channels can be"
+                              " shifted below the channel grid stored in "
+                              +label+"; either tighten the bounds on the gain"
+                              " parameters, or ignore more channels at low"
+                              " energy"))
+        if shift_max > emax_unmasked[-1]:
+            raise ValueError(("The upper bound of the noticed channels can be"
+                              " shifted above the channel grid stored in "
+                              +label+"; either tighten the bounds on the gain"
+                              " parameters, or ignore more channels at high"
+                              " energy"))
+        return
+ 
+    def _check_gain_bounds(self,slope_bounds,offset_bounds):
+        """
+        This method checks the bounds on the gain parameters against every
+        channel grid tracked by the fitter. Classes which track more than one
+        response are expected to override it, calling _check_gain_grid once for
+        each grid.
+ 
+        Parameters:
+        -----------
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+ 
+        self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
+                              self._emax_unmasked,slope_bounds,offset_bounds)
+        return
+    
+    def _apply_gain(self,model,params,response=None):
+        """
+        This method applies the gain correction set by the user to a model which
+        has already been folded through the instrument response, and returns it
+        unchanged if no gain correction was set. The model must be defined over 
+        every channel in the response, rather than over just the noticed ones, 
+        because the channels which are ignored during the fit might supply some 
+        counts after shifting.
+
+        Parameters:
+        -----------
+        model: np.array(float)
+            The folded model, of size (_all_chans).
+
+        params: lmfit.Parameters
+            The parameter values to use in applying the gain. If none are
+            provided, the gain_params attribute is used.
+
+        response: nDspec.ResponseMatrix, default=None
+            The response through which the model was folded, and whose channel
+            grid the gain is therefore applied over. If none is provided, the
+            response attribute is used. 
+
+        Returns:
+        --------
+        model: np.array(float)
+            The folded model, shifted by the gain correction.
+        """
+        
+        if self.gain_params is None:
+            return model
+        if response is None:
+            response = self.response
+        model = response.apply_gain(model,params["gain_slope"].value,
+                                    params["gain_offset"].value)
+        return model
+
 
 class FrequencyDependentFit():
     """

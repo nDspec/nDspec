@@ -118,6 +118,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
 
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None. 
+
     Other attributes:
     -----------------
     response: nDspec.ResponseMatrix
@@ -276,6 +280,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if fold is True:
             model = self.response.convolve_response(model) 
+            model = self._apply_gain(model,params)
         elif mask is True:
             raise ValueError(("mask=True requires fold=True: the ignore/"
                               "notice mask is defined in channel space, and "
@@ -313,6 +318,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             residuals, _ = self.get_residuals("chisq",model=model,mask=True)
         elif self.likelihood == "cstat":
             residuals, _ = self.get_residuals("cstat",model=model,mask=True)
+            #lmfit minimizes the sum of the squares of whatever this method
+            #returns, so the residuals passed to it have to be the square root
+            #of the contribution of each bin to the total statistic; the clip
+            #guards against bins floating point error for bins with 0 counts 
+            residuals = np.sqrt(np.clip(residuals,0.,None))
         elif self.likelihood == "custom":
             residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:
