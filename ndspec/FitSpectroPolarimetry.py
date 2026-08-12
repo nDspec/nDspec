@@ -713,7 +713,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         if np.shape(stokes)[0] != 3:
             raise TypeError(("The model must return an array of Stokes I, Q "
                              "and U; multiply your spectral model by one of "
-                             "the polarization models in nDspec.Models or 
+                             "the polarization models in nDspec.Models or "
                              "update your model format."))
         stokes_I = stokes[0]
         stokes_Q = stokes[1]
@@ -739,13 +739,12 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
  
     def eval_polarization(self,params=None,mask=True):
         """
-        This method evaluates the model polarization degree and angle in
-        detector space, over the energy channel grid of the Stokes Q and U
-        spectra. The three model Stokes parameters are folded through the
-        appropriate responses first, and then converted with a nDspec
-        PolarimetryProduct operator; this is necessary because the polarization
-        degree and angle are not additive quantities, and therefore folding them
-        directly through a response is not meaningful.
+        This method evaluates the model polarization angle and degree in
+        detector space. Because the computation is in detector space, the 
+        polarization degree is multiplied by the modulation factor $\\mu(E)$.
+        
+        Both products are computed over the energy channel grid of the Stokes Q 
+        and U spectra. 
  
         Parameters:
         -----------
@@ -777,6 +776,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         #that since we did not yet fold with the response to get "model", the 
         #three arrays have identical size 
         stokes_I, stokes_Q, stokes_U = np.split(model,3)
+                
         #Stokes I has to be folded over the Q/U channel grid, otherwise the
         #three Stokes parameters are not defined over the same channels
         stokes_I = self.response_polgrid.convolve_response(stokes_I)
@@ -785,7 +785,6 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         stokes_I = self._apply_gain(stokes_I,params,self.response_polgrid)
         stokes_Q = self._apply_gain(stokes_Q,params,self.response_pol)
         stokes_U = self._apply_gain(stokes_U,params,self.response_pol)
- 
  
         model_product = PolarimetryProduct(self._pol_ebounds_unmasked,
                                            input_type='stokes')
@@ -805,11 +804,15 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
  
     def get_data_polarization(self,mask=True):
         """
-        This method computes the polarization degree and angle of the data, over
-        the energy channel grid of the Stokes Q and U spectra, along with their
-        errors. The Stokes I counts are rebinned over the Stokes Q/U channel
-        grid first, since the three Stokes parameters need to be defined over
-        the same channels.
+        This method computes the polarization degree and angle of the data. Due 
+        to how data is recorded in X-ray polarimeters, the polarization degree 
+        returned by this method is modulated by the modulation factor $\\mu$(E).
+        
+        The polarization angle and (modulated) polarization degree are computed 
+        over the energy channel grid of the Stokes Q and U spectra, along with 
+        their errors. The Stokes I counts are rebinned over the Stokes Q/U 
+        channel grid first, since the three Stokes parameters need to be defined 
+        over the same channels.
  
         The errors are computed by propagating the errors on the three Stokes
         parameters, and neglecting their covariance; users interested in
@@ -849,6 +852,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         _, stokes_Q, stokes_U = self.split_stokes(self._data_unmasked,mask=False)
         _, stokes_Q_err, stokes_U_err = self.split_stokes(
                                         self._data_err_unmasked,mask=False)
+
         if self.noise is not None:
             _, noise_Q, noise_U = self.split_stokes(self._noise_unmasked,
                                                     mask=False)
@@ -1054,7 +1058,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             energies, xerror = self._plot_grid(1)
             axes[0].errorbar(energies,degree,yerr=degree_err,xerr=xerror,
                              linestyle='',marker='o')
-            axes[0].set_ylabel("Polarization degree")
+            axes[0].set_ylabel("Polarization degree $\\times\\ \\mu(E)$")
             axes[1].errorbar(energies,np.degrees(angle),
                              yerr=np.degrees(angle_err),xerr=xerror,
                              linestyle='',marker='o')
@@ -1159,7 +1163,8 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         elif units == "polarization":
             model_degree, model_angle = self.eval_polarization(params=params)
             model = [model_degree, np.degrees(model_angle)]
-            labels = ["Polarization degree", "Polarization angle (deg)"]
+            labels = ["Polarization degree $\\times\\ \\mu(E)$", 
+                      "Polarization angle (deg)"]
             grids = [self._plot_grid(1) for k in range(2)]
             if plot_data is True:
                 degree, angle, degree_err, angle_err = \
@@ -1355,7 +1360,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         ax.tick_params(axis='y',labelsize=12)
         ax.grid(color='0.85',linewidth=0.8)
         #the angle label is set as a title rather than placed along the arc
-        ax.set_title("Polarization angle/degree",fontsize=16)
+        ax.set_title("Polarization angle/degree$\\times\\mu(E)$",fontsize=16)
 
         #colorbar for the energy axis 
         mappable = ScalarMappable(norm=norm,cmap=colormap)

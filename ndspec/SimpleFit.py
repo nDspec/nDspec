@@ -248,7 +248,10 @@ class SimpleFit():
         """
         This method is used to pass the model users want to fit to the data. 
         Optionally it is also possible to pass the initial parameter values of 
-        the model. 
+        the model. If a user had previously stored a model in the fitter which 
+        included a calibration component, that component is removed or reset 
+        (depending on the exact fitter) when passing the new model from calling 
+        this method.
         
         Parameters:
         -----------            
@@ -264,7 +267,7 @@ class SimpleFit():
         if ((getattr(model, '__module__', None) != "lmfit.compositemodel")&
             (getattr(model, '__module__', None) != "lmfit.model")):  
             raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
-        
+        self._reset_calibration()
         self.model = model 
         if params is None:
             self.model_params = self.model.make_params(verbose=True)
@@ -568,6 +571,23 @@ class SimpleFit():
                 print(f"    {nout} {par.value: .7g} (fixed)")
         return
 
+    def _reset_calibration(self):
+        """
+        This method clears any gain instrument calibration correction which was 
+        set on top of the model, and is called by set_model. The only correction 
+        currently supported this way is gain calibration, so this method only 
+        does anything if the fit is of an energy-dependent quantity.
+        """
+        
+        if isinstance(self,EnergyDependentFit) and self.gain_params is not None:
+            warnings.warn(("WARNING: changing the model has reset the gain"
+                           " correction, call set_gain again to re-apply it"),
+                          UserWarning)
+            self.gain_params = None
+            self._gain_keys = None
+        
+        return 
+
 class EnergyDependentFit():
     """
     Internal book-keeping class used to manage noticing or ignoring energy 
@@ -633,7 +653,13 @@ class EnergyDependentFit():
         
     gain_params: lmfit.Parameters, default None 
         A lmfit Parameters object, which contains the parameters for the gain  
-        correction model components if it is enabled. Defaults to None.      
+        correction model components if it is enabled. Defaults to None.
+        
+    _gain_keys: list, default None 
+        A list of keys we use to keep track of the names of the gain parameters. 
+        Necessary during joint fits with multiple instruments/detectors, if more 
+        than one detector requires gain fitting (e.g., fitting 3 IXPE DUs, each 
+        with its set of gain parameters).      
     """
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
@@ -643,6 +669,7 @@ class EnergyDependentFit():
         self.ewidths = self.response.emax - self.response.emin
         self.ebounds_mask = np.full((self.response.n_chans), True)
         self.gain_params = None
+        self._gain_keys = None
         pass
        
     def ignore_energies(self,bound_lo,bound_hi):
@@ -711,7 +738,8 @@ class EnergyDependentFit():
         return
 
     def set_gain(self,slope=1.0,offset=0.0,vary=True,
-                 slope_bounds=(0.9,1.1),offset_bounds=(-0.3,0.3)):
+                 slope_bounds=(0.9,1.1),offset_bounds=(-0.3,0.3),
+                 label=None):
         """
         This method sets a gain correction to the instrument channel to energy
         conversion, which is applied to the model after it has been folded 
@@ -747,6 +775,11 @@ class EnergyDependentFit():
         offset_bounds: tuple, default=(-0.3,0.3)
             The minimum and maximum values the offset is allowed to take, in
             units of keV.
+            
+        label: string, default=None
+            A string appended to the names of the gain parameters, in order to
+            keep the energy scales of different detectors independent from one
+            another in a joint fit.    
         """
 
         if self.model_params is None:
@@ -754,11 +787,17 @@ class EnergyDependentFit():
                                   " gain correction"))
 
         self._check_gain_bounds(slope_bounds,offset_bounds)
+        
+        if label is None:
+            self._gain_keys = ("gain_slope","gain_offset")
+        else:
+            self._gain_keys = ("gain_slope_"+str(label),
+                               "gain_offset_"+str(label))
 
         self.gain_params = LM_Parameters()
-        self.gain_params.add("gain_slope",value=slope,vary=vary,
+        self.gain_params.add(self._gain_keys[0],value=slope,vary=vary,
                              min=slope_bounds[0],max=slope_bounds[1])
-        self.gain_params.add("gain_offset",value=offset,vary=vary,
+        self.gain_params.add(self._gain_keys[1],value=offset,vary=vary,
                              min=offset_bounds[0],max=offset_bounds[1])
         self.model_params.update(self.gain_params)
         return
@@ -885,15 +924,15 @@ class EnergyDependentFit():
         model: np.array(float)
             The folded model, shifted by the gain correction.
         """
-        
+
         if self.gain_params is None:
             return model
         if response is None:
             response = self.response
-        model = response.apply_gain(model,params["gain_slope"].value,
-                                    params["gain_offset"].value)
-        return model
+        model = response.apply_gain(model,params[self._gain_keys[0]].value,
+                                    params[self._gain_keys[1]].value)
 
+        return model
 
 class FrequencyDependentFit():
     """
