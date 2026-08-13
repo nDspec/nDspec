@@ -1150,6 +1150,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             model = self.split_stokes(self.eval_model(params=params))
             labels = [self._stokes_label(k) for k in range(3)]
             grids = [self._plot_grid(k) for k in range(3)]
+            hist_edges = [self._plot_hist_edges(k) for k in range(3)]
             if plot_data is True:
                 data = self.split_stokes(self.data)
                 errors = self.split_stokes(self.data_err)
@@ -1166,6 +1167,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             labels = ["Polarization degree $\\times\\ \\mu(E)$", 
                       "Polarization angle (deg)"]
             grids = [self._plot_grid(1) for k in range(2)]
+            hist_edges = [self._plot_hist_edges(1) for k in range(2)]
             if plot_data is True:
                 degree, angle, degree_err, angle_err = \
                     self.get_data_polarization()
@@ -1197,7 +1199,11 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
                 if plot_bkg is True:
                     ax.errorbar(energies,noise[k],xerr=xerror,
                                 linestyle='',marker='o')
-            ax.plot(energies,model[k],lw=3,zorder=3)
+            #ax.plot(energies,model[k],lw=3,zorder=3)
+            #ax.hist(energies,bins=hist_edges[k],weights=model[k],
+            #        density=False,histtype='step',linewidth=3,zorder=3)
+            ax.stairs(model[k],hist_edges[k],baseline=None,
+                      linewidth=3,zorder=3)
             ax.set_xscale("log",base=10)
             ax.set_ylabel(labels[k])
             if plot_data is False:
@@ -1675,6 +1681,36 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             xerror = 0.5*np.extract(self.pol_ebounds_mask,
                                     self._pol_ewidths_unmasked)
         return energies, xerror
+
+    def _plot_hist_edges(self,index):
+        """
+        This method returns the bin edges of the noticed channels of a given
+        Stokes parameter, used to draw the model as a step histogram in
+        plot_model.
+
+        Parameters:
+        -----------
+        index: int
+            The index of the Stokes parameter to be returned; 0 for Stokes I,
+            1 for Stokes Q, and 2 for Stokes U.
+
+        Returns:
+        --------
+        edges: np.array(float)
+            The array of widened energy channel bin edges of the noticed
+            channels.
+        """
+
+        if index == 0:
+            min_notice = np.extract(self.ebounds_mask,self.response.emin)
+            max_notice = np.extract(self.ebounds_mask,self.response.emax)
+        else:
+            min_notice = np.extract(self.pol_ebounds_mask,
+                                    self.response_pol.emin)
+            max_notice = np.extract(self.pol_ebounds_mask,
+                                    self.response_pol.emax)
+        edges = np.append(min_notice,max_notice[-1])
+        return edges
  
     def _stokes_label(self,index):
         """
@@ -1738,5 +1774,3 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             axis.plot(energies,comp,label=key,lw=2)
         axis.legend(loc='best')
         return
- 
-
