@@ -165,7 +165,16 @@ class FourierProduct(nDspecOperator):
                 new_freqs = freqs
             else:
                 fgt0 = self._positive_fft_bins()
-                new_freqs = rfftfreq(self.n_times,self.time_bins[0])[fgt0]
+                new_freqs = rfftfreq(self.n_times,self.time_bins[0])[fgt0]                
+                #if users are being pedantic and also specifying a frequency grid, 
+                #this ensures it is consistent with the time grid, as the two 
+                #should be linked through rfftfreq
+                if np.shape(freqs) != ():
+                    freqs_passed = np.asarray(freqs)
+                    if (freqs_passed.shape != new_freqs.shape or 
+                        not np.allclose(freqs_passed, new_freqs)):
+                        raise ValueError("When using the fft method, time and frequency grids"\
+                                          "must be consistent!")                
             self.n_freqs = len(new_freqs)
         elif (self.method == 'sinc') or (self.method == 'sinc_cumul'):
             if np.shape(freqs) == () or len(np.shape(freqs)) > 1:
@@ -227,6 +236,9 @@ class FourierProduct(nDspecOperator):
     
         See https://numpy.org/doc/stable/reference/
                     routines.fft.html#implementation-details
+                    
+        Finally, the convention used here is that the Nyquist frequency is 
+        defined as a positive frequency.
     
         Parameters:
         -----------
@@ -245,7 +257,7 @@ class FourierProduct(nDspecOperator):
             minbin = 0            
         
         if self.n_times % 2 == 0:
-            return slice(minbin, self.n_times // 2)                        
+            return slice(minbin, self.n_times // 2 + 1)                        
         return slice(minbin, (self.n_times + 1) // 2)
 
     def _sinc_decomp(self):
@@ -435,7 +447,7 @@ class PowerSpectrum(FourierProduct):
         signal: np.array(float), default None
             The quantity from which to calculate the power spectrum. If it is 
             not provided, the class will use the model object stored in 
-            the ``model'' attribute instead.
+            the "model" attribute instead.
             
         freq: np.array(float), default None 
             The array of Fourier frequencies over which to compute the model. 
@@ -444,7 +456,7 @@ class PowerSpectrum(FourierProduct):
             
         params: lmfit.Parameters, default None
             The parameter values to use in evaluating the model. If none are 
-            provided, the ''model_params'' attribute stored in the object is 
+            provided, the "model_params" attribute stored in the object is 
             used.    
         """  
         

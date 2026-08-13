@@ -1,0 +1,35 @@
+/* nbsphinx cells scroll internally instead of widening the page */
+div.nbinput.container,
+div.nboutput.container,
+.nboutput .output_area {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+div.nbinput.container div.input_area,
+div.nboutput.container div.output_area {
+    max-width: 100%;
+}
+
+.nboutput img,
+div.body img {
+    max-width: 100%;
+    height: auto;
+}
+
+/* Optional: tune the left sidebar width if the default feels wrong */
+.bd-sidebar-primary {
+    max-width: 22rem;
+}
+
+/* Let the page use the full viewport instead of capping at Bootstrap's container width */
+.bd-container,
+.bd-page-width {
+    max-width: 100% !important;
+}
+
+/* Optional: keep body text from stretching to uncomfortable line lengths
+   on ultrawide screens even though the page itself is full-width */
+.bd-article {
+    max-width: 1650px;
+}

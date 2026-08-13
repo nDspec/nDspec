@@ -119,12 +119,6 @@ class SimpleFit():
             self._all_chans = self._ebounds_unmasked.size
             self.n_chans = self._all_chans
 
-        if has_freq is True:
-            #note: these assignments are redundant for just a PSD fit
-            self._freqs_unmasked = self.freqs
-            self.n_freqs = self.freqs.size
-            self._all_freqs = self.n_freqs
-
         if has_pol is True:
             self._pol_emin_unmasked = self.response_pol.emin
             self._pol_emax_unmasked = self.response_pol.emax
@@ -310,16 +304,20 @@ class SimpleFit():
             The name of the function which calculates the model residuals; e.g.,
             if we want to minimize the difference between data and model, we 
             would define:
+            
             def diff(data,model):
-               return data-model 
+                return data-model 
+                
             and call set_custom_likelihood(diff).  
             
-        *args:  
+        \*args:  
             Additional arguments to be passed to the likelihood calculation, 
             excluding the data and model (which are always included 
             automatically by the class). Following the example above:
+            
             def diff(data,model,factor):
                 return factor*(data-model)
+            
             and call set_custom_likelihood(diff,5) - if we want to set "factor"
             to 5.
         """

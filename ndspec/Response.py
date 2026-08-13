@@ -791,7 +791,6 @@ class ResponseMatrix(nDspecOperator):
             return fig 
         else:
             return   
-
         
     def plot_arf(self,plot_scale="log",return_plot=False):
         """

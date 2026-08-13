@@ -2,6 +2,7 @@ import numpy as np
 import corner
 import copy
 import math
+import lmfit
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
@@ -79,6 +80,9 @@ def set_sampling_model(fitobj):
     global sampling_model
     if type(fitobj) == JointFit:
         fitobj.flatten = True
+    elif not issubclass(type(fitobj),SimpleFit):
+        raise TypeError("Invalid fit object passed")
+
     sampling_model = fitobj.eval_model
     return 
     
@@ -103,6 +107,9 @@ def set_sampling_data(fitobj):
     global sampling_noise_err
     global sampling_exp
     global sampling_bins 
+
+    if type(fitobj) != JointFit and not issubclass(type(fitobj),SimpleFit):
+        raise TypeError("Invalid fit object passed")
  
     if type(fitobj) == JointFit:
         sampling_data = []
@@ -118,7 +125,7 @@ def set_sampling_data(fitobj):
                     sampling_data_err.append(m.data_err)
                     if m.noise is not None:
                         sampling_noise.append(m.noise)
-                        sampling_noise_err(m.noise_err)
+                        sampling_noise_err.append(m.noise_err)
                     if m.likelihood == "cstat":
                         sampling_exp.append(m.exposure)
                         sampling_bins.append(m.ewidths)
@@ -158,7 +165,7 @@ def set_sampling_parameters(params):
         constant. 
         
     Returns:
-    -------
+    --------
     theta: np.array 
         A numpy array containing the values of the free parameters in the model.
     """
@@ -166,6 +173,9 @@ def set_sampling_parameters(params):
     global sampling_names 
     global sampling_values 
     global sampling_params
+
+    if not isinstance(params,lmfit.Parameters):
+        raise AttributeError("The parameters input must be an LMFit Parameters object")
     
     sampling_params = copy.copy(params) 
     sampling_values = []
@@ -261,6 +271,9 @@ class priorUniform():
     """
     
     def __init__(self,min,max):
+        if min >= max:
+            raise ValueError("Lower bound of the prior must be smaller than the upper bound")
+        
         self.min = min
         self.max = max
         self.reflect = False
@@ -323,6 +336,9 @@ class priorLogUniform():
     """    
     
     def __init__(self,min,max):
+        if min >= max:
+            raise ValueError("Lower bound of the prior must be smaller than the upper bound")
+
         self.min = min
         self.max = max
         self.reflect = False
@@ -387,6 +403,9 @@ class priorNormal():
     """    
     
     def __init__(self,mu,sigma):
+        if sigma <= 0:
+            raise ValueError("Standard deviation of the prior must be positive")
+
         self.mu = mu
         self.sigma = sigma
         self.reflect = False
@@ -446,6 +465,9 @@ class priorLogNormal():
     """    
     
     def __init__(self,mu,sigma):
+        if sigma <= 0:
+            raise ValueError("Standard deviation of the prior must be positive")
+
         self.mu = mu
         self.sigma = sigma
         self.reflect = False
@@ -510,6 +532,11 @@ class priorTruncNormal():
     """    
     
     def __init__(self,mu,sigma,min,max):
+        if sigma <= 0:
+            raise ValueError("Standard deviation of the prior must be positive")
+        if min >= max:
+            raise ValueError("Lower bound of the prior must be smaller than the upper bound")
+                
         self.mu = mu
         self.sigma = sigma
         #due to the scipy conversion, min/max for them are in
@@ -587,6 +614,9 @@ def nested_sampling_priors(quantile_cube):
     global sampling_priors
     global sampling_params 
     
+    if sampling_priors is None:
+        raise AttributeError("Priors definition missing")
+
     params = quantile_cube.copy()
     
     for i, val in enumerate(params):
@@ -617,6 +647,9 @@ def log_priors(theta, prior_dict):
         their priors. 
     """
 
+    if len(theta) != len(prior_dict):
+        raise AttributeError("Size of parameter and prior arrays do not match")
+
     logprior = 0
     for (key, obj), val in zip(prior_dict.items(), theta):        
         logprior = logprior + obj.logprob(val) 
@@ -629,7 +662,7 @@ def sampling_cash_likelihood(theta):
     likelihood that should be passed to nested sampling algorithms, which 
     evaluate the priors separately from the likelihood. It requires the global 
     variables sampling_names, sampling_params, sampling_data, sampling_noise,
-     sampling_exp, and sampling_bins beforehand.  
+    sampling_exp, and sampling_bins beforehand.  
     
     Parameters:
     -----------
@@ -744,7 +777,6 @@ def sampling_gaussian_likelihood(theta):
         The value of the chi-square log-likelihood for the given parameter 
         values.
     """   
-
 
     global sampling_names 
     global sampling_params
@@ -880,6 +912,8 @@ def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_auto
             print("Autocorrelation lengths: ",tau)
     
     #print trace plots
+    if labels is not None and len(labels) != ndim:
+        raise ValueError("Size of labels does not match the number of parameters")
     ndim = sampler.ndim
     size = math.ceil(14/9*ndim)
     fig, axes = plt.subplots(ndim, figsize=(9, size), sharex=True)

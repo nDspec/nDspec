@@ -191,18 +191,19 @@ class ModelInterface():
         
         par_data = self.models_info[model_name]['parameters']
         if len(par_data) != len(params):
-            warnings.warn(f"Wrong parameter number {len(par_data)} required but {len(params)} passed")
+            warnings.warn(f"Wrong parameter number {len(par_data)} required but {len(params)} passed"
+                           ,UserWarning)
             test_pars = False 
             return test_pars 
         for i, key in enumerate(par_data):
             if (params[i] < par_data[key]['min']):
-                params[i] = par_data[key]['min'] 
-                warnings.warn(f"Model parameter {par_data[key]} value {params[i]} out of bounds") 
+                warnings.warn(f"Model parameter {key} value {params[i]} out of bounds, {par_data[key]}"
+                               ,UserWarning) 
                 test_pars = False 
                 return test_pars 
             elif (params[i] > par_data[key]['max']):
-                params[i] = par_data[key]['max']
-                warnings.warn(f"Model parameter {par_data[key]} value {params[i]}  out of bounds") 
+                warnings.warn(f"Model parameter {key} value {params[i]} out of bounds, {par_data[key]}"
+                               ,UserWarning) 
                 test_pars = False 
                 return test_pars 
             else:

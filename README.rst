@@ -20,12 +20,12 @@ The goal of the software is to provide users with an Xspec-like package, but to 
 Documentation
 -------------
 
-The software documentation is `found on readthedocs <https://ndspec.readthedocs.io/en/latest/>`_. You can also find notebooks discussing the features of each class in the /notebooks/ folder.
+The software documentation, including installation instructions, tutorials, and the full API, is `found on readthedocs <https://ndspec.readthedocs.io/en/latest/>`_. You can also find notebooks discussing the features of each class in the /notebooks/ folder.
 
 Installation and testing
 ------------------------
 
-The current version of the software can only be installed from the repository. Unit tests make use of `py.test <https://pytest.org>`_. Running the unit tests simply requires opening the folder in which users downloaded the repository, and running the command `pytest` in the command line. 
+The stable version of the software can be installed via pip; if you want to use (or contribute to!) features that are still in-developement, you should install the software directly from the repository. Unit tests make use of `py.test <https://pytest.org>`_. Running the unit tests simply requires opening the folder in which users downloaded the repository, and running the command `pytest` in the command line. 
 
 Related Packages
 ----------------
@@ -43,7 +43,7 @@ Contributing
 
 nDspec is a fully open source software, so we welcome your contribution and feedback!
 The best way to contact the developers is through the `issues`_ page - even a simple comment on what you find useful or intuitive (or vice versa) goes a long way in helping the project. 
-If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. 
+If you would like to contribute a piece of code, you are welcome to do so either by opening an `issue`_ or submitting a `pull request`_. Before you do so, you should read the `code of conduct`_ and `coding conventions`_.
 
 Citing
 ------
@@ -57,6 +57,8 @@ All content © 2023 The Authors. The code is distributed under the MIT license; 
 
 .. |Docs| image:: https://img.shields.io/badge/docs-latest-brightgreen.svg?style=flat
    :target: https://ndspec.readthedocs.io/en/latest/
-.. _issues: https://github.com/matteolucchini1/ndspec/issues
-.. _issue: https://github.com/matteolucchini1/ndspec/issues
-.. _pull request: https://github.com/matteolucchini1/ndspec/pulls
+.. _issues: https://github.com/nDspec/nDspec/issues
+.. _issue: https://github.com/nDspec/nDspec/issues
+.. _pull request: https://github.com/nDspec/nDspec/pulls
+.. _code of conduct: https://github.com/nDspec/nDspec/blob/beta/code_of_conduct.md
+.. _coding conventions: https://github.com/nDspec/nDspec/blob/beta/code_conventions.md

@@ -332,7 +332,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     def plot_data(self,units="data",plot_bkg=False,return_plot=False):
         """
         This method plots the spectrum loaded by the user as a function of 
-        energy. It is possible to plot both in detector and ``unfolded'' space, 
+        energy. It is possible to plot both in detector and "unfolded" space, 
         with the caveat that unfolding data is EXTREMELY dangerous and should
         be interpreted with care (or not at all). 
         
@@ -431,14 +431,16 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
-        residuals. It is possible to plot both in detector and ``unfolded'' space, 
+        residuals. It is possible to plot both in detector and "unfolded" space, 
         with the caveat that unfolding data is EXTREMELY dangerous and should
         be interpreted with care (or not at all). 
         
         The definition of unfolded data is subjective; nDspec adopts the same 
         convention as ISIS, and defines an unfolded count spectrum Uf(h) as a 
         function of energy channel h as :
+        
         Uf(h) = C(h)/sum(R(E)),
+        
         where C(h) is the detector space spectrum, R(E) is the instrument response 
         and sum denotes the sum over energy bins. This definition has the 
         advantage of being model-independent and is analogous to the Xspec 
@@ -493,10 +495,30 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         """        
         
         if residuals is None:
-            residuals = self.likelihood
-                                     
+            residuals = self.likelihood              
+        
+        if params is None:
+            params = self.model_params   
+        
+        #set up data arrays
         energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)       
+        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked) 
+        
+        #set up arrays for model histogram plot 
+        hist_vals = self.ebounds
+        min_notice = np.extract(self.ebounds_mask,self.response.emin)
+        max_notice = np.extract(self.ebounds_mask,self.response.emax)
+        hist_errors = np.append(min_notice,max_notice[-1])
+        #artificially make the last/first bin wider so it goes out of the plot 
+        #bounds. this is a gross hack because matplotlib's histogram sucks 
+        hist_errors[0] = 0.8*hist_errors[0]
+        hist_errors[-1] = 1.2*hist_errors[-1]
+        #energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
+        #xerror = np.extract(self.ebounds_mask,self._ewidths_unmasked)
+        #artificially make the last/first bin wider so it goes out of the plot 
+        #bounds. this is a gross hack because matplotlib's histogram sucks 
+        #xerror[0] = 0.8*xerror[0]
+        #xerror[-1] = 1.2*xerror[-1]
         
         #first; get the model in the correct units
         model_fold = self.eval_model(params=params,mask=False)
@@ -574,7 +596,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                 ax1.errorbar(energies,bkg,xerr=xerror,
                              linestyle='',marker='o')        
 
-        ax1.plot(energies,model,lw=3,zorder=3)
+        ax1.hist(hist_vals,bins=hist_errors,weights=model, 
+                 density=False, histtype='step',linewidth=3,zorder=3) 
+        
+        #ax1.plot(energies,model,lw=3,zorder=3)
 
         if plot_components is True:
             #we need to allocate a ModelResult object in order to retrieve the components
@@ -591,6 +616,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                     ax1.plot(energies,comp*energies**power,label=key,lw=2)
             ax1.legend(loc='best')
         
+        ax1.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+        ax2.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                      self.ebounds[-1]+0.5*self.ewidths[-1]])                      
         ax1.set_xscale("log",base=10)
         ax1.set_yscale("log",base=10)
         if plot_data is False:

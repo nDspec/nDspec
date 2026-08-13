@@ -51,7 +51,7 @@ def chisq(data,err,model,noise=None,noise_err=None,summed=False):
         chisq = (data-model)/err
     
     if summed is True:
-        return np.sum(chisq)
+        return np.sum(chisq**2)
     else:
         return chisq
     

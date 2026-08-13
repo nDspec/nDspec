@@ -5,7 +5,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath('__file__/ndspec
 
 from pyfftw.interfaces.numpy_fft import (
     fft,
-    fftfreq,
+    rfftfreq,
 )
 import pytest
 import warnings
@@ -23,7 +23,7 @@ class TestTiming(object):
         cls.time_res_fft = 2500
         cls.times_fft = np.linspace(1.,1.e3,cls.time_res_fft)
         time_bin = np.diff(cls.times_fft)[0]
-        freqs_all = fftfreq(cls.time_res_fft,time_bin)
+        freqs_all = rfftfreq(cls.time_res_fft,time_bin)
         cls.freqs_fft = freqs_all[freqs_all>0]
  
         sinc_tstart = np.log10(cls.times_fft[0])

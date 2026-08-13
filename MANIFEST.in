@@ -1,0 +1,14 @@
+# The rendered documentation (pre-executed notebooks and their embedded
+# figures) is only needed to build the readthedocs pages, so it is ignored 
+#to keep the repo size small
+prune docs
+
+# Files required to build and install the package
+include README.rst
+include HISTORY.rst
+include LICENSE
+include pyproject.toml
+include setup.cfg
+include tox.ini
+include code_conventions.md
+include code_of_conduct.md

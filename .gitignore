@@ -2,9 +2,6 @@ __pycache__/
 ndspec/__pycache__
 ndspec/tests/__pycache__
 
-notebooks/api
-notebooks/_build
-
 .DS_Store
 ndspec/.DS_Store
 
@@ -14,3 +11,12 @@ powerlaw_tests.ipynb
 ndspec.egg-info/
 
 .vscode/
+
+docs/_build/
+**/.ipynb_checkpoints/
+
+vvv/
+
+.pytest_cache/
+
+ndspec/_version.py

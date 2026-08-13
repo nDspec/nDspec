@@ -68,7 +68,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         likelihood by default. Users can set different likelihoods either at 
         initialization or with the appropriate setter method.
         
-    custom_likelihood: function 
+    custom_likelihood: function, optional  
         A function users can set to bypass the supported likelihoods and instead 
         provide their own. 
         
@@ -165,7 +165,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         of 7 ranges of frequencies to calculate lag energy spectra, but only 
         want to consider the first and last 3, and ignore the middle one.
     
-    freqs_mask np.array(bool)
+    freqs_mask: np.array(bool)
         The array of Fourier frequencies that are either ignored or noticed 
         during the fit. A given channel i is noticed if freqs_mask[i] is True,
         and ignored if it is false.      
@@ -183,7 +183,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     units: str 
         A string that checks the units which the user is providing  - "lags" for 
         fitting lag spectra alone, "polar" or fitting modulus and phase together, 
-        and "cartesian"	 for fitting real and imaginary parts together.        
+        and "cartesian" for fitting real and imaginary parts together.        
             
     ref_band: [np.float,np.float]
         The minimum/maximum energy bounds over which to take the reference band. 
@@ -226,7 +226,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         Fourier frequency bin to match the data. Physically, this allows one to 
         take into account differences between the power spectrum shape assumed 
         in the model to calculate the spectral timing products (e.g. modulus vs 
-        energy), and the ``true'' underyling power spectrum in the source. 
+        energy), and the "true" underyling power spectrum in the source. 
         This setting will NOT affect the phase of a cross spectrum, only the 
         modulus (and therefore it will affect the real and imaginary parts).   
 
@@ -234,7 +234,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         A string recording whether the data and model to be fitted are in units 
         of frequency or energy (e.g. lag frequency vs lag energy spectra).
 
-   _supported_coordinates: str
+    _supported_coordinates: str
         A string that checks the units models/data can be defined as. "lags" is 
         for fitting lag spectra alone, "polar" is for fitting modulus and phase 
         together, and "cartesian" is for fitting real and imaginary parts 
@@ -252,13 +252,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
     _supported_products: str 
         A string that checks whether the data provided (e.g. lags) is a function 
         of Fourier frequency or energy.    
-
-    needbkg: bool, default=True
-        A boolean that indicates whether the background is needed for the simulation
-        of the cross spectrum. If it is set to True, the class will attempt to read
-        the background from a file specified by the user and set this attribute to 
-        False. If it is set to False, it is assumed that the background file has
-        already been read in and will not be read again.
     """
     
     def __init__(self,likelihood="chisq"):
@@ -272,7 +265,6 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         self._supported_products = ["frequency","energy"]
         self.renorm_phase = False
         self.renorm_modulus = False
-        self.needbkg = True
         pass
 
     def set_product_dependence(self,depend):
@@ -397,7 +389,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             to build the data. It is necessary to build the grid of Fourier 
             frequency over which to compute the model.     
             
-        norm; str, optionalm default = "abs" 
+        norm; str, optional default = "abs" 
             The normalization of the data products, if they are calculated from 
             a stingray event file. If not specified, absolute rms normalization 
             is used.
@@ -603,17 +595,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             #or we can explicitely pass a frequency grid alone, and the time 
             #grid is reconstructed automatically 
             elif freq_grid is not None:
-                self.freqs = freq_grid
                 time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-                lc_length = (self.freqs.size+1)*2*time_res
-                time_samples = int(lc_length/time_res)
-                #switching between linearly/geometrically spaced grids allows 
-                #the crossspec class attribute to switch automatically between 
-                #sinc and fftw methods upon initialization 
-                if (np.allclose(self.freqs, self.freqs[0]) is False):
-                    self._times = np.geomspace(time_res,lc_length,time_samples)
-                else:
-                    self._times = np.linspace(time_res,lc_length,time_samples)              
+                time_samples = (self.freqs.size+1)*2
+                lc_length = time_samples*time_res
+                #since we are passing a grid by hand, we just default to the 
+                #sinc method for safety 
+                self._times = np.geomspace(time_res,lc_length,time_samples)        
             else:
                 raise ValueError("Frequency and/or time grids undefined")
             self.data = data
@@ -693,26 +680,20 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             self.freqs = freq_grid
         #or do so implicetly with a segment size and time resolution
         elif (time_res is not None)&(seg_size is not None):
-            freqs = rfftfreq(int(seg_size/time_res),time_res)
+            n_samples = int(seg_size/time_res)
+            freqs = rfftfreq(n_samples,time_res)
             self.freqs = freqs[freqs>0]        
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            self._times = np.linspace(time_res,lc_length,time_samples)
-
+            self._times = np.linspace(time_res,n_samples*time_res,n_samples)
         #or we can explicitely pass a frequency grid alone, and the time grid is 
         #reconstructed automatically 
         elif freq_grid is not None:
             self.freqs = freq_grid
             time_res = 0.5/(self.freqs[-1]+self.freqs[0])
-            lc_length = (self.freqs.size+1)*2*time_res
-            time_samples = int(lc_length/time_res)
-            #switching between linearly/geometrically spaced grids allows 
-            #the crossspec class attribute to switch automatically between 
-            #sinc and fftw methods upon initialization 
-            if (np.allclose(self.freqs, self.freqs[0]) is False):
-                self._times = np.geomspace(time_res,lc_length,time_samples)
-            else:
-                self._times = np.linspace(time_res,lc_length,time_samples)              
+            time_samples = (self.freqs.size+1)*2
+            lc_length = time_samples*time_res
+            #since we are passing a grid by hand, we just default to the 
+            #sinc method for safety 
+            self._times = np.geomspace(time_res,lc_length,time_samples)               
         else:
             raise ValueError("Frequency and/or time grids undefined")         
         
@@ -1422,7 +1403,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return      
 
-    def plot_model_1d(self,plot_data=True,params=None,residuals="chisq",return_plot=False):
+    def plot_model_1d(self,plot_data=True,params=None,use_phase=False,residuals="delchi",return_plot=False):
         """
         This method plots the model defined by the user as a function of  the  
         unit dependence specified (ie, Fourier frequency or energy). 
@@ -1482,6 +1463,13 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             data_bound = self.n_freqs
         elif self.dependence == "energy":
             x_axis = self.ebounds
+            min_notice = np.extract(self.ebounds_mask,self.response.emin)
+            max_notice = np.extract(self.ebounds_mask,self.response.emax)
+            x_widths = np.append(min_notice,max_notice[-1])
+            #artificially make the last/first bin wider so it goes out of the plot 
+            #bounds. this is a gross hack because matplotlib's histogram sucks 
+            x_widths[0] = 0.8*x_widths[0]
+            x_widths[-1] = 1.2*x_widths[-1]
             x_axis_label = "Energy (keV)"
             labels = np.round(self.freq_bounds,1)
             units = "Hz"
@@ -1507,26 +1495,51 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                                                           sharex=True,
                                                           gridspec_kw={'height_ratios': [2, 1]})      
                 ax2.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=3)
-
+                
                 for i in range(spec_number):
                     col="C"+str(i)
-                    ax1.errorbar(x_axis,self.data[i*data_bound:(i+1)*data_bound],
-                                 yerr=self.data_err[i*data_bound:(i+1)*data_bound],
-                                 marker='o',color=col,linestyle='',
+                    plot_model_left = model[i*data_bound:(i+1)*data_bound]
+                    plot_model_right = model[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound]
+                    plot_data_left = self.data[i*data_bound:(i+1)*data_bound]
+                    plot_data_right = self.data[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound]
+                    plot_err_left = self.data_err[i*data_bound:(i+1)*data_bound]
+                    plot_err_right = self.data_err[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound]
+                    plot_res_left = model_res[i*data_bound:(i+1)*data_bound]
+                    plot_reserr_left = res_errors[i*data_bound:(i+1)*data_bound]
+                    plot_res_right = model_res[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound]
+                    plot_reserr_right = res_errors[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound]                    
+                    
+                    ax1.errorbar(x_axis,plot_data_left,yerr=plot_err_left,
+                                 marker='o',color=col,linestyle='',alpha=0.5,
                                  label=f"{labels[i]}-{labels[i+1]} {units}")
-                    ax2.errorbar(x_axis,self.data[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
-                                 yerr=self.data_err[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
-                                 marker='o',color=col,linestyle='',
+                    ax2.errorbar(x_axis,plot_data_right,yerr=plot_err_right,
+                                 marker='o',color=col,linestyle='',alpha=0.5,
                                  label=f"{labels[i]}-{labels[i+1]} {units}")
-                    ax3.errorbar(x_axis,model_res[i*data_bound:(i+1)*data_bound],
-                                 yerr=res_errors[i*data_bound:(i+1)*data_bound],
+                    ax3.errorbar(x_axis,plot_res_left,yerr=plot_reserr_left,
                                  marker='o',linestyle='',color=col,zorder=2)
-                    ax4.errorbar(x_axis,model_res[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
-                                 yerr=res_errors[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
+                    ax4.errorbar(x_axis,plot_res_right,yerr=plot_reserr_right,
                                  marker='o',linestyle='',color=col, zorder=2)
-                    ax1.plot(x_axis,model[i*data_bound:(i+1)*data_bound],linewidth=3,zorder=3)
-                    ax2.plot(x_axis,model[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
-                             linewidth=3,zorder=3)
+                    
+                    if self.dependence == "energy":
+                        ax1.hist(x_axis,bins=x_widths,weights=plot_model_left, 
+                                 density=False, histtype='step',
+                                 linewidth=3,color=col,zorder=3)    
+                        ax2.hist(x_axis,bins=x_widths,weights=plot_model_right, 
+                                 density=False, histtype='step',
+                                 linewidth=3,color=col,zorder=3)    
+                                 
+                        ax1.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+                        ax2.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])  
+                        ax3.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+                        ax4.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])                                                                      
+                    else:
+                        ax1.plot(x_axis,plot_model_left,linewidth=3,zorder=3,color=col)
+                        ax2.plot(x_axis,plot_model_right,linewidth=3,zorder=3,color=col)                
+                
                 ax1.set_xscale("log")
                 ax1.set_yscale("log")  
                 ax2.legend(loc="best",ncol=2,fontsize=12)
@@ -1536,9 +1549,10 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 ax3.set_ylabel(reslabel)  
                 ax4.set_xlabel(x_axis_label) 
                 ax4.set_ylabel(reslabel)
+                
                 if self.units == "polar":
-                    ax1.set_ylabel("Modulus")
-                    ax2.set_ylabel("Phase")
+                    ax1.set_ylabel("Modulus (abs. rms)")
+                    ax2.set_ylabel("Phase (rad)")
                 else:
                     ax1.set_ylabel("Real part")
                     ax2.set_ylabel("Imaginary part")
@@ -1552,22 +1566,25 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 #plot real and imaginary, or phase and modulus,
                 #including only the model
                 fig, ((ax1),(ax2)) = plt.subplots(1,2,figsize=(12.,5.))  
+                
                 for i in range(spec_number):
                     col="C"+str(i)
                     ax1.plot(x_axis,model[i*data_bound:(i+1)*data_bound],
-                             linewidth=3,color=col,zorder=3)
+                             linewidth=3,color=col,zorder=3,alpha=0.5)
                     ax2.plot(x_axis,model[self.n_bins+i*data_bound:self.n_bins+(i+1)*data_bound],
-                             linewidth=3,color=col,zorder=3,
+                             linewidth=3,color=col,zorder=3,alpha=0.5,
                              label=f"{labels[i]}-{labels[i+1]} {units}") 
+                
                 ax2.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=3)
                 ax2.legend(loc="best",ncol=2,fontsize=12)
                 ax1.set_xscale("log")
                 ax2.set_xscale("log")
                 ax1.set_xlabel(x_axis_label) 
                 ax2.set_xlabel(x_axis_label) 
+                
                 if self.units == "polar":
-                    ax1.set_ylabel("Modulus")
-                    ax2.set_ylabel("Phase")
+                    ax1.set_ylabel("Modulus (abs. rms)")
+                    ax2.set_ylabel("Phase (rad)")
                 else:
                     ax1.set_ylabel("Real part")
                     ax2.set_ylabel("Imaginary part")
@@ -1576,15 +1593,37 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 #plot the lags, including model, data and residuals
                 fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,
                                               gridspec_kw={'height_ratios': [2, 1]})
+                
                 ax1.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
-                for i in range(spec_number):
+                
+                for i in range(spec_number):                                
+                    
+                    plot_model = model[i*data_bound:(i+1)*data_bound]
+                    plot_data = self.data[i*data_bound:(i+1)*data_bound]
+                    plot_error = self.data_err[i*data_bound:(i+1)*data_bound]                    
+                    if use_phase is True:
+                        freq = 0.5*(self.freq_bounds[i]+self.freq_bounds[i+1])
+                        plot_model = plot_model*2.*np.pi*freq
+                        plot_data = plot_data*2.*np.pi*freq
+                        plot_error = plot_error*2.*np.pi*freq                
                     col="C"+str(i)
-                    ax1.errorbar(x_axis,self.data[i*data_bound:(i+1)*data_bound],
-                                 yerr=self.data_err[i*data_bound:(i+1)*data_bound],
+                    
+                    ax1.errorbar(x_axis,plot_data,plot_error,
                                  marker='o',linestyle='',color=col,zorder=2,
-                                 label=f"{labels[i]}-{labels[i+1]} {units}")           
-                    ax1.plot(x_axis,model[i*data_bound:(i+1)*data_bound],
-                             linewidth=3,color=col,zorder=3) 
+                                 label=f"{labels[i]}-{labels[i+1]} {units}",alpha=0.5)                          
+                    
+                    if self.dependence == "energy":
+                        ax1.hist(x_axis,bins=x_widths,weights=plot_model, 
+                                 density=False, histtype='step',
+                                 linewidth=3,color=col,zorder=3)
+                        ax1.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+                        ax2.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
+                                      self.ebounds[-1]+0.5*self.ewidths[-1]])
+                    else:
+                        ax1.plot(x_axis,plot_model,
+                                 linewidth=3,color=col,zorder=3)                                 
+                    
                     ax2.errorbar(x_axis,model_res[i*data_bound:(i+1)*data_bound],
                                  yerr=res_errors[i*data_bound:(i+1)*data_bound],
                                  linestyle='',marker='o',color=col,zorder=2)
@@ -1592,7 +1631,12 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     ax2.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
                 elif residuals == "ratio":
                     ax2.hlines(1,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
-                ax1.set_ylabel("Lag (s)")
+               
+                if use_phase is True:
+                    ax1.set_ylabel("Phase (rad)")
+                else:
+                    ax1.set_ylabel("Lag (s)")
+                
                 ax1.set_xscale("log")
                 ax2.set_ylabel(reslabel)
                 ax1.legend(loc="best",ncol=2,fontsize=12)
@@ -1601,15 +1645,23 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             else:
                 #plot the lags, including only the model
                 fig, ((ax1)) = plt.subplots(1,1,figsize=(6.,4.5)) 
+                
                 ax1.hlines(0,x_axis[0],x_axis[-1],color='black',ls=':',zorder=4)
+                
                 for i in range(spec_number):
                     col="C"+str(i)
                     ax1.plot(x_axis,model[i*data_bound:(i+1)*data_bound],
                              linestyle='',marker='o',color=col,
                              label=f"{labels[i]}-{labels[i+1]} {units}") 
+                
                 ax1.set_xscale("log")
                 ax1.legend(loc="best",ncol=2,fontsize=12)
-                ax1.set_ylabel("Lag (s)")
+                
+                if use_phase is True:
+                    ax1.set_ylabel("Phase (rad)")
+                else:
+                    ax1.set_ylabel("Lag (s)")
+                
                 ax1.set_xlabel(x_axis_label)                
         
         fig.tight_layout()
@@ -1679,8 +1731,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         #need to mask by hand here to get a correct 2d plots when ignoring bins
         if self.units != "lags":
             if self.units == "polar":
-                left_title = "Modulus"
-                mid_title = "Phase"
+                left_title = "Modulus (abs. rms)"
+                mid_title = "Phase (rad)"
             else:
                 left_title = "Real"
                 mid_title = "Imaginary"    
@@ -1718,8 +1770,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 ax.set_ylabel("Energy (keV)")
                 ax.set_ylim([self.ebounds[0]-0.5*self.ewidths[0],
                              self.ebounds[-1]+0.5*self.ewidths[-1]])
-            axs[0][0].set_title(left_title+" data")
-            axs[1][0].set_title(left_title+" model")
+            axs[0][0].set_title(left_title+", data")
+            axs[1][0].set_title(left_title+", model")
             axs[2][0].set_xlabel("Frequency (Hz)")
             cbar = fig.colorbar(left_plot, ax=axs[0:2,0],aspect = 40)
             cbar.formatter.set_powerlimits((0, 0))
@@ -1755,8 +1807,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                 ax.set_yticklabels([])
                 ax.set_ylim([self.ebounds[0]-0.5*self.ewidths[0],
                              self.ebounds[-1]+0.5*self.ewidths[-1]])            
-            axs[0][1].set_title(mid_title+" data")
-            axs[1][1].set_title(mid_title+" model")
+            axs[0][1].set_title(mid_title+", data")
+            axs[1][1].set_title(mid_title+", model")
             axs[2][1].set_xlabel("Frequency (Hz)")
             cbar = fig.colorbar(mid_plot, ax=axs[0:2,1],aspect = 40)
             cbar.formatter.set_powerlimits((0, 0))
@@ -1790,8 +1842,14 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                              self.ebounds[-1]+0.5*self.ewidths[-1]])
                 cbar = fig.colorbar(mid_plot, ax=ax)
                 cbar.formatter.set_powerlimits((0, 0))
-            axs[2][1].set_title(mid_title+" residuals")
-            axs[2][0].set_title(left_title+" residuals")
+            
+            if self.units == "polar":
+                axs[2][0].set_title("Modulus residuals ($\\Delta \\chi$)")
+                axs[2][1].set_title("Phase residuals ($\\Delta \\chi$)")
+            elif self.units == "cartesian":
+                axs[2][0].set_title("Real residuals ($\\Delta \\chi$)")
+                axs[2][1].set_title("Imaginary residuals ($\\Delta \\chi$)")                
+            
             axs[2][0].set_ylabel("Energy (keV)")
         else:
             fig, ((ax1),(ax2),(ax3)) = plt.subplots(1, 3, figsize=(15.,5.), sharex=True)             
@@ -1823,18 +1881,22 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             color_max = np.max([np.max(plot_data),0.01])
             lag_norm = TwoSlopeNorm(vmin=color_min,vcenter=0,vmax=color_max) 
             data_plot = ax1.pcolormesh(x_axis,y_axis,plot_data,cmap="BrBG",
-                                        shading='auto',rasterized=True,linewidth=0,norm=lag_norm)
-            
-            ax1.set_title("Data")                
+                                        shading='auto',rasterized=True,linewidth=0,norm=lag_norm)            
             fig.colorbar(data_plot, ax=ax1)
-            if use_phase is True:
-                plot_model = plot_model*(2.*np.pi*x_axis.reshape(self._all_freqs,1))
-            plot_model = np.transpose(np.ma.masked_where(twod_mask, plot_model))
             
+            if use_phase is True:
+                ax1.set_title("Data (rad)") 
+                ax2.set_title("Model (rad)") 
+                plot_model = plot_model*(2.*np.pi*x_axis.reshape(self._all_freqs,1))
+            else:
+                ax1.set_title("Data (s)") 
+                ax2.set_title("Model (s)")             
+            
+            plot_model = np.transpose(np.ma.masked_where(twod_mask, plot_model))            
             lag_norm = TwoSlopeNorm(vmin=color_min,vcenter=0,vmax=color_max) 
             model_plot = ax2.pcolormesh(x_axis,y_axis,plot_model,cmap="BrBG",
                                         shading='auto',rasterized=True,linewidth=0,norm=lag_norm)
-            ax2.set_title("Model")                
+                           
             fig.colorbar(model_plot, ax=ax2)    
             
             plot_res = np.transpose(np.ma.masked_where(twod_mask, plot_res))
@@ -1844,7 +1906,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
             res_plot = ax3.pcolormesh(x_axis,y_axis,plot_res,cmap="BrBG",
                                         shading='auto',rasterized=True,linewidth=0,norm=res_norm)
     
-            ax3.set_title("Residuals")                
+            ax3.set_title("Residuals $(\\Delta \\chi)$")                
             fig.colorbar(res_plot, ax=ax3)
             
             ax1.set_xscale("log")

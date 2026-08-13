@@ -1,53 +1,123 @@
 [build-system]
-
-requires = ["setuptools",
-            "setuptools_scm",
-            "wheel"]
-
-build-backend = 'setuptools.build_meta'
-
+requires = ["setuptools", "setuptools_scm", "wheel"]
+build-backend = "setuptools.build_meta"
+ 
+[project]
+name = "ndspec"
+dynamic = ["version"]
+description = "Multi-dimensional modeling for astrophysical X-ray data"
+readme = "README.rst"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Matteo Lucchini", email = "m.lucchini@uva.nl" },
+]
+maintainers = [
+    { name = "nDspec Developers", email = "m.lucchini@uva.nl" },
+]
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "Natural Language :: English",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+keywords = ["ndspec", "astronomy", "x-ray", "polarimetry", "spectral-timing"]
+dependencies = [
+    "astropy>=5.0.2",
+    "corner>=2.2.1",
+    "emcee>=3.1.4",
+    "lmfit>=1.3.1",
+    "matplotlib>=3.5.1",
+    "numpy>=1.17.3",
+    "scipy>=1.4.0",
+    "stingray",
+    "pyfftw",
+    "tqdm",
+]
+ 
+[project.optional-dependencies]
+docs = [
+    "sphinx>=1.4",
+    "nbsphinx",
+    "pandoc",
+    "sphinx-copybutton",
+    "pydata-sphinx-theme",
+    "ipython",
+]
+tests = [
+    "pytest",
+    "pytest-cov",
+]
+notebooks = ["ipykernel", "nbconvert", "jupyter"]
+ 
+[project.urls]
+Homepage = "https://github.com/nDspec/"
+Documentation = "https://ndspec.readthedocs.io/en/latest/"
+Repository = "https://github.com/nDspec/nDspec"
+ 
+[tool.setuptools.packages.find]
+include = ["ndspec*"]
+# to exclude the test suite from the built package instead, use:
+# include = ["ndspec"]
+# exclude = ["ndspec.tests", "ndspec.tests.*"]
+ 
+[tool.setuptools_scm]
+version_file = "ndspec/_version.py"
+ 
 [tool.towncrier]
-    package = "nextspec"
-    filename = "CHANGELOG.rst"
-    directory = ""
-    issue_format = "`#{issue} <https://github.com/matteolucchini1/neXTsPec_prototype/pull/{issue}>`__"
-    title_format = "v{version} ({project_date})"
-    underlines = "-^"
-
+package = "ndspec"
+filename = "CHANGELOG.rst"
+directory = ""
+issue_format = "`#{issue} <https://github.com/nDspec/nDspec/pull/{issue}>`__"
+title_format = "v{version} ({project_date})"
+underlines = "-^"
+ 
     [[tool.towncrier.type]]
         directory = "breaking"
         name = "Breaking Changes"
         showcontent = true
-
+ 
     [[tool.towncrier.type]]
-      directory = "deprecation"
-      name = "Deprecations"
-      showcontent = true
-
+        directory = "deprecation"
+        name = "Deprecations"
+        showcontent = true
+ 
     [[tool.towncrier.type]]
-      directory = "removal"
-      name = "Removals"
-      showcontent = true
-
+        directory = "removal"
+        name = "Removals"
+        showcontent = true
+ 
     [[tool.towncrier.type]]
-      directory = "feature"
-      name = "New Features"
-      showcontent = true
-
+        directory = "feature"
+        name = "New Features"
+        showcontent = true
+ 
     [[tool.towncrier.type]]
-      directory = "bugfix"
-      name = "Bug Fixes"
-      showcontent = true
-
+        directory = "bugfix"
+        name = "Bug Fixes"
+        showcontent = true
+ 
     [[tool.towncrier.type]]
-      directory = "doc"
-      name = "Documentation"
-      showcontent = true
-
+        directory = "doc"
+        name = "Documentation"
+        showcontent = true
+ 
     [[tool.towncrier.type]]
-      directory = "trivial"
-      name = "Internal Changes"
-      showcontent = true
+        directory = "trivial"
+        name = "Internal Changes"
+        showcontent = true
 
+[tool.pytest.ini_options]
+markers = [
+    "xspec: requires PyXspec/HEASoft, skipped when unavailable",
+]
+ 
 [tool.black]
 line-length = 100
