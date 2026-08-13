@@ -170,7 +170,7 @@ class PolarimetryProduct(nDspecOperator):
         
         Parameters:
         -----------
-        angle_rotation: float 
+        rotation: float 
             The angle, in degrees, by which to rotate the stored polarization 
             state. 
  
@@ -180,12 +180,14 @@ class PolarimetryProduct(nDspecOperator):
             The rotated Stokes vector (stokes_I, stokes_Q, stokes_U), identical 
             to what is now stored in this object.
         """
-        if len(rotation) != 1:
+        rotation = np.asarray(rotation, dtype=float)
+        if rotation.size != 1:
+
             raise ValueError(f"This method only supports rotating by a single angle, "
                                "but input size is {len(rotation)}")
 
         self._require('stokes_I', 'stokes_Q', 'stokes_U')
-        delta = np.radians(angle_rotation)
+        delta = np.radians(rotation)
         cos_rotation = np.cos(2.*delta)
         sin_rotation = np.sin(2.*delta)
         stokes_Q = self.stokes_Q*cos_rotation-self.stokes_U*sin_rotation
