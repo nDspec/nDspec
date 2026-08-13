@@ -288,3 +288,78 @@ class TestResponse(object):
             self.response.set_exposure_time("str")       
         
         return
+    
+    #this is used as a model to test the gain functions of the class     
+    def gain_model_setup(self):
+        chan_bounds = 0.5*(self.response.emax+self.response.emin)
+        model = np.exp(-0.5*((chan_bounds-5.)/0.2)**2)
+        return chan_bounds, model
+
+    #test that gain at unity does not shift anything 
+    def test_gain_nominal_scale(self):
+        chan_bounds, model = self.gain_model_setup()
+        assert np.allclose(self.response.apply_gain(model,1.,0.),model) == True
+        assert np.allclose(self.response.gain_support(1.,0.),1.) == True
+ 
+    #test that shifting the gain moves a feature as one would expect
+    def test_gain_shift_direction(self):
+        chan_bounds, model = self.gain_model_setup()
+        offset = 0.1
+        shift_model = self.response.apply_gain(model,1.,offset)
+        peak_start = chan_bounds[np.argmax(model)]
+        peak_shift = chan_bounds[np.argmax(shift_model)]
+        a_tol = 0.5*np.max(self.response.emax-self.response.emin)
+        assert np.isclose(peak_shift,peak_start+offset,atol=a_tol) == True
+        slope = 1.05
+        shift_model = self.response.apply_gain(model,slope,0.)
+        peak_shift = chan_bounds[np.argmax(shift_model)]
+        assert np.isclose(peak_shift,slope*peak_start,atol=a_tol) == True
+ 
+    #test that shifting the gain conserves the total number of counts in the 
+    #model, as long as every channel it covers remains within the channel grid
+    def test_gain_conserves_counts(self):
+        chan_bounds, model = self.gain_model_setup()
+        chan_widths = self.response.emax-self.response.emin
+        shift_model = self.response.apply_gain(model,1.02,0.1)
+        r_tol = 1e-6
+        assert np.isclose(np.sum(shift_model*chan_widths),
+                          np.sum(model*chan_widths),rtol=r_tol) == True
+        shift_model = self.response.apply_gain(model,1.02,0.1,units="channel")
+        assert np.isclose(np.sum(shift_model),np.sum(model),rtol=r_tol) == True
+ 
+    #test that the channels at the edges of the grid are only partially 
+    #supported once the gain is shifted, since they are displaced outside of 
+    #the grid stored in the response
+    def test_gain_support(self):
+        a_tol = 1e-3
+        support = self.response.gain_support(1.,0.5)
+        assert np.all(support <= 1.+a_tol) == True
+        assert support[0] < 1.
+        support = self.response.gain_support(1.,-0.5)
+        assert np.all(support <= 1.+a_tol) == True
+        assert support[len(support)-1] < 1.
+ 
+    #test that two-dimensional models are shifted identically to one 
+    #dimensional ones, in every column
+    def test_gain_twod_model(self):
+        chan_bounds, model = self.gain_model_setup()
+        model_twod = np.column_stack((model,2.*model))
+        shift_twod = self.response.apply_gain(model_twod,1.02,0.1)
+        shift_oned = self.response.apply_gain(model,1.02,0.1)
+        assert np.shape(shift_twod) == np.shape(model_twod)
+        assert np.allclose(shift_twod[:,0],shift_oned) == True
+        assert np.allclose(shift_twod[:,1],2.*shift_oned) == True
+ 
+    #test that the class does not allow unphysical gain shifts, arrays defined 
+    #over the wrong channel grid, or unsupported units
+    def test_gain_errors(self):
+        chan_bounds, model = self.gain_model_setup()
+        with pytest.raises(ValueError):
+            shift_model = self.response.apply_gain(model,0.,0.)
+        with pytest.raises(ValueError):
+            shift_model = self.response.apply_gain(model,-1.,0.)
+        with pytest.raises(TypeError):
+            shift_model = self.response.apply_gain(model[1:],1.,0.1)
+        with pytest.raises(ValueError):
+            shift_model = self.response.apply_gain(model,1.,0.1,units="wrong")
+        return
