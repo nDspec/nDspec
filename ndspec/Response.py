@@ -416,7 +416,7 @@ class ResponseMatrix(nDspecOperator):
         ones on the diagonal and zeroes  otherwise.
         
         Parameters:
-        ----------             
+        -----------             
         num: int
             The dimension of the desired matrix.
             
