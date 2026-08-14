@@ -565,8 +565,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     
                     if self.units == "cartesian":    
                         data_first_dim = np.real(cs.power)
-                        data_second_dim = np.imag(cs.power)          
-                        print(len(cs.m),len(cs.power))      
+                        data_second_dim = np.imag(cs.power)             
                         error_first_dim = np.sqrt((ps_sub.power*ps_ref.power+ \
                                                    np.real(cs.power)**2- \
                                                    np.imag(cs.power)**2)/(2.*cs.m))
@@ -1403,7 +1402,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return      
 
-    def plot_model_1d(self,plot_data=True,params=None,use_phase=False,residuals="delchi",return_plot=False):
+    def plot_model_1d(self,plot_data=True,params=None,use_phase=False,residuals="chisq",return_plot=False):
         """
         This method plots the model defined by the user as a function of  the  
         unit dependence specified (ie, Fourier frequency or energy). 

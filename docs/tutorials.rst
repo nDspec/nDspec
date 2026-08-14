@@ -8,6 +8,7 @@ Data fitting tutorials
    fit_spec
    fit_cross_1d
    fit_cross_2d
+   fit_polspec
    fit_twod
    fit_joint
    bayesian_sampling    
