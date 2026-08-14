@@ -717,10 +717,11 @@ def pol_rotation(seed,params):
     vector already returned by another polarization model, and transforms into 
     a new Stokes vector of the same shape; for instance;
     
-    ``` python
+     .. code-block:: python
+     
         base = pol_angle_linear(energs,base_params)
         rotated = pol_rotation(base,rotation_params)
-    ```
+        
     
     The input parameters are:
     

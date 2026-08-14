@@ -101,9 +101,9 @@ class PolarimetryProduct(nDspecOperator):
         parameters over each bin covered by the object. 
 
         Parameters:
-        I, Q, U: array_like(float)
-            The arrays containing the Stokes parameters to be stored
         -----------
+        I, Q, U: array_like(float)
+            The arrays containing the Stokes parameters to be stored        
         """
         if self.input_type != 'stokes':
             raise ValueError(
