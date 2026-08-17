@@ -8,5 +8,6 @@ Core functionality
    response_basics
    response_optimization
    timing
+   polarimetry
    numerics
    simulating_observations
