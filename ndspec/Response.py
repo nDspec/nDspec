@@ -291,10 +291,8 @@ class ResponseMatrix(nDspecOperator):
             self.exposure = 1.0
             
         
-        for k in range(self.n_chans):
-            for j in range(self.n_energs):
-                self.resp_matrix[j][k] = self.resp_matrix[j][k]* \
-                                         self.specresp[j]*self.exposure      
+        diag = scipy.sparse.diags(self.specresp * self.exposure, format='csr')
+        self.resp_matrix = diag @ self.resp_matrix
         print("Arf loaded")
         return 
         
