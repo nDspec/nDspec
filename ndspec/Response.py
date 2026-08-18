@@ -500,10 +500,10 @@ class ResponseMatrix(nDspecOperator):
         if units_in == "rate":
             bin_widths = self.energ_hi-self.energ_lo
             renorm_model = np.multiply(np.transpose(unfolded_model),bin_widths)
-            conv_model = np.matmul(renorm_model,self.resp_matrix)
+            conv_model = renorm_model @ self.resp_matrix
         elif units_in == "xspec":
             trans_model = np.transpose(unfolded_model)
-            conv_model = np.matmul(trans_model,self.resp_matrix)
+            conv_model = trans_model @ self.resp_matrix
         else:
             raise ValueError(("Please specify units of either count rate or"
                               " count rate normalized to bin width"))
