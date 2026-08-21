@@ -9,10 +9,6 @@ from scipy.interpolate import interp1d
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 import matplotlib.patheffects as path_effects
 
 from scipy.interpolate import interp1d, RegularGridInterpolator

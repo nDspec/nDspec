@@ -2,10 +2,6 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 from lmfit.model import ModelResult as LM_result
 

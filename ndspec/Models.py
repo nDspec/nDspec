@@ -9,12 +9,6 @@ import matplotlib.gridspec as gridspec
 #required by the polarimetry models 
 from .Polarimetry import PolarimetryProduct
 
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-fi = 22
-plt.rcParams.update({'font.size': fi-5})
-
 colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 
 def lorentz(array,params):

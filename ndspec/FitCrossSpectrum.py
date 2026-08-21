@@ -9,11 +9,7 @@ from pyfftw.interfaces.numpy_fft import (
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
 from matplotlib.colors import TwoSlopeNorm
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 from lmfit import Model as LM_Model
 from lmfit import Parameters as LM_Parameters

@@ -3,14 +3,9 @@ import copy
 import warnings
 from astropy.io import fits
 from scipy.interpolate import interp1d
-#import jax.numpy as jnp
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 

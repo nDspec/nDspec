@@ -6,7 +6,6 @@ import lmfit
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
 from matplotlib.colors import TwoSlopeNorm
 import scipy.stats
 
@@ -14,11 +13,6 @@ from .JointFit import JointFit
 from .SimpleFit import SimpleFit
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from .Likelihoods import cstat 
-
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-fi = 22
-plt.rcParams.update({'font.size': fi-5})
 
 sampling_names = None 
 sampling_values = None

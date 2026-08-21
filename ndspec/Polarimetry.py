@@ -7,11 +7,6 @@ import matplotlib.pylab as pl
 from matplotlib import cm
 from matplotlib.colors import TwoSlopeNorm
 
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
-
 from .Operator import nDspecOperator
 
 class PolarimetryProduct(nDspecOperator):
