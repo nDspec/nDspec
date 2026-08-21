@@ -737,7 +737,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             model = self._filter_stokes_by_mask(model)
         return model
  
-    def eval_polarization(self,params=None,mask=True):
+    def derive_folded_polarization(self,params=None,mask=True):
         """
         This method evaluates the model polarization angle and degree in
         detector space. Because the computation is in detector space, the 
@@ -951,7 +951,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             residuals of the polarization degree and angle, in this order.
         """
  
-        model_degree, model_angle = self.eval_polarization(params=params)
+        model_degree, model_angle = self.derive_folded_polarization(params=params)
         data_degree, data_angle, degree_err, angle_err = \
             self.get_data_polarization()
  
@@ -1162,7 +1162,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
                         raise AttributeError("No background loaded")
                     noise = self.split_stokes(self.noise)
         elif units == "polarization":
-            model_degree, model_angle = self.eval_polarization(params=params)
+            model_degree, model_angle = self.derive_folded_polarization(params=params)
             model = [model_degree, np.degrees(model_angle)]
             labels = ["Polarization degree $\\times\\ \\mu(E)$", 
                       "Polarization angle (deg)"]
@@ -1317,7 +1317,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             degree_lo, degree_hi = self._polarization_degree_bounds(
                                    degree_range,pol_degree+pol_degree_err)
         else:
-            pol_degree, pol_angle = self.eval_polarization(params=params)
+            pol_degree, pol_angle = self.derive_folded_polarization(params=params)
             degree_lo, degree_hi = self._polarization_degree_bounds(
                                    degree_range,pol_degree)
 
@@ -1342,7 +1342,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
                                                 zorder=2)
 
         if plot_model is True:
-            model_degree, model_angle = self.eval_polarization(params=params)
+            model_degree, model_angle = self.derive_folded_polarization(params=params)
             wrapped_model = self._wrap_polarization_angle(model_angle,angle_lo)
             #the markers of neighbouring channels overlap as soon as the model
             #varies by less than their size, so they are joined by a track to

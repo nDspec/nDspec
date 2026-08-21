@@ -600,7 +600,7 @@ class TestFitSpectroPolarimetry(object):
     #test that the model polarization degree and angle are computed over the 
     #correct grids. 
     def test_polar_model_polarization(self):
-        degree, angle = self.test_polar.eval_polarization()
+        degree, angle = self.test_polar.derive_folded_polarization()
         assert(degree.size == self.test_polar.n_pol_chans)
         assert(angle.size == self.test_polar.n_pol_chans)
         model_degree = self.test_polar.model_params["pol_degree"].value
