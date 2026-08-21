@@ -146,7 +146,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
 
     gain_params: lmfit.Parameters, default None 
         A lmfit Parameters object, which contains the parameters for the gain  
-        correction model components if it is enabled. Defaults to None. 
+        correction model components if it is enabled. Defaults to None. For 
+        cross spectral fitting, no gain correction is currently supported.
 
     Attributes inherited from FrequencyDependentFit:
     ------------------------------------------------

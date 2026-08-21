@@ -29,9 +29,9 @@ def lorentz(array,params):
         - q: the q-factor of the Lorentzian
         - rms: the normalization of the Lorentzian
 
-    Output:
-    -------
-    model: np.array(float)
+    Returns:
+    --------
+    lorentz: np.array(float)
         A one-dimensional array of the same size as the input array.
     """
 
@@ -49,8 +49,8 @@ def lorentz(array,params):
     r = rms/(0.5-np.arctan(-2.0*q)/np.pi)**0.5
     lorentz_num = (1/np.pi)*2*r**2*q*f_res
     lorentz_den = 4*q**2*(array-f_res)**2
-    model = lorentz_num/(f_res**2+lorentz_den)
-    return np.nan_to_num(model)
+    lorentz = lorentz_num/(f_res**2+lorentz_den)
+    return np.nan_to_num(lorentz)
 
 def cross_lorentz(array1,array2,params):
     """
@@ -62,7 +62,7 @@ def cross_lorentz(array1,array2,params):
     Parameters:
     -----------
     array1: np.array(float)
-        The array (typically energy) over which the model is tiled; the output 
+        The array (typically energy) over which the model is tiled; the Returns 
         does not depend on this axis.
 
     array2: np.array(float)
@@ -77,8 +77,8 @@ def cross_lorentz(array1,array2,params):
         - rms: the normalization of the Lorentzian
         - phase: the phase lag associated with the Lorentzian
 
-    Output:
-    -------
+    Returns:
+    --------
     twod_lorentz: np.array(complex), shape (len(array2),len(array1))
         A two-dimensional array, constant over array1 (which in the case of a  
         cross spectrum corresponds to the energy) and tiled across it.
@@ -119,23 +119,23 @@ def powerlaw(array,params):
           does not implicitely assume a minus sign; it must be specified by
           the user.
 
-    Output:
-    -------
-    model: np.array(float)
+    Returns:
+    --------
+    pwlaw: np.array(float)
         A one-dimensional array of the same size as array, containing the
         power-law evaluated over it.
     """
     if params.ndim == 1:
         norm = params[0]
         slope = params[1]
-        model = norm*array**slope
+        pwlaw = norm*array**slope
     elif params.ndim == 2:
         norm = params[:,0]
         slope = params[:,1]
-        model = norm[:,np.newaxis]*np.power(array,slope[:,np.newaxis])
+        pwlaw = norm[:,np.newaxis]*np.power(array,slope[:,np.newaxis])
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    return model
+    return pwlaw
 
 def brokenpower(array,params):
     """
@@ -155,9 +155,9 @@ def brokenpower(array,params):
         - slope2: the slope of the broken power-law after the break
         - brk: the location of the break in the power-law
 
-    Output:
-    -------
-    model: np.array(float)
+    Returns:
+    --------
+    bknpower: np.array(float)
         A one-dimensional array of the same size as array, containing the
         broken power-law evaluated over it.
     """
@@ -169,7 +169,7 @@ def brokenpower(array,params):
         scaled_array = array/brk
         num = norm*scaled_array**slope1
         den = 1.+scaled_array**(slope1-slope2)
-        model = num/den
+        bknpower = num/den
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         slope1 = params[:,1][:,np.newaxis]
@@ -178,10 +178,10 @@ def brokenpower(array,params):
         scaled_array = np.divide(array,brk)
         num = norm*np.power(scaled_array,slope1)
         den = 1.+np.power(scaled_array,slope1-slope2)
-        model = np.divide(num,den)
+        bknpower = np.divide(num,den)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    return model 
+    return bknpower 
 
 def gaussian(array,params):
     """
@@ -199,8 +199,8 @@ def gaussian(array,params):
         - width: the width of the Gaussian
         - gauss_norm: the normalization of the Gaussian
 
-    Output:
-    -------
+    Returns:
+    --------
     line: np.array(float)
         A one-dimensional array of the same size as array, containing the
         Gaussian line evaluated over it.
@@ -239,9 +239,9 @@ def bbody(array,params):
           that of the Xspec model
         - temp: the temperature, in keV
 
-    Output:
-    -------
-    model: np.array(float)
+    Returns:
+    --------
+    blackbody: np.array(float)
         A one-dimensional array of the same size as array, containing the
         black body spectrum evaluated over it.
     """
@@ -255,9 +255,9 @@ def bbody(array,params):
         with np.errstate(over='ignore', invalid='ignore'):
             planck = np.exp(array/temp)-1.
             planck[planck>1e20] = 1e20
-            model = renorm*array**2/planck
+            blackbody = renorm*array**2/planck
         #if nans appear in the temperature/whatever, just set the bin to 0
-        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
+        blackbody = np.nan_to_num(blackbody, nan=0.0, posinf=0.0, neginf=0.0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
@@ -267,13 +267,12 @@ def bbody(array,params):
         with np.errstate(over='ignore', invalid='ignore'):
             planck = np.exp(array/temp)-1.
             planck[planck>1e20] = 1e20
-            model = renorm*np.power(array,2.)/planck
+            blackbody = renorm*np.power(array,2.)/planck
         #if nans appear in the temperature/whatever, just set the bin to 0
-        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
+        blackbody = np.nan_to_num(blackbody, nan=0.0, posinf=0.0, neginf=0.0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    return model
-
+    return blackbody
     
 def varbbody(array,params):
     """
@@ -292,9 +291,9 @@ def varbbody(array,params):
           that of the Xspec model
         - temp: the temperature, in keV
 
-    Output:
-    -------
-    model: np.array(float)
+    Returns:
+    --------
+    varblackbody: np.array(float)
         A one-dimensional array of the same size as array, containing the
         black body spectrum evaluated over it.
     """
@@ -310,9 +309,9 @@ def varbbody(array,params):
             denom = planck-1.
             renorm = 2.013*norm/(temp**5)*planck
             renorm[renorm>1e30] = 1e30
-            model = renorm*array**3/denom**2
+            varblackbody = renorm*array**3/denom**2
         #if nans appear in the temperature/whatever, just set the bin to 0
-        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
+        varblackbody = np.nan_to_num(varblackbody, nan=0.0, posinf=0.0, neginf=0.0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
         temp = params[:,1][:,np.newaxis]
@@ -324,12 +323,12 @@ def varbbody(array,params):
             denom = planck-1.
             renorm = 2.013*norm/np.power(temp,5.)*planck
             renorm[renorm>1e30] = 1e30
-            model = renorm*np.power(array,3.)/np.power(denom,2)
+            varblackbody = renorm*np.power(array,3.)/np.power(denom,2)
         #if nans appear in the temperature/whatever, just set the bin to 0
-        model = np.nan_to_num(model, nan=0.0, posinf=0.0, neginf=0.0)
+        varblackbody = np.nan_to_num(varblackbody, nan=0.0, posinf=0.0, neginf=0.0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    return model     
+    return varblackbody     
     
 def gauss_fred(array1,array2,params,return_full=False):
     """
@@ -362,8 +361,8 @@ def gauss_fred(array1,array2,params,return_full=False):
         (done by default), or also the additional projections over the two
         model axes.
 
-    Output:
-    -------
+    Returns:
+    --------
     fred_pulse: np.array(float), shape (len(array2),len(array1))
         A two-dimensional array containing the impulse response function over
         energy and time; if params is two-dimensional, fred_pulse has shape
@@ -462,8 +461,8 @@ def gauss_bkn(array1,array2,params,return_full=False):
         (done by default), or also the additional projections over the two
         model axes.
 
-    Output:
-    -------
+    Returns:
+    --------
     brk_pulse: np.array(float), shape (len(array2),len(array1))
         A two-dimensional array containing the impulse response function over
         energy and time; if params is two-dimensional, brk_pulse has shape
@@ -557,14 +556,14 @@ def bbody_fred(array1,array2,params,return_full=False):
         (done by default), or also the additional projections over the two
         model axes.
 
-    Output:
-    -------
+    Returns:
+    --------
     fred_pulse: np.array(float), shape (len(array2),len(array1))
         A two-dimensional array containing the impulse response function over
         energy and time; if params is two-dimensional, fred_pulse has shape
         (n_sets,len(array2),len(array1)) instead. 
 
-    model_profile: np.array(float), optional
+    energy_profile: np.array(float), optional
         The projection of fred_pulse over time, i.e. the time-averaged
         spectrum; only returned if return_full is True.
 
@@ -586,11 +585,11 @@ def bbody_fred(array1,array2,params,return_full=False):
             fred_profile = np.exp(np.nan_to_num(-rise_t/times)-\
                                   np.nan_to_num(times/decay_t))   
         fred_pulse = np.zeros((len(energy),len(times)))
-        model_profile = np.zeros(len(energy))
+        energy_profile = np.zeros(len(energy))
         pulse_profile = np.zeros(len(times))
         for i in range(len(times)): 
             fred_pulse[:,i] = varbbody(energy,np.array([norm,temp_profile[i]]))*fred_profile[i]
-        model_profile = np.sum(fred_pulse,axis=1)
+        energy_profile = np.sum(fred_pulse,axis=1)
         pulse_profile = np.sum(fred_pulse,axis=0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
@@ -606,18 +605,18 @@ def bbody_fred(array1,array2,params,return_full=False):
             fred_profile = np.exp(np.nan_to_num(-rise_t/times)-\
                                   np.nan_to_num(times/decay_t))   
         fred_pulse = np.zeros((params.shape[0],len(energy),len(times)))
-        model_profile = np.zeros((params.shape[0],len(energy)))
+        energy_profile = np.zeros((params.shape[0],len(energy)))
         pulse_profile = np.zeros((params.shape[0],len(times)))
         for j in range(params.shape[0]):
             for i in range(len(times)):
                 par = np.array([norm[j,0],temp_profile[j,i]])
                 fred_pulse[j,:,i] = norm[j,0]*varbbody(energy,par)*fred_profile[j,i]    
-            model_profile[j] = np.sum(fred_pulse[j],axis=1)
+            energy_profile[j] = np.sum(fred_pulse[j],axis=1)
             pulse_profile[j] = np.sum(fred_pulse[j],axis=0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     if return_full is True:
-        return fred_pulse, model_profile, pulse_profile
+        return fred_pulse, energy_profile, pulse_profile
     else:
         return fred_pulse
     
@@ -653,14 +652,14 @@ def bbody_bkn(array1,array2,params,return_full=False):
         (done by default), or also the additional projections over the two
         model axes.
 
-    Output:
-    -------
+    Returns:
+    --------
     brk_pulse: np.array(float), shape (len(array2),len(array1))
         A two-dimensional array containing the impulse response function over
         energy and time; if params is two-dimensional, brk_pulse has shape
         (n_sets,len(array2),len(array1)) instead. 
         
-    model_profile: np.array(float), optional
+    energy_profile: np.array(float), optional
         The projection of brk_pulse over time, i.e. the time-averaged
         spectrum; only returned if return_full is True.
 
@@ -681,11 +680,11 @@ def bbody_bkn(array1,array2,params,return_full=False):
         temp_profile[temp_profile<=1e-6] = 1e-6
         bkn_profile = brokenpower(times,np.array([1.,rise_slope,decay_slope,break_time]))
         brk_pulse = np.zeros((len(energy),len(times)))
-        model_profile = np.zeros(len(energy))
+        energy_profile = np.zeros(len(energy))
         pulse_profile = np.zeros(len(times))
         for i in range(len(times)):
             brk_pulse[:,i] = varbbody(energy,np.array([norm,temp_profile[i]]))*bkn_profile[i]
-        model_profile = np.sum(brk_pulse,axis=1)
+        energy_profile = np.sum(brk_pulse,axis=1)
         pulse_profile = np.sum(brk_pulse,axis=0)
     elif params.ndim == 2:
         norm = params[:,0][:,np.newaxis]
@@ -701,18 +700,18 @@ def bbody_bkn(array1,array2,params,return_full=False):
                                break_time],axis=1)
         bkn_profile = brokenpower(times,pars)
         brk_pulse = np.zeros((params.shape[0],len(energy),len(times)))
-        model_profile = np.zeros((params.shape[0],len(energy)))
+        energy_profile = np.zeros((params.shape[0],len(energy)))
         pulse_profile = np.zeros((params.shape[0],len(times)))
         for j in range(params.shape[0]):
             for i in range(len(times)):
                 par = np.array([norm[j,0],temp_profile[j,i]])
                 brk_pulse[j,:,i] = norm[j,0]*varbbody(energy,par)*bkn_profile[j,i]    
-            model_profile[j] = np.sum(brk_pulse[j],axis=1)
+            energy_profile[j] = np.sum(brk_pulse[j],axis=1)
             pulse_profile[j] = np.sum(brk_pulse[j],axis=0)
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
     if return_full is True:
-        return brk_pulse, model_profile, pulse_profile
+        return brk_pulse, energy_profile, pulse_profile
     else:
         return brk_pulse  
 
@@ -752,8 +751,8 @@ def pivoting_pl(array1,array2,params):
         of parameters, or a two-dimensional array containing multiple sets of
         parameters to be computed simultaneously.
 
-    Output:
-    -------
+    Returns:
+    --------
     pivoting: np.array(complex), shape (len(array2),len(array1))
         A two-dimensional array containing the complex pivoting power-law
         evaluated over energy and Fourier frequency. This model is intended
@@ -834,9 +833,9 @@ def pol_constant(energs,params,grid_edges=False):
         Specifies whether energs contains all the edges of a binned grid
         (identically to Xspec), or the grid midpoints.
 
-    Output:
-    -------
-    model: np.array(float), shape (3,len(energs))
+    Returns:
+    --------
+    stokes_model: np.array(float), shape (3,len(energs))
         A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
         stokes_U). 
     """
@@ -851,8 +850,8 @@ def pol_constant(energs,params,grid_edges=False):
     product = PolarimetryProduct(energs,input_type='polarization')
     product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
     stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
-    model = np.array([stokes_I,stokes_Q,stokes_U])
-    return model
+    stokes_model = np.array([stokes_I,stokes_Q,stokes_U])
+    return stokes_model
     
 def pol_degree_linear(energs,params,grid_edges=False):
     """
@@ -880,9 +879,9 @@ def pol_degree_linear(energs,params,grid_edges=False):
         Specifies whether energs contains all the edges of a binned grid
         (identically to Xspec), or the grid midpoints.
 
-    Output:
-    -------
-    model: np.array(float), shape (3,len(energs))
+    Returns:
+    --------
+    stokes_model: np.array(float), shape (3,len(energs))
         A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
         stokes_U). 
     """
@@ -895,8 +894,8 @@ def pol_degree_linear(energs,params,grid_edges=False):
     product = PolarimetryProduct(energs,input_type='polarization')
     product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
     stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
-    model = np.array([stokes_I,stokes_Q,stokes_U])
-    return model    
+    stokes_model = np.array([stokes_I,stokes_Q,stokes_U])
+    return stokes_model    
 
 def pol_angle_linear(energs,params,grid_edges=False):
     """
@@ -923,9 +922,9 @@ def pol_angle_linear(energs,params,grid_edges=False):
         Specifies whether energs contains all the edges of a binned grid
         (identically to Xspec), or the grid midpoints.
 
-    Output:
-    -------
-    model: np.array(float), shape (3,len(energs))
+    Returns:
+    --------
+    stokes_model: np.array(float), shape (3,len(energs))
         A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
         stokes_U).
     """
@@ -938,8 +937,8 @@ def pol_angle_linear(energs,params,grid_edges=False):
     product = PolarimetryProduct(energs,input_type='polarization')
     product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
     stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
-    model = np.array([stokes_I,stokes_Q,stokes_U])
-    return model
+    stokes_model = np.array([stokes_I,stokes_Q,stokes_U])
+    return stokes_model
 
 def pol_linear(energs,params,grid_edges=False):
     """
@@ -969,9 +968,9 @@ def pol_linear(energs,params,grid_edges=False):
         Specifies whether energs contains all the edges of a binned grid
         (identically to Xspec), or the grid midpoints.
 
-    Output:
-    -------
-    model: np.array(float), shape (3,len(energs))
+    Returns:
+    --------
+    stokes_model: np.array(float), shape (3,len(energs))
         A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
         stokes_U).
     """
@@ -984,8 +983,8 @@ def pol_linear(energs,params,grid_edges=False):
     product = PolarimetryProduct(energs,input_type='polarization')
     product.set_polarization(np.ones(len(energs)),pol_degree,pol_angle)
     stokes_I, stokes_Q, stokes_U = product.polarization_to_stokes()
-    model = np.array([stokes_I,stokes_Q,stokes_U])
-    return model
+    stokes_model = np.array([stokes_I,stokes_Q,stokes_U])
+    return stokes_model
 
 def pol_rotation(seed,params):
     """
@@ -1015,9 +1014,9 @@ def pol_rotation(seed,params):
         - angle_rotation: the angle by which the whole polarization angle
           model is rotated, in degrees
 
-    Output:
-    -------
-    model: np.array(float), shape (3,len(energs))
+    Returns:
+    --------
+    stokes_model: np.array(float), shape (3,len(energs))
         A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
         stokes_U).
     """
@@ -1027,8 +1026,8 @@ def pol_rotation(seed,params):
     bins = np.arange(seed.shape[1])
     seed_product = PolarimetryProduct(bins,input_type='stokes')
     seed_product.set_stokes(seed[0],seed[1],seed[2])
-    model = seed_product.rotate_polarization(angle_rotation)
-    return model
+    stokes_model = seed_product.rotate_polarization(angle_rotation)
+    return stokes_model
     
 def plot_2d(xaxis,yaxis,impulse_2d,impulse_x,impulse_y,
             xlim=[0.,400.],ylim=[0.1,10.5],xlog=False,ylog=False,
@@ -1063,8 +1062,8 @@ def plot_2d(xaxis,yaxis,impulse_2d,impulse_x,impulse_y,
         y axis) by the y axis values squared. Useful to highlight the model
         energy dependence.
 
-    Output:
-    -------
+    Returns:
+    --------
     fig: matplotlib.figure, optional
         The plot object produced by the method, showing the impulse response
         function together with its time and energy projections. Only
