@@ -2,6 +2,7 @@ import numpy as np
 import warnings
 
 from lmfit import fit_report, minimize 
+from lmfit import Parameters as LM_Parameters
 from lmfit.printfuncs import gformat
 
 from .Likelihoods import cstat, chisq, ratio
@@ -79,15 +80,15 @@ class SimpleFit():
 
     def _set_unmasked_data(self):
         """
-        This initializer method is used to set up the unmasked arrays for later 
-        book-keeping. Depending on the dependence of the fit, it initializes 
-        different internal unmasked arrays.        
+        This initializer method is used to set up the unmasked arrays for later
+        book-keeping. Depending on the dependence of the fit, it initializes
+        different internal unmasked arrays.
         """
 
         self._data_unmasked = self.data
-        self._data_err_unmasked = self.data_err        
-        #if our fit object has a background (e.g. a spectral background, or 
-        #Poisson noise) we also must store it to subtract it correctly from the 
+        self._data_err_unmasked = self.data_err
+        #if our fit object has a background (e.g. a spectral background, or
+        #Poisson noise) we also must store it to subtract it correctly from the
         #data
         if self.noise is not None:
             self._noise_unmasked = self.noise
@@ -96,24 +97,96 @@ class SimpleFit():
             self._noise_unmasked = None
             self._noise_err_unmasked = None
 
-        if isinstance(self,EnergyDependentFit) is True:
+        self._set_axis_arrays()
+        return
+
+    def _set_axis_arrays(self):
+        """
+        This method sets up the unmasked bookkeeping arrays (per-axis grids and
+        bin counts) for whichever combination of axis-dependent mixins this
+        fitter combines - energy, Fourier frequency, and/or polarization. 
+        """
+
+        has_energy = isinstance(self,EnergyDependentFit)
+        has_freq = isinstance(self,FrequencyDependentFit)
+        has_pol = isinstance(self,StokesDependentFit)
+
+        if has_energy is True:
             self._emin_unmasked = self.response.emin
             self._emax_unmasked = self.response.emax
             self._ebounds_unmasked = self.ebounds
             self._ewidths_unmasked = self.ewidths
             self._all_chans = self._ebounds_unmasked.size
             self.n_chans = self._all_chans
-            #additional internal arrays if we're doing spectral timing
-            if isinstance(self,FrequencyDependentFit) is True:
-                self._all_bins = self._all_freqs*self._all_chans
-                self.n_bins = self._all_bins                
-            #future: add if spectral polarimetry
-        elif isinstance(self,FrequencyDependentFit) is True:
-            #note: these assignements are redundant for just a PSD fit 
-            self._freqs_unmasked = self.freqs           
-            self.n_freqs = self.freqs.size
-            self._all_freqs = self.n_freqs
-            #future: add if timing polarimetry within the fit 
+
+        if has_pol is True:
+            self._pol_emin_unmasked = self.response_pol.emin
+            self._pol_emax_unmasked = self.response_pol.emax
+            self._pol_ebounds_unmasked = self.pol_ebounds
+            self._pol_ewidths_unmasked = self.pol_ewidths
+            self._all_pol_chans = self._pol_ebounds_unmasked.size
+            self.n_pol_chans = self._all_pol_chans
+
+        #the total number of flattened data bins depends on which combination of
+        #axes is present; every supported combination is listed explicitly so
+        #that an unsupported one fails loudly instead of silently
+        if (has_energy is True and has_freq is True):
+            self._all_bins = self._all_freqs*self._all_chans
+        elif (has_energy is True and has_pol is True):
+            self._all_bins = self._all_chans+2*self._all_pol_chans
+        elif (has_freq is True and has_pol is True):
+            #e.g. a modulation-angle x Fourier-frequency fit with no energy axis
+            raise NotImplementedError(
+                "Frequency+polarization fits are not yet supported")
+        elif has_energy is True:
+            self._all_bins = self._all_chans
+        elif has_freq is True:
+            self._all_bins = self._all_freqs
+        else:
+            self._all_bins = None
+        self.n_bins = self._all_bins
+        return
+
+    def _reflatten_data(self):
+        """
+        This method re-derives self.data, self.data_err, self.noise and
+        self.noise_err from the unmasked arrays, after an ignore_*/notice_*
+        method updates one of this fit's masks. 
+        
+        New combinations of dimensions/data (e.g. ModulationDependentFit for 
+        stochastic polarimetry timing) should be added as an extra branch here.
+        """
+
+        has_energy = isinstance(self,EnergyDependentFit)
+        has_freq = isinstance(self,FrequencyDependentFit)
+        has_pol = isinstance(self,StokesDependentFit)
+
+        #filter data for spectral timing
+        if (has_energy is True and has_freq is True):
+            self.data = self._filter_2d_by_mask(self._data_unmasked)
+            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
+        #filter data for spectro-polarimetry
+        elif has_pol is True:
+            self.data = self._filter_stokes_by_mask(self._data_unmasked)
+            self.data_err = self._filter_stokes_by_mask(self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = self._filter_stokes_by_mask(self._noise_unmasked)
+                self.noise_err = self._filter_stokes_by_mask(self._noise_err_unmasked)
+        #filter data for time averaged spectra
+        elif has_energy is True:
+            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
+            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)
+                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)
+        #filter data for PSDs 
+        elif has_freq is True:
+            self.data = np.extract(self.freqs_mask,self._data_unmasked)
+            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)
+            if self.noise is not None:
+                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)
+        else:
+            raise NotImplementedError("No known way to flatten this fit's data")
         return
 
     def _filter_2d_by_mask(self,array):
@@ -169,7 +242,10 @@ class SimpleFit():
         """
         This method is used to pass the model users want to fit to the data. 
         Optionally it is also possible to pass the initial parameter values of 
-        the model. 
+        the model. If a user had previously stored a model in the fitter which 
+        included a calibration component, that component is removed or reset 
+        (depending on the exact fitter) when passing the new model from calling 
+        this method.
         
         Parameters:
         -----------            
@@ -185,7 +261,7 @@ class SimpleFit():
         if ((getattr(model, '__module__', None) != "lmfit.compositemodel")&
             (getattr(model, '__module__', None) != "lmfit.model")):  
             raise AttributeError("The model input must be an LMFit Model or CompositeModel object")
-        
+        self._reset_calibration()
         self.model = model 
         if params is None:
             self.model_params = self.model.make_params(verbose=True)
@@ -493,6 +569,23 @@ class SimpleFit():
                 print(f"    {nout} {par.value: .7g} (fixed)")
         return
 
+    def _reset_calibration(self):
+        """
+        This method clears any gain instrument calibration correction which was 
+        set on top of the model, and is called by set_model. The only correction 
+        currently supported this way is gain calibration, so this method only 
+        does anything if the fit is of an energy-dependent quantity.
+        """
+        
+        if isinstance(self,EnergyDependentFit) and self.gain_params is not None:
+            warnings.warn(("WARNING: changing the model has reset the gain"
+                           " correction, call set_gain again to re-apply it"),
+                          UserWarning)
+            self.gain_params = None
+            self._gain_keys = None
+        
+        return 
+
 class EnergyDependentFit():
     """
     Internal book-keeping class used to manage noticing or ignoring energy 
@@ -554,7 +647,17 @@ class EnergyDependentFit():
         The array of every lower bound, upper bound, channel center and channel 
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
-        internal to the fitter class.         
+        internal to the fitter class.  
+        
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None.
+        
+    _gain_keys: list, default None 
+        A list of keys we use to keep track of the names of the gain parameters. 
+        Necessary during joint fits with multiple instruments/detectors, if more 
+        than one detector requires gain fitting (e.g., fitting 3 IXPE DUs, each 
+        with its set of gain parameters).      
     """
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
@@ -563,6 +666,8 @@ class EnergyDependentFit():
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
         self.ebounds_mask = np.full((self.response.n_chans), True)
+        self.gain_params = None
+        self._gain_keys = None
         pass
        
     def ignore_energies(self,bound_lo,bound_hi):
@@ -592,18 +697,8 @@ class EnergyDependentFit():
         self.ewidths = np.extract(self.ebounds_mask,self._ewidths_unmasked)   
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,FrequencyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
-            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)    
-            #if we have a background we need to mask that too 
-            if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
-                self.noise_err = np.extract(self.ebounds_mask,self._noise_err_unmasked)       
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()      
         return
    
     def notice_energies(self,bound_lo,bound_hi):
@@ -636,17 +731,206 @@ class EnergyDependentFit():
         self.ewidths = np.extract(self.ebounds_mask,self._ewidths_unmasked)   
         self.n_chans = self.ebounds_mask[self.ebounds_mask==True].size        
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,FrequencyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.ebounds_mask,self._data_unmasked)
-            self.data_err = np.extract(self.ebounds_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.ebounds_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
         return
+
+    def set_gain(self,slope=1.0,offset=0.0,vary=True,
+                 slope_bounds=(0.9,1.1),offset_bounds=(-0.3,0.3),
+                 label=None):
+        """
+        This method sets a gain correction to the instrument channel to energy
+        conversion, which is applied to the model after it has been folded 
+        through the response.
+        nDspec follows the same convention as Xspec, in which the true photon
+        energy E' collected by a channel with nominal bound E is defined as
+
+        E' = E/slope - offset,
+
+        with the offset in units of keV.
+
+        The gain parameters are appended to the model_params attribute, so this
+        method has to be called after the model has been set. Since they are 
+        ordinary lmfit parameters, users should set a prior on them through the 
+        usual interfaces in SamplingUtils when using Bayesian sampling.
+
+        Parameters:
+        -----------
+        slope: float, default=1.0
+            The starting value of the multiplicative term of the gain shift.
+
+        offset: float, default=0.0
+            The starting value of the additive term of the gain shift, in units
+            of keV.
+
+        vary: bool, default=True
+            A boolean switch to choose whether the gain parameters are free
+            during the fit, or frozen at their starting values.
+
+        slope_bounds: tuple, default=(0.9,1.1)
+            The minimum and maximum values the slope is allowed to take.
+
+        offset_bounds: tuple, default=(-0.3,0.3)
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+            
+        label: string, default=None
+            A string appended to the names of the gain parameters, in order to
+            keep the energy scales of different detectors independent from one
+            another in a joint fit.    
+        """
+
+        if self.model_params is None:
+            raise AttributeError(("The model has to be set before setting a"
+                                  " gain correction"))
+
+        self._check_gain_bounds(slope_bounds,offset_bounds)
+        
+        if label is None:
+            self._gain_keys = ("gain_slope","gain_offset")
+        else:
+            self._gain_keys = ("gain_slope_"+str(label),
+                               "gain_offset_"+str(label))
+
+        self.gain_params = LM_Parameters()
+        self.gain_params.add(self._gain_keys[0],value=slope,vary=vary,
+                             min=slope_bounds[0],max=slope_bounds[1])
+        self.gain_params.add(self._gain_keys[1],value=offset,vary=vary,
+                             min=offset_bounds[0],max=offset_bounds[1])
+        self.model_params.update(self.gain_params)
+        return
+
+    def _check_gain_bounds(self,slope_bounds,offset_bounds):
+        """
+        This method checks the bounds on the gain parameters against every
+        channel grid tracked by the fitter. Classes which track more than one
+        response are expected to override it, calling _check_gain_grid once for
+        each grid.
+ 
+        Parameters:
+        -----------
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+ 
+        self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
+                              self._emax_unmasked,slope_bounds,offset_bounds)
+        return 
+        
+    def _check_gain_grid(self,mask,emin_unmasked,emax_unmasked,slope_bounds,
+                         offset_bounds,label="the response"):
+        """
+        This method checks that every channel noticed during the fit remains
+        fully covered by a given channel grid, for every gain shift allowed by
+        the bounds on the gain parameters. 
+ 
+        If the check fails, users should either tighten the bounds on the gain
+        parameters, or ignore additional channels at the edges of the grid.
+ 
+        Parameters:
+        -----------
+        mask: np.array(bool)
+            The mask of the channels noticed during the fit, over the grid to be
+            checked.
+ 
+        emin_unmasked, emax_unmasked: np.array(float)
+            The lower and upper bounds of every channel in the grid to be
+            checked, regardless of which ones are noticed or ignored.
+ 
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+ 
+        label: string, default="the response"
+            A string identifying the grid being checked, used to tell users
+            which response caused the check to fail in fits which track more
+            than one.
+        """
+
+        noticed_min = np.min(np.extract(mask,emin_unmasked))
+        noticed_max = np.max(np.extract(mask,emax_unmasked))
+        shift_min = noticed_min/slope_bounds[1] - offset_bounds[1]
+        shift_max = noticed_max/slope_bounds[0] - offset_bounds[0]
+ 
+        if shift_min < emin_unmasked[0]:
+            raise ValueError(("The lower bound of the noticed channels can be"
+                              " shifted below the channel grid stored in "
+                              +label+"; either tighten the bounds on the gain"
+                              " parameters, or ignore more channels at low"
+                              " energy"))
+        if shift_max > emax_unmasked[-1]:
+            raise ValueError(("The upper bound of the noticed channels can be"
+                              " shifted above the channel grid stored in "
+                              +label+"; either tighten the bounds on the gain"
+                              " parameters, or ignore more channels at high"
+                              " energy"))
+        return
+ 
+    def _check_gain_bounds(self,slope_bounds,offset_bounds):
+        """
+        This method checks the bounds on the gain parameters against every
+        channel grid tracked by the fitter. Classes which track more than one
+        response are expected to override it, calling _check_gain_grid once for
+        each grid.
+ 
+        Parameters:
+        -----------
+        slope_bounds: tuple
+            The minimum and maximum values the slope is allowed to take.
+ 
+        offset_bounds: tuple
+            The minimum and maximum values the offset is allowed to take, in
+            units of keV.
+        """
+ 
+        self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
+                              self._emax_unmasked,slope_bounds,offset_bounds)
+        return
+    
+    def _apply_gain(self,model,params,response=None):
+        """
+        This method applies the gain correction set by the user to a model which
+        has already been folded through the instrument response, and returns it
+        unchanged if no gain correction was set. The model must be defined over 
+        every channel in the response, rather than over just the noticed ones, 
+        because the channels which are ignored during the fit might supply some 
+        counts after shifting.
+
+        Parameters:
+        -----------
+        model: np.array(float)
+            The folded model, of size (_all_chans).
+
+        params: lmfit.Parameters
+            The parameter values to use in applying the gain. If none are
+            provided, the gain_params attribute is used.
+
+        response: nDspec.ResponseMatrix, default=None
+            The response through which the model was folded, and whose channel
+            grid the gain is therefore applied over. If none is provided, the
+            response attribute is used. 
+
+        Returns:
+        --------
+        model: np.array(float)
+            The folded model, shifted by the gain correction.
+        """
+
+        if self.gain_params is None:
+            return model
+        if response is None:
+            response = self.response
+        model = response.apply_gain(model,params[self._gain_keys[0]].value,
+                                    params[self._gain_keys[1]].value)
+
+        return model
 
 class FrequencyDependentFit():
     """
@@ -732,16 +1016,8 @@ class FrequencyDependentFit():
             self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
             self.n_freqs = self.freqs_mask[self.freqs_mask==True].size#-1 
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,EnergyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.freqs_mask,self._data_unmasked)
-            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()   
         return
 
     def notice_frequencies(self,bound_lo,bound_hi):
@@ -776,18 +1052,255 @@ class FrequencyDependentFit():
             self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
             self.n_freqs = self.freqs_mask[self.freqs_mask==True].size-1 
 
-        #filter 2d data is more complex so it is moved to its own method for 
-        #simplicity
-        if isinstance(self,EnergyDependentFit) is True:
-            self.data = self._filter_2d_by_mask(self._data_unmasked)
-            self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
-        else:
-            self.data = np.extract(self.freqs_mask,self._data_unmasked)
-            self.data_err = np.extract(self.freqs_mask,self._data_err_unmasked)              
-            if self.noise is not None:
-                self.noise = np.extract(self.freqs_mask,self._noise_unmasked)   
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data()  
         return
 
+class StokesDependentFit():
+    """
+    Internal book-keeping class used during spectro-polarimetry modelling to 
+    manage noticing or ignoring the energy channels of the Stokes Q and U 
+    spectra, for cases when the data consists of all three Stokes parameters. 
+    It is currently only used together with the EnergyDependentFit class, which 
+    handles the Stokes I channel grid.
+    
+    The two grids are tracked separately because Stokes Q and U are almost 
+    always binned more coarsely than Stokes I: they are the difference between 
+    two large numbers, and therefore require far more counts per channel to be 
+    measured with the same significance. Stokes Q and U are instead always 
+    tracked together, because they are measured from the same events and are 
+    therefore always defined over the same channel grid.
+    
+    The data of all three Stokes parameters is stored in a single, flattened 
+    array in the order I, Q, U, identically to how two-dimensional 
+    spectral-timing products are handled elsewhere in the library. 
+        
+    Attributes:
+    -----------
+    pol_emin, pol_emax: np.array(float)
+        The arrays of lower and upper energy channel bounds for the Stokes Q and 
+        U instrument energy channels, as stored in the instrument response 
+        provided. Only contain the channels that are noticed during the fit.
+    
+    pol_ebounds: np.array(float) 
+        The array of energy channel bin centers for the Stokes Q and U 
+        instrument energy channels, as stored in the instrument response 
+        provided. Only contains the channels that are noticed during the fit.
+
+    pol_ewidths: np.array(float) 
+        The array of energy channel bin widths for the Stokes Q and U instrument 
+        energy channels, as stored in the instrument response provided. Only 
+        contains the channels that are noticed during the fit.
+        
+    pol_ebounds_mask: np.array(bool)
+        The array of Stokes Q and U instrument energy channels that are either 
+        ignored or noticed during the fit. A given channel i is noticed if 
+        pol_ebounds_mask[i] is True, and ignored if it is false.
+        
+    n_pol_chans: int 
+        The number of Stokes Q (and U) channels that are to be noticed during 
+        the fit.
+        
+    n_bins: int 
+        The total number of data bins noticed during the fit, defined as the 
+        number of noticed Stokes I channels, plus twice the number of noticed 
+        Stokes Q/U channels.
+        
+    _all_pol_chans: int 
+        The total number of channels in the loaded Stokes Q/U response matrix.
+        
+    _all_bins: int 
+        The total number of data bins loaded, defined as the total number of 
+        Stokes I channels, plus twice the total number of Stokes Q/U channels.
+        
+    _pol_emin_unmasked, _pol_emax_unmasked, _pol_ebounds_unmasked, _pol_ewidths_unmasked: np.array(float)
+        The array of every lower bound, upper bound, channel center and channel 
+        widths stored in the Stokes Q/U response, regardless of which ones are 
+        ignored or noticed during the fit. Used exclusively to facilitate 
+        book-keeping internal to the fitter class.    
+    """
+
+    def __init__(self):
+        self.pol_emin = self.response_pol.emin
+        self.pol_emax = self.response_pol.emax
+        self.pol_ebounds = 0.5*(self.response_pol.emax+self.response_pol.emin)
+        self.pol_ewidths = self.response_pol.emax-self.response_pol.emin
+        self.pol_ebounds_mask = np.full((self.response_pol.n_chans), True)
+        pass
+
+    def _stokes_slice(self,index,mask=True):
+        """
+        This method returns the slice of the flattened data (or model) array 
+        that corresponds to a given Stokes parameter.
+        
+        Parameters:
+        -----------
+        index: int 
+            The index of the Stokes parameter to be returned; 0 for Stokes I, 
+            1 for Stokes Q, and 2 for Stokes U.
+            
+        mask: bool, default True 
+            A flag to decide whether the slice refers to an array containing 
+            only the noticed channels, or to one containing every channel.
+            
+        Output:
+        -------
+        stokes_slice: slice 
+            The slice of the flattened array corresponding to the chosen Stokes 
+            parameter.
+        """
+        
+        if mask is True:
+            n_chans = self.n_chans
+            n_pol_chans = self.n_pol_chans
+        else:
+            n_chans = self._all_chans
+            n_pol_chans = self._all_pol_chans
+        
+        if index == 0:
+            stokes_slice = slice(0,n_chans)
+        elif index == 1:
+            stokes_slice = slice(n_chans,n_chans+n_pol_chans)
+        elif index == 2:
+            stokes_slice = slice(n_chans+n_pol_chans,n_chans+2*n_pol_chans)
+        else:
+            raise ValueError("Stokes index must be 0 (I), 1 (Q) or 2 (U)")
+        return stokes_slice
+
+    def split_stokes(self,array,mask=True):
+        """
+        This method splits a flattened array containing all three Stokes 
+        parameters - for instance the data, or the output of eval_model - into 
+        three separate arrays, each containing one of the Stokes parameters.
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The flattened array containing the Stokes I, Q and U values, in this 
+            order.
+            
+        mask: bool, default True 
+            A flag to decide whether the input array contains only the noticed 
+            channels, or every channel.
+            
+        Output:
+        -------
+        stokes_I, stokes_Q, stokes_U: np.array(float)
+            The three arrays containing the values of each Stokes parameter.
+        """
+        
+        stokes_I = array[self._stokes_slice(0,mask=mask)]
+        stokes_Q = array[self._stokes_slice(1,mask=mask)]
+        stokes_U = array[self._stokes_slice(2,mask=mask)]
+        return stokes_I, stokes_Q, stokes_U
+
+    def _filter_stokes_by_mask(self,array):
+        """
+        This method is used to filter the flattened spectro-polarimetric data 
+        after users define a range of energy channels to ignore. It is necessary 
+        because the Stokes I channel grid is typically different from that of 
+        Stokes Q and U, and therefore the two require separate masks.
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The flattened array containing the Stokes I, Q and U values in every 
+            channel, to be filtered.
+            
+        Output:
+        -------
+        filter_arr: np.array(float)
+            The flattened array filtered by the masks defined by the noticed 
+            Stokes I and Stokes Q/U channels.
+        """
+        
+        self.n_bins = self.n_chans+2*self.n_pol_chans
+        
+        filter_stokes_I = np.extract(self.ebounds_mask,
+                                     array[self._stokes_slice(0,mask=False)])
+        filter_stokes_Q = np.extract(self.pol_ebounds_mask,
+                                     array[self._stokes_slice(1,mask=False)])
+        filter_stokes_U = np.extract(self.pol_ebounds_mask,
+                                     array[self._stokes_slice(2,mask=False)])
+        filter_arr = np.concatenate((filter_stokes_I,filter_stokes_Q,
+                                     filter_stokes_U))
+        return filter_arr
+
+    def _update_polarization_grids(self):
+        """
+        This method takes the unmasked Stokes Q/U channel arrays and keeps only 
+        the channels that are noticed in the fit, after the Stokes Q/U mask has 
+        been updated.
+        """
+        
+        self.pol_emin = np.extract(self.pol_ebounds_mask,
+                                   self._pol_emin_unmasked)
+        self.pol_emax = np.extract(self.pol_ebounds_mask,
+                                   self._pol_emax_unmasked)
+        self.pol_ebounds = np.extract(self.pol_ebounds_mask,
+                                      self._pol_ebounds_unmasked)
+        self.pol_ewidths = np.extract(self.pol_ebounds_mask,
+                                      self._pol_ewidths_unmasked)
+        self.n_pol_chans = self.pol_ebounds_mask[self.pol_ebounds_mask==True].size
+        return
+
+    def ignore_polarization_energies(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        ignore selected Stokes Q and U channels based on their energy bounds. 
+        The Stokes I channels are left untouched; users should call the 
+        ignore_energies method of the FitSpectroPolarimetry class, which handles
+        both channel grids at once.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of ignored energy interval.
+        bound_hi : float
+            Higher bound of ignored energy interval.    
+        """
+        
+        if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
+            (isinstance(bound_hi, (np.floating, float, int)) != True)):
+            raise TypeError("Energy bounds must be floats or integers")
+        
+        self.pol_ebounds_mask = ((self._pol_emin_unmasked<bound_lo)|
+                                 (self._pol_emax_unmasked>bound_hi))& \
+                                 self.pol_ebounds_mask
+        
+        self._update_polarization_grids()
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
+        return
+
+    def notice_polarization_energies(self,bound_lo,bound_hi):
+        """
+        This method adjusts the arrays stored such that they (and the fit) 
+        notice selected (previously ignored) Stokes Q and U channels based on 
+        their energy bounds. The Stokes I channels are left untouched; users 
+        should call the notice_energies method of the FitSpectroPolarimetry 
+        class, which handles both channel grids at once.
+
+        Parameters:
+        -----------
+        bound_lo : float
+            Lower bound of noticed energy interval.
+        bound_hi : float
+            Higher bound of noticed energy interval.    
+        """
+        
+        if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
+            (isinstance(bound_hi, (np.floating, float, int)) != True)):
+            raise TypeError("Energy bounds must be floats or integers")
+        
+        self.pol_ebounds_mask = self.pol_ebounds_mask|np.logical_not(
+                                (self._pol_emin_unmasked<bound_lo)|
+                                (self._pol_emax_unmasked>bound_hi))
+        
+        self._update_polarization_grids()
+        #filter and re-flatten the data using the same mask 
+        self._reflatten_data() 
+        return
 
 def load_pha(path,response):
     '''
@@ -925,6 +1438,172 @@ def load_pha(path,response):
             counts_per_group = counts
             spectrum_error = counts_err
         return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure, backscal
+
+
+def load_stokes_pha(path,response,stokes=None):
+    '''
+    This function loads a Stokes parameter spectrum, given an input path to an 
+    OGIP-compatible file and a nDspec ResponseMatrix object to be applied to the 
+    spectrum. 
+    
+    It is analogous to the load_pha function, but unlike a time-averaged 
+    spectrum, the Stokes Q and U spectra are the difference between two 
+    Poisson-distributed quantities: their counts can be negative, and their 
+    errors can not be computed from the counts alone. For this reason this 
+    function requires a STAT_ERR column to be present in the file, and sums the 
+    errors in quadrature when the spectrum has been grouped. 
+    
+    Parameters:
+    -----------
+    path: str 
+        A string pointing to the Stokes spectrum file to be loaded 
+        
+    response: nDspec.ResponseMatrix 
+        The instrument response matrix, loaded in nDspec, corresponding to the 
+        spectrum to be loaded. For Stokes Q and U this is typically the 
+        modulation response function, rather than the standard response.
+        
+    stokes: str, default None 
+        The Stokes parameter ("I", "Q" or "U") the file is expected to contain. 
+        If provided, it is checked against the STOKES keyword in the file 
+        header, if the latter is present.
+        
+    Returns:
+    --------
+    bin_bounds_lo: np.array(float)
+        An array of lower energy channel bounds, in keV, as contained in the 
+        input file. If the spectrum was grouped, this contains the lower bounds 
+        of the spectrum after rebinning.
+        
+    bin_bounds_hi: np.array(float)
+        An array of upper energy channel bounds, in keV, as contained in the 
+        input file. If the spectrum was grouped, this contains the upper bounds 
+        of the spectrum after rebinning.
+        
+    counts_per_group: np.array(float)
+        The total number of photon counts in each energy channel. If the 
+        spectrum was grouped, this contains the counts in each channel after 
+        rebinning. For Stokes Q and U these can be negative.
+        
+    spectrum_error: np.array(float)
+        The error on the counts in each group, including both statistical and 
+        (if present) systematic errors
+        
+    exposure: float
+        The exposure time contained in the spectrum file.   
+        
+    backscal: float 
+        The background scaling factor. Typically used to account for different 
+        extraction region size for the source and background.    
+    '''
+    from astropy.io import fits
+    
+    with fits.open(path,filemap=False) as spectrum:
+        hdr = spectrum["SPECTRUM"].header
+        spectrum_data = spectrum['SPECTRUM'].data
+        #check if exposure is present in either the primary or spectrum headers
+        try:
+            exposure = spectrum['PRIMARY'].header['EXPOSURE']
+        except KeyError:
+             try:
+                exposure = spectrum['SPECTRUM'].header['EXPOSURE']
+             except KeyError:
+                exposure = 1.        
+        try:         
+            counts = spectrum_data['COUNTS']
+            is_rate = False
+        except KeyError:
+            try:         
+                counts = spectrum_data['RATE']*exposure
+                is_rate = True
+            except KeyError:
+                raise FileNotFoundError("Fits file format incompatible, ensure it is OGIP compliant")        
+        try:
+            backscal = spectrum['SPECTRUM'].header['BACKSCAL']
+        except KeyError:
+            try:
+                backscal = spectrum['PRIMARY'].header['BACKSCAL']
+            except KeyError:
+                backscal = 1.
+                warnings.warn("WARNING: backscal keyword not found, check file format",
+                              UserWarning)     
+        if backscal == 0.:
+            backscal = 1.
+            warnings.warn("WARNING: found backscal=0, assuming it is 1",
+                          UserWarning)               
+        
+        #check that the spectrum and response have the same mission and channel 
+        #number         
+        mission_spectrum = hdr["TELESCOP"]
+        instrument_spectrum = hdr["INSTRUME"]
+        if mission_spectrum != response.mission:
+            raise NameError("Observatory in the spectrum different from the response")
+        if instrument_spectrum != response.instrument:
+            raise NameError("Instrument in the spectrum different from the response")        
+        #check the file contains the Stokes parameter the user expects, if the 
+        #keyword tracking it is present
+        if stokes is not None:
+            stokes_index = {"I":0, "Q":1, "U":2}
+            try:
+                stokes_keyword = hdr["STOKES"]
+                if stokes_keyword != stokes_index[stokes]:
+                    raise NameError("Stokes parameter in the spectrum different from the one requested")
+            except KeyError:
+                warnings.warn("WARNING: stokes keyword not found, check file format",
+                              UserWarning)
+        #unlike for a time-averaged spectrum, the errors can not be computed 
+        #from the counts, so they have to be stored in the file
+        try: 
+            counts_err = spectrum_data['STAT_ERR']   
+            if is_rate:
+                counts_err = counts_err*exposure
+        except KeyError:
+            if np.min(counts) < 0:
+                raise FileNotFoundError("Stokes spectrum contains negative counts but no STAT_ERR column")
+            counts_err = np.sqrt(counts)
+            warnings.warn("WARNING: no STAT_ERR column found, assuming Poisson errors",
+                          UserWarning)
+        #check if systematic errors are applied
+        try: 
+            sys_err = spectrum_data['SYS_ERR']   
+        except KeyError:
+            sys_err = np.zeros(len(counts))
+        counts_err = np.sqrt(counts_err**2+(counts*sys_err)**2)
+        #check if the spectrum has been grouped
+        try: 
+            grouping_data = spectrum_data['GROUPING']  
+            has_grouping = True
+        except KeyError:
+            has_grouping = False
+        #calculate the spectrum whether it has been grouped or not, along with 
+        #the energy bounds and errors for each bin in either case
+        if has_grouping:
+            group_start = np.where(grouping_data==1)[0]
+            total_groups = len(group_start)
+            counts_per_group = np.zeros(total_groups)
+            spectrum_error = np.zeros(total_groups)
+            bin_bounds_lo = np.zeros(total_groups)
+            bin_bounds_hi = np.zeros(total_groups)
+            for i in range(total_groups-1):
+                counts_per_group[i] = np.sum(counts[group_start[i]:group_start[i+1]])
+                spectrum_error[i] = np.sqrt(np.sum(counts_err[group_start[i]:group_start[i+1]]**2))
+                bin_bounds_lo[i] = response.emin[group_start[i]]
+                #the upper bounds of this bin are the starting point of the next bin up in the grouping
+                bin_bounds_hi[i] = response.emin[group_start[i+1]]    
+            #the last bin needs to be accounted for explicitely because the photons may not end up
+            #being regrouped
+            counts_per_group[-1] = np.sum(counts[group_start[total_groups-1]:])
+            spectrum_error[-1] = np.sqrt(np.sum(counts_err[group_start[total_groups-1]:]**2))
+            bin_bounds_lo[-1] = bin_bounds_hi[-2]
+            bin_bounds_hi[-1] = response.emax[-1]
+        else:
+            bin_bounds_lo = response.emin
+            bin_bounds_hi = response.emax
+            counts_per_group = counts
+            spectrum_error = counts_err
+        return bin_bounds_lo, bin_bounds_hi, counts_per_group, spectrum_error, exposure, backscal
+ 
+
 
 def load_lc(path):
     '''

@@ -15,6 +15,7 @@ from ndspec.SimpleFit import SimpleFit, load_pha
 from ndspec.FitPowerSpectrum import FitPowerSpectrum
 from ndspec.FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from ndspec.FitCrossSpectrum import FitCrossSpectrum
+from ndspec.FitSpectroPolarimetry import FitSpectroPolarimetry
 from ndspec.FitTwoD import FitTwoD
 from ndspec.JointFit import JointFit
 import ndspec.Models as models
@@ -55,6 +56,18 @@ def pulsing_bb(ear,x_axis,norm_bb,kT,norm_mod):
 def pulsing_bb_eval(y_axis,x_axis,norm_bb,kT,norm_mod):
     model = pulsing_bb(y_axis,x_axis,norm_bb,kT,norm_mod)
     model = model.T
+    return model
+
+def stokes_powerlaw(energ,norm,index,pol_degree,pol_angle):
+    spectrum = models.powerlaw(energ,np.array([norm,index]))
+    polarization = models.pol_constant(energ,np.array([pol_degree,pol_angle]))
+    model = spectrum*polarization
+    return model
+
+#ths model is used to check that SpectroPolarimetry only accepts models that 
+#return all 3 stokes parameters 
+def stokes_wrong_shape(energ,norm,index):
+    model = models.powerlaw(energ,np.array([norm,index]))
     return model
      
 
@@ -442,6 +455,324 @@ class TestFitCrossSpectrum(object):
         with pytest.raises(AttributeError):
             self.test_cross.likelihood = "error"
             err = self.test_cross._minimizer(params=None)         
+
+class TestFitSpectroPolarimetry(object):
+ 
+    @classmethod
+    def setup_class(cls):
+        rmffile = os.getcwd()+"/ndspec/tests/data/ixpe.rmf"
+        arffile = os.getcwd()+"/ndspec/tests/data/ixpe.arf"
+        mrffile = os.getcwd()+"/ndspec/tests/data/ixpe.mrf"
+        cls.response = ResponseMatrix(rmffile)
+        cls.response.load_arf(arffile)
+        cls.response_pol = ResponseMatrix(rmffile)
+        cls.response_pol.load_arf(mrffile)
+        cls.mod_factor = cls.response_pol.specresp/cls.response.specresp
+ 
+        cls.stokes_I_file = os.getcwd()+"/ndspec/tests/data/ixpe_stokesI.pha"
+        cls.stokes_Q_file = os.getcwd()+"/ndspec/tests/data/ixpe_stokesQ.pha"
+        cls.stokes_U_file = os.getcwd()+"/ndspec/tests/data/ixpe_stokesU.pha"
+ 
+        #the number of groups each spectrum was binned 
+        cls.n_groups_I = 213
+        cls.n_groups_pol = 47
+        cls.exposure = 18925.057928
+        cls.fit_lo = 2.
+        cls.fit_hi = 8.
+ 
+        #set up the fitter the majority of the tests below run on
+        cls.test_polar = FitSpectroPolarimetry()
+        cls.test_polar.set_data(cls.response,cls.stokes_I_file,
+                                cls.stokes_Q_file,cls.stokes_U_file,
+                                response_pol=cls.response_pol)
+        polar_model = LM_Model(stokes_powerlaw)
+        polar_pars = polar_model.make_params(
+                     norm=dict(value=1.,min=0.,max=1.e3),
+                     index=dict(value=-2.,min=-5.,max=0.),
+                     pol_degree=dict(value=0.05,min=0.,max=1.),
+                     pol_angle=dict(value=20.,min=-90.,max=180.))
+        cls.test_polar.set_model(polar_model,params=polar_pars)
+        cls.test_polar.ignore_energies(0.,cls.fit_lo,stokes="all")
+        cls.test_polar.ignore_energies(cls.fit_hi,20.,stokes="all")
+        return
+ 
+    #set up a second fitter for the tests which modify the object they run on
+    def polar_setup(self,ignore=True):
+        test_fit = FitSpectroPolarimetry()
+        test_fit.set_data(self.response,self.stokes_I_file,self.stokes_Q_file,
+                          self.stokes_U_file,response_pol=self.response_pol)
+        polar_model = LM_Model(stokes_powerlaw)
+        polar_pars = polar_model.make_params(
+                     norm=dict(value=1.,min=0.,max=1.e3),
+                     index=dict(value=-2.,min=-5.,max=0.),
+                     pol_degree=dict(value=0.05,min=0.,max=1.),
+                     pol_angle=dict(value=20.,min=-90.,max=180.))
+        test_fit.set_model(polar_model,params=polar_pars)
+        if ignore is True:
+            test_fit.ignore_energies(0.,self.fit_lo,stokes="all")
+            test_fit.ignore_energies(self.fit_hi,20.,stokes="all")
+        return test_fit
+ 
+    #test that the data is loaded over the two separate channel grids, and that 
+    #the flattened array contains all three Stokes parameters in the order 
+    #I, Q, U
+    def test_polar_load(self):
+        test_load = self.polar_setup(ignore=False)
+        assert(test_load.n_chans == self.n_groups_I)
+        assert(test_load.n_pol_chans == self.n_groups_pol)
+        assert(test_load.n_bins == self.n_groups_I+2*self.n_groups_pol)
+        assert(test_load.data.size == test_load.n_bins)
+        assert(test_load.data_err.size == test_load.n_bins)
+        assert(np.isclose(test_load.exposure,self.exposure))
+        stokes_I, stokes_Q, stokes_U = test_load.split_stokes(test_load.data)
+        assert(stokes_I.size == self.n_groups_I)
+        assert(stokes_Q.size == self.n_groups_pol)
+        assert(stokes_U.size == self.n_groups_pol)
+  
+    #test that building the Stokes Q/U response from the modulation factor is 
+    #identical to loading the modulation response function directly. 
+    def test_polar_mod_factor(self):
+        test_mod = FitSpectroPolarimetry()
+        test_mod.set_data(self.response,self.stokes_I_file,self.stokes_Q_file,
+                          self.stokes_U_file,mod_factor=self.mod_factor)
+        test_mrf = self.polar_setup(ignore=False)
+        r_tol = 1e-5
+        assert(np.allclose(test_mod.response_pol.resp_matrix,
+                           test_mrf.response_pol.resp_matrix,rtol=r_tol))
+        assert(np.allclose(test_mod.data,test_mrf.data))
+        #the modulation factor is only stored when the response is built from it
+        assert(test_mrf.mod_factor is None)
+        assert(np.allclose(test_mod.mod_factor,self.mod_factor))
+ 
+    #test that the model is evaluated over the correct grids 
+    def test_polar_eval(self):
+        test_model = self.test_polar.eval_model()
+        assert(test_model.size == self.test_polar.n_bins)
+        assert(np.all(np.isfinite(test_model)))
+        stokes_I, stokes_Q, stokes_U = \
+            self.test_polar.split_stokes(test_model)
+        assert(stokes_I.size == self.test_polar.n_chans)
+        assert(stokes_Q.size == self.test_polar.n_pol_chans)
+        assert(stokes_U.size == self.test_polar.n_pol_chans)
+        assert(np.all(stokes_I > 0.))
+        #before folding, all three Stokes parameters are defined over the same 
+        #photon energy grid
+        test_unfolded = self.test_polar.eval_model(fold=False,mask=False)
+        assert(test_unfolded.size == 3*self.response.n_energs)
+ 
+    #test that the residuals are returned over every noticed data bin, and that 
+    #the ratio residuals are consistent with the explicit likeilhood calls 
+    def test_polar_residuals(self):
+        chisq_res, chisq_bars = self.test_polar.get_residuals("chisq")
+        ratio_res, ratio_bars = self.test_polar.get_residuals("ratio")
+        assert(chisq_res.size == self.test_polar.n_bins)
+        assert(ratio_res.size == self.test_polar.n_bins)
+        assert(np.all(np.isfinite(chisq_res)))
+        assert(np.all(np.isfinite(ratio_res)))
+        #both definitions measure the same distance between data and model, in 
+        #units of the error on the data
+        model = self.test_polar.eval_model()
+        assert(np.allclose(chisq_res,(self.test_polar.data-model)/ \
+                           self.test_polar.data_err))
+        assert(np.allclose(ratio_res,self.test_polar.data/model))
+ 
+    #test that the polarization degree and angle of the data are over the
+    #correct Stokes Q/U channel grid, and computed correctly
+    def test_polar_data_polarization(self):
+        degree, angle, degree_err, angle_err = \
+            self.test_polar.get_data_polarization()
+        assert(degree.size == self.test_polar.n_pol_chans)
+        assert(angle.size == self.test_polar.n_pol_chans)
+        #the polarization degree is always positive, and the angle is only 
+        #defined between -pi/2 and pi/2
+        assert(np.all(degree >= 0.))
+        assert(np.all(np.abs(angle) <= 0.5*np.pi))
+        assert(np.all(degree_err > 0.))
+        assert(np.all(angle_err > 0.))
+
+        stokes_I = np.extract(self.test_polar.pol_ebounds_mask,
+                              self.test_polar._data_stokes_I_unmasked)
+        _, stokes_Q, stokes_U = \
+            self.test_polar.split_stokes(self.test_polar.data)
+        assert(np.allclose(degree,np.sqrt(stokes_Q**2+stokes_U**2)/stokes_I))
+        assert(np.allclose(angle,0.5*np.arctan2(stokes_U,stokes_Q)))
+ 
+    #test that the model polarization degree and angle are computed over the 
+    #correct grids. 
+    def test_polar_model_polarization(self):
+        degree, angle = self.test_polar.derive_folded_polarization()
+        assert(degree.size == self.test_polar.n_pol_chans)
+        assert(angle.size == self.test_polar.n_pol_chans)
+        model_degree = self.test_polar.model_params["pol_degree"].value
+        model_angle = self.test_polar.model_params["pol_angle"].value
+        r_tol = 1e-3
+        assert(np.allclose(np.degrees(angle),model_angle,rtol=r_tol))
+        #test that in detector space, the polarization degree is the true model 
+        #p multiplied by the modulation factor 
+        norm = self.test_polar.model_params["norm"].value
+        index = self.test_polar.model_params["index"].value
+        spectrum = models.powerlaw(self.test_polar.energs,
+                                   np.array([norm,index]))
+        spectrum = spectrum*self.test_polar.energ_bounds
+        chan_I = self.test_polar.response_polgrid.convolve_response(spectrum)
+        chan_pol = self.test_polar.response_pol.convolve_response(spectrum)
+        mod_factor_chan = np.extract(self.test_polar.pol_ebounds_mask,
+                                     chan_pol/chan_I)
+        assert(np.allclose(degree,model_degree*mod_factor_chan))
+
+ 
+    #test that the residuals of the polarization degree and angle are computed 
+    #against the data, and that unsupported formats are rejected
+    def test_polar_polarization_residuals(self):
+        residuals, bars = self.test_polar.get_polarization_residuals("chisq")
+        assert(len(residuals) == 2)
+        assert(residuals[0].size == self.test_polar.n_pol_chans)
+        assert(residuals[1].size == self.test_polar.n_pol_chans)
+        residuals, bars = self.test_polar.get_polarization_residuals("ratio")
+        assert(np.all(np.isfinite(residuals[0])))
+        with pytest.raises(ValueError):
+            test = self.test_polar.get_polarization_residuals("wrong")
+ 
+    #test that the class only loads data if exactly one of the modulation 
+    #response function and modulation factor is provided, and if both responses 
+    #are defined over the same photon energy grid
+    def test_polar_set_data_errors(self):
+        test_errors = FitSpectroPolarimetry()
+        #the Stokes I response has to be a nDspec ResponseMatrix
+        with pytest.raises(TypeError):
+            test_errors.set_data(np.ones(3),self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 response_pol=self.response_pol)
+        #so does the Stokes Q/U response
+        with pytest.raises(TypeError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 response_pol=np.ones(3))
+        #exactly one of the two ways of defining the Stokes Q/U response is 
+        #required
+        with pytest.raises(ValueError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file)
+        with pytest.raises(ValueError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 response_pol=self.response_pol,
+                                 mod_factor=self.mod_factor)
+        #the two responses must share the same photon energy grid
+        with pytest.raises(ValueError):
+            rmffile = os.getcwd()+"/ndspec/tests/data/ixpe.rmf"
+            wrong_energs = ResponseMatrix(rmffile)
+            wrong_energs.energ_lo = wrong_energs.energ_lo[1:]
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 response_pol=wrong_energs)
+ 
+    #test that the class only builds a modulation response function from a 
+    #modulation factor that is physically meaningful
+    def test_polar_mod_factor_errors(self):
+        test_errors = FitSpectroPolarimetry()
+        with pytest.raises(ValueError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 mod_factor=self.mod_factor[1:])
+        with pytest.raises(ValueError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 mod_factor=-0.1)
+        with pytest.raises(ValueError):
+            test_errors.set_data(self.response,self.stokes_I_file,
+                                 self.stokes_Q_file,self.stokes_U_file,
+                                 mod_factor=1.1)
+ 
+    #test that channels can be ignored and noticed either in all three Stokes 
+    #parameters at once, or in Stokes I and Stokes Q/U separately
+    def test_polar_select_bins(self):
+        test_select = self.polar_setup(ignore=False)
+        ignore_I = test_select._emax_unmasked[0]
+        ignore_pol = test_select._pol_emax_unmasked[0]
+ 
+        test_select.ignore_energies(0.,ignore_I,stokes="I")
+        assert(test_select.n_chans == self.n_groups_I-1)
+        assert(test_select.n_pol_chans == self.n_groups_pol)
+        assert(test_select.data.size == test_select.n_bins)
+        test_select.notice_energies(0.,ignore_I,stokes="I")
+        assert(test_select.n_chans == self.n_groups_I)
+ 
+        test_select.ignore_energies(0.,ignore_pol,stokes="QU")
+        assert(test_select.n_chans == self.n_groups_I)
+        assert(test_select.n_pol_chans == self.n_groups_pol-1)
+        assert(test_select.data.size == test_select.n_bins)
+        test_select.notice_energies(0.,ignore_pol,stokes="QU")
+        assert(test_select.n_pol_chans == self.n_groups_pol)
+ 
+        ignore_both = test_select._pol_emax_unmasked[5]
+        test_select.ignore_energies(0.,ignore_both,stokes="all")
+        assert(test_select.n_chans < self.n_groups_I)
+        assert(test_select.n_pol_chans == self.n_groups_pol-6)
+        assert(test_select.data.size == test_select.n_bins)
+        test_select.notice_energies(0.,ignore_both,stokes="all")
+        assert(test_select.n_chans == self.n_groups_I)
+        assert(test_select.n_pol_chans == self.n_groups_pol)
+ 
+    #test that the class does not allow unsupported Stokes parameters to be 
+    #passed to the ignore/notice methods, or unsupported Stokes indexes to be 
+    #used internally
+    def test_polar_stokes_errors(self):
+        with pytest.raises(ValueError):
+            self.test_polar.ignore_energies(2.,3.,stokes="wrong")
+        with pytest.raises(ValueError):
+            self.test_polar.notice_energies(2.,3.,stokes="wrong")
+        with pytest.raises(ValueError):
+            test = self.test_polar._stokes_slice(3)
+ 
+    #test that the class only evaluates models returning all three Stokes 
+    #parameters, and that the channel mask is only applied to a folded model
+    def test_polar_eval_errors(self):
+        with pytest.raises(TypeError):
+            test_wrong = self.polar_setup()
+            wrong_model = LM_Model(stokes_wrong_shape)
+            wrong_pars = wrong_model.make_params(norm=1.,index=-2.)
+            test_wrong.set_model(wrong_model,params=wrong_pars)
+            test = test_wrong.eval_model()
+        with pytest.raises(ValueError):
+            test = self.test_polar.eval_model(fold=False,mask=True)
+        with pytest.raises(AttributeError):
+            test_nomodel = FitSpectroPolarimetry()
+            test_nomodel.set_data(self.response,self.stokes_I_file,
+                                  self.stokes_Q_file,self.stokes_U_file,
+                                  response_pol=self.response_pol)
+            test = test_nomodel.eval_model()
+ 
+    #test that the class only allows chi squared fit statistics, which are 
+    #required by Q and U
+    def test_polar_set_fit_statistic(self):
+        test_stat = self.polar_setup()
+        with pytest.raises(ValueError):
+            test_stat.set_fit_statistic("cstat")
+        with pytest.raises(ValueError):
+            test_stat.set_fit_statistic("wrong")
+        test_stat.set_fit_statistic("chisq")
+        assert(test_stat.likelihood == "chisq")
+ 
+    #test that the class doesn't calculate the likelihood if it is not defined 
+    #correctly
+    def test_polar_likelihood(self):
+        with pytest.raises(AttributeError):
+            test_likelihood = self.polar_setup()
+            test_likelihood.likelihood = "error"
+            err = test_likelihood._minimizer(params=None)
+ 
+    #test that plots do not allow weird things to be rendered
+    def test_polar_plot_errors(self):
+        with pytest.raises(ValueError):
+            self.test_polar.plot_data(units="wrong")
+        with pytest.raises(ValueError):
+            self.test_polar.plot_model(units="wrong")
+        with pytest.raises(ValueError):
+            self.test_polar.plot_model(residuals="wrong")
+        #the background can only be plotted if it was loaded
+        with pytest.raises(AttributeError):
+            self.test_polar.plot_data(units="stokes",plot_bkg=True)
 
 class TestFitTwoD(object):
  

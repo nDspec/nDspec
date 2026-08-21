@@ -3,14 +3,9 @@ import copy
 import warnings
 from astropy.io import fits
 from scipy.interpolate import interp1d
-#import jax.numpy as jnp
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 
@@ -410,6 +405,49 @@ class ResponseMatrix(nDspecOperator):
         bin_resp.resp_matrix = rebinned_response
         return bin_resp
 
+    def diagonal_matrix(self,num):
+        """
+        Returns a diagonal identity matrix, which by definition contains only
+        ones on the diagonal and zeroes  otherwise.
+        
+        Parameters:
+        -----------             
+        num: int
+            The dimension of the desired matrix.
+            
+        Returns: 
+        --------
+        diag_resp: np.array(float,float)
+            An identity matrix of size (num x num).   
+        """
+    
+        diag_resp = np.diag(np.ones(num))
+        return diag_resp 
+
+    def set_exposure_time(self,time):
+        """
+        Adjusts the response matrix to a new time. Some mission's FITS files
+        do not contain this information and thus need to be set manually.
+
+        Parameters
+        ----------
+        time : float
+            Exposure time of observation.
+
+        Returns
+        -------
+        None.
+
+        """
+        if (isinstance(time, (np.floating, float, int)) != True):
+            raise TypeError("Time must be a float or integer")
+        
+        factor = time/self.exposure
+        
+        self.resp_matrix = self.resp_matrix*factor
+        self.exposure = time        
+        return
+
     def convolve_response(self,model_input,units_in="xspec",units_out="kev"):
         """
         This method applies the response matrix loaded in the class to a user
@@ -501,106 +539,148 @@ class ResponseMatrix(nDspecOperator):
             output_model = conv_model                
         return output_model
 
-    def plot_response(self,plot_type="channel",return_plot=False):
+    def _gain_weights(self,slope,offset):
         """
-        Plots the instrument response as a function of incoming energy and 
-        instrument channel. For ease of visualization, the z-axis plots 
-        the base-10 logarithm of the response matrix. 
+        This method computes a matrix of weights required to shift a model,
+        which has already been folded through the response, from the nominal
+        channel grid to one shifted by a gain miscalibration. If gain is 
+        miscalibrated, then the true photon energy E' collected by a channel
+        with nominal bound E is 
         
-        Parameters:
-        -----------             
-        plot_type: string, default="channel"
-            Sets the units of the X-axis to be either the channel number (by 
-            default) or the bounds of each channel (plot_type="energy").
+        E' = E/slope - offset,
         
-        Returns: 
-        --------
-        fig: matplotlib.figure, optional 
-            The plot object produced by the method.
-        """
-    
-        fig = plt.figure(figsize=(9.,7.5))
-        
-        if plot_type == "channel":
-            x_axis = self.chans
-            plt.xlabel("Channel")
-        elif plot_type == "energy":
-            x_axis = (self.emax+self.emin)/2.
-            plt.xlabel("Bounds (keV)")
-        else:
-            raise TypeError("Specify either channel or energy for the x-axis")
-                
-        energy_array = (self.energ_hi+self.energ_lo)/2.
-        p = plt.pcolormesh(x_axis,energy_array,np.log10(self.resp_matrix),
-                           cmap="PuRd",shading='auto',linewidth=0,
-                           rasterized=True)
-        fig.colorbar(p)
-        plt.ylabel("Energy (keV)")
-        plt.title("log10(Response)")
-        plt.show()
-        
-        if return_plot is True:
-            return fig 
-        else:
-            return   
+        with the offset in units of keV. Each element (h,k) of the weight matrix
+        contains the fraction of the starting channel k which overlaps with the
+        shifted bounds of channel h, under the assumption that the counts are
+        distributed uniformly within each channel.
 
-        
-    def plot_arf(self,plot_scale="log",return_plot=False):
-        """
-        Plots the instrument effective area, if one has been loaded, as a 
-        function of energy. 
-        
+        Channels whose shifted bounds fall partially or entirely outside of the
+        starting grid by definition can not be accounted for correctly. It is up 
+        to the user to ensure that these channels at the extremes of the 
+        response are ignored during a fit.
+
         Parameters:
-        -----------             
-        plot_scale: string, default="log"
-            Switches between log10(arf) (plot_scale="log", the default behavior)
-            and just the arf (plot_scale="lin").
-            
-        Returns: 
-        --------
-        fig: matplotlib.figure, optional 
-            The plot object produced by the method.
-        """
-    
-        #tbd: only allow this to happen if specresp is defined
-        energy_array = (self.energ_hi+self.energ_lo)/2.
-        fig = plt.figure(figsize=(9.,7.5))
-        plt.plot(energy_array,self.specresp,linewidth=2.5,color=colorscale[3])
-        plt.xlabel("Energy (keV)")
-        plt.ylabel("Effective area (cm$^{2}$)")
-        plt.yscale("log",base=10)
-        
-        if plot_scale == "log":
-            plt.xscale("log",base=10)
-        elif plot_scale != "lin":
-            raise TypeError(("Please specify either linear (lin) or"
-                             " logarithmic (log) x scale")) 
-        
-        plt.show()
-        
-        if return_plot is True:
-            return fig 
-        else:
-            return   
-        
-    def diagonal_matrix(self,num):
-        """
-        Returns a diagonal identity matrix, which by definition contains only
-        ones on the diagonal and zeroes otherwise.
-        
-        Parameters:
-        -----------             
-        num: int
-            The dimension of the desired matrix.
-            
+        -----------
+        slope: float
+            The multiplicative term of the gain shift. A value of 1 corresponds
+            to the same energy scale stored in the response.
+
+        offset: float
+            The additive term of the gain shift, in units of keV. A value of 0
+            corresponds to the same energy scale stored in the response.
+
         Returns:
         --------
-        diag_resp: np.array(float,float)
-            An identity matrix of size (num x num).   
+        weights: np.array(float,float)
+            The matrix of weights, of size (n_chans x n_chans), to be applied to
+            a model folded through the response and expressed in units of counts
+            per channel.
         """
-    
-        diag_resp = np.diag(np.ones(num))
-        return diag_resp            
+
+        if slope <= 0.:
+            raise ValueError("The gain slope must be greater than zero")
+
+        shift_lo = self.emin/slope - offset
+        shift_hi = self.emax/slope - offset
+
+        #the overlap between every shifted channel and every nominal channel;
+        #the transpose in the first term is to broadcast the shifted grid over
+        #the rows and the nominal grid over the columns
+        overlap = (np.minimum(shift_hi.reshape(self.n_chans,1),self.emax) -
+                   np.maximum(shift_lo.reshape(self.n_chans,1),self.emin))
+        overlap = np.clip(overlap,0.,None)
+        weights = overlap/(self.emax-self.emin)
+        return weights
+
+    def gain_support(self,slope,offset):
+        """
+        This method is intended to let users identify which channels may need to
+        be ignored before applying a given gain shift.
+
+        The method returns the fraction of each shifted channel which is still
+        covered by the starting channel grid, for a given gain shift. A value of
+        one means the channel is fully supported and accounted for by the grid 
+        stored in the response, even when shifting the gain; any value smaller 
+        than one means that part of the shifted channel falls outside of the
+        instrument grid, and that the model folded in that  channel will be 
+        under-estimated unphysically.
+
+        Parameters:
+        -----------
+        slope: float
+            The multiplicative term of the gain shift.
+
+        offset: float
+            The additive term of the gain shift, in units of keV.
+
+        Returns:
+        --------
+        support: np.array(float)
+            An array of size (n_chans), containing the supported fraction of
+            each channel in the shifted grid.
+        """
+
+        support = np.sum(self._gain_weights(slope,offset),axis=1)
+        return support
+
+    def apply_gain(self,array,slope=1.0,offset=0.0,units="kev"):
+        """
+        This method applies a gain shift to an array which has already been
+        folded through the instrument response, by re-distributing it from the
+        starting channel grid to one displaced by the gain.
+
+        The units of the input and output arrays are identical, and need to
+        match those used when calling the convolve_response method. Note that
+        the output is always normalized by the width of the nominal channels,
+        because that is the grid over which the data is defined; the narrowing
+        (or widening) of the channels caused by the slope term is a genuine
+        physical effect and is preserved.
+
+        Parameters:
+        -----------
+        array: np.array(float) or np.array(float,float)
+            Either a 1-d array of size (n_chans), or a 2-d array of size
+            (n_chans x arbitrary length), containing a model which has already
+            been folded through the response.
+
+        slope: float, default=1.0
+            The multiplicative term of the gain shift.
+
+        offset: float, default=0.0
+            The additive term of the gain shift, in units of keV.
+
+        units: string, default="kev"
+            A string setting the normalization of the input and output arrays,
+            identical to the units_out parameter of the convolve_response
+            method. The default "kev" assumes units of counts/s/keV, "channel"
+            instead assumes units of counts/s/channel.
+
+        Returns:
+        --------
+        shift_array: np.array(float) or np.array(float,float)
+            The input array, re-distributed over the shifted channel grid. The
+            size and normalization are identical to those of the input.
+        """
+
+        if np.shape(array)[0] != self.n_chans:
+            raise TypeError(("Input array has a different size from the channel"
+                             " grid stored in the response"))
+        weights = self._gain_weights(slope,offset)
+        chan_widths = self.emax - self.emin
+
+        if units == "kev":
+            if array.ndim == 1:
+                shift_array = np.matmul(weights,array*chan_widths)/chan_widths
+            else:
+                shift_array = np.matmul(weights,
+                                        array*chan_widths.reshape(self.n_chans,1))
+                shift_array = shift_array/chan_widths.reshape(self.n_chans,1)
+        elif units == "channel":
+            shift_array = np.matmul(weights,array)
+        else:
+            raise ValueError(("Units incorrect, specify either kev or"
+                              " channel"))
+        return shift_array           
               
     def unfold_response(self,array,units_in="kev"):    
         """
@@ -663,28 +743,84 @@ class ResponseMatrix(nDspecOperator):
             unfold_model = unfold_model.reshape(self.n_chans)      
  
         return unfold_model
-       
-    def set_exposure_time(self,time):
+
+    def plot_response(self,plot_type="channel",return_plot=False):
         """
-        Adjusts the response matrix to a new time. Some mission's FITS files
-        do not contain this information and thus need to be set manually.
-
-        Parameters
-        ----------
-        time : float
-            Exposure time of observation.
-
-        Returns
-        -------
-        None.
-
+        Plots the instrument response as a function of incoming energy and 
+        instrument channel. For ease of visualization, the z-axis plots 
+        the base-10 logarithm of the response matrix. 
+        
+        Parameters:
+        -----------             
+        plot_type: string, default="channel"
+            Sets the units of the X-axis to be either the channel number (by 
+            default) or the bounds of each channel (plot_type="energy").
+        
+        Returns: 
+        --------
+        fig: matplotlib.figure, optional 
+            The plot object produced by the method.
         """
-        if (isinstance(time, (np.floating, float, int)) != True):
-            raise TypeError("Time must be a float or integer")
+    
+        fig = plt.figure(figsize=(9.,7.5))
         
-        factor = time/self.exposure
+        if plot_type == "channel":
+            x_axis = self.chans
+            plt.xlabel("Channel")
+        elif plot_type == "energy":
+            x_axis = (self.emax+self.emin)/2.
+            plt.xlabel("Bounds (keV)")
+        else:
+            raise TypeError("Specify either channel or energy for the x-axis")
+                
+        energy_array = (self.energ_hi+self.energ_lo)/2.
+        p = plt.pcolormesh(x_axis,energy_array,np.log10(self.resp_matrix),
+                           cmap="PuRd",shading='auto',linewidth=0,
+                           rasterized=True)
+        fig.colorbar(p)
+        plt.ylabel("Energy (keV)")
+        plt.title("log10(Response)")
+        plt.show()
         
-        self.resp_matrix = self.resp_matrix*factor
-        self.exposure = time        
-        return
+        if return_plot is True:
+            return fig 
+        else:
+            return   
         
+    def plot_arf(self,plot_scale="log",return_plot=False):
+        """
+        Plots the instrument effective area, if one has been loaded, as a 
+        function of energy. 
+        
+        Parameters:
+        -----------             
+        plot_scale: string, default="log"
+            Switches between log10(arf) (plot_scale="log", the default behavior)
+            and just the arf (plot_scale="lin").
+            
+        Returns: 
+        --------
+        fig: matplotlib.figure, optional 
+            The plot object produced by the method.
+        """
+    
+        #tbd: only allow this to happen if specresp is defined
+        energy_array = (self.energ_hi+self.energ_lo)/2.
+        fig = plt.figure(figsize=(9.,7.5))
+        plt.plot(energy_array,self.specresp,linewidth=2.5,color=colorscale[3])
+        plt.xlabel("Energy (keV)")
+        plt.ylabel("Effective area (cm$^{2}$)")
+        plt.yscale("log",base=10)
+        
+        if plot_scale == "log":
+            plt.xscale("log",base=10)
+        elif plot_scale != "lin":
+            raise TypeError(("Please specify either linear (lin) or"
+                             " logarithmic (log) x scale")) 
+        
+        plt.show()
+        
+        if return_plot is True:
+            return fig 
+        else:
+            return           

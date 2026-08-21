@@ -2,10 +2,6 @@ import numpy as np
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 from lmfit.model import ModelResult as LM_result
 
@@ -117,6 +113,10 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class.         
+
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None. 
 
     Other attributes:
     -----------------
@@ -276,6 +276,12 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if fold is True:
             model = self.response.convolve_response(model) 
+            model = self._apply_gain(model,params)
+        elif mask is True:
+            raise ValueError(("mask=True requires fold=True: the ignore/"
+                              "notice mask is defined in channel space, and "
+                              "only applies to the model once it has been "
+                              "folded through the response.")) 
 
         if mask is True:
             model = np.extract(self.ebounds_mask,model)            
@@ -308,6 +314,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             residuals, _ = self.get_residuals("chisq",model=model,mask=True)
         elif self.likelihood == "cstat":
             residuals, _ = self.get_residuals("cstat",model=model,mask=True)
+            #lmfit minimizes the sum of the squares of whatever this method
+            #returns, so the residuals passed to it have to be the square root
+            #of the contribution of each bin to the total statistic; the clip
+            #guards against bins floating point error for bins with 0 counts 
+            residuals = np.sqrt(np.clip(residuals,0.,None))
         elif self.likelihood == "custom":
             residuals, _ = self.get_residuals("custom",model=model,mask=True)
         else:

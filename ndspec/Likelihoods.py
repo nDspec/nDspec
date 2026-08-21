@@ -172,13 +172,12 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
     model = model*conv_factor
 
     if noise is None:   
-        #these two lines are necessary to handle bins with 0 counts without 
-        #returning infinities; in that case, the infinities are handled by 
-        #just taking full=model, because every other term goes to zero in the 
-        #limit of data->0
-        with np.errstate(divide='ignore',invalid='ignore'):
-            full = model - data + data*(np.log(data)-np.log(model))
-        cstat = np.where(data==0, model, full)     
+        cstat = model - data
+        #guard against bins with zero counts, which would return nan in the term 
+        #data*np.log(data)
+        mask = (data > 0)
+        cstat[mask] = cstat[mask] + data[mask]*(np.log(data[mask]) -
+                                                np.log(model[mask]))     
     else:
         #convert the background array to counts 
         noise = noise*conv_factor       

@@ -9,11 +9,7 @@ from pyfftw.interfaces.numpy_fft import (
 
 import matplotlib.pyplot as plt
 import matplotlib.pylab as pl
-from matplotlib import rc, rcParams
 from matplotlib.colors import TwoSlopeNorm
-rc('text',usetex=True)
-rc('font',**{'family':'serif','serif':['Computer Modern']})
-plt.rcParams.update({'font.size': 17})
 
 from lmfit import Model as LM_Model
 from lmfit import Parameters as LM_Parameters
@@ -147,6 +143,11 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         widths stored in the response, regardless of which ones are ignored or 
         noticed during the fit. Used exclusively to facilitate book-keeping 
         internal to the fitter class. 
+
+    gain_params: lmfit.Parameters, default None 
+        A lmfit Parameters object, which contains the parameters for the gain  
+        correction model components if it is enabled. Defaults to None. For 
+        cross spectral fitting, no gain correction is currently supported.
 
     Attributes inherited from FrequencyDependentFit:
     ------------------------------------------------
@@ -561,8 +562,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
                     
                     if self.units == "cartesian":    
                         data_first_dim = np.real(cs.power)
-                        data_second_dim = np.imag(cs.power)          
-                        print(len(cs.m),len(cs.power))      
+                        data_second_dim = np.imag(cs.power)             
                         error_first_dim = np.sqrt((ps_sub.power*ps_ref.power+ \
                                                    np.real(cs.power)**2- \
                                                    np.imag(cs.power)**2)/(2.*cs.m))
@@ -1399,7 +1399,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             return      
 
-    def plot_model_1d(self,plot_data=True,params=None,use_phase=False,residuals="delchi",return_plot=False):
+    def plot_model_1d(self,plot_data=True,params=None,use_phase=False,residuals="chisq",return_plot=False):
         """
         This method plots the model defined by the user as a function of  the  
         unit dependence specified (ie, Fourier frequency or energy). 

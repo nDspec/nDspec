@@ -705,4 +705,100 @@ class nDspecOperator(object):
             return_lo[i] = index_lo
             return_hi[i] = index_hi 
                    
-        return return_lo,return_hi          
+        return return_lo,return_hi  
+        
+    def _check_shape(self, arr, size, name, dtype=float):
+        """
+        This method checks that the length in the first axis 
+        of an input array is identical to that provided. If 
+        this is not the case, the method throws an error.
+
+        Parameters:
+        -----------
+        arr: array_like 
+            The array of floats to be checked.
+
+        size: int
+            The size of the dimension expected.
+
+        name: str
+            The name of the array used in throwing the error.
+
+        dtype: dtype
+            The type of data to cast the array to after checking 
+            the size.
+
+        Returns:
+        --------
+        arr: array_like
+            The array after checking its size.
+        """
+        arr = np.atleast_1d(np.asarray(arr, dtype=dtype))
+        if arr.shape[0] != size:
+            raise ValueError(
+                f"{name} has shape {arr.shape}, expected first dimension "
+                f"n_bins={size}"
+            )
+        return arr
+
+    def _require(self, *names):
+        """
+        This method checks that the class actually contains the 
+        attributes contained in the list "names", and otherwise 
+        throws an error
+
+        Parameters:
+        -----------
+        *names: str
+            The names of the attributes whose presence is to be 
+            checked.
+        """
+        missing = [n for n in names if getattr(self, n) is None]
+        if missing:
+            raise ValueError(
+                f"Missing required quantities: {missing}. "
+                "Call the appropriate setter(s) first."
+            )
+        return 
+        
+    def _as_column(self, arr):
+        """
+        This method reshapes a per-bin (n_bins,) array to (n_bins, 1) so it 
+        broadcasts cleanly against a (some_dimension,) array. Leaves
+        true scalars (or scalar-like size-1 arrays untouched.
+        
+        Parameters:
+        -----------
+        arr: array_like 
+            The array to reshape
+
+        Returns:
+        --------
+        arr: array_like 
+            The reshaped array
+        """
+        arr = np.asarray(arr)
+        if arr.ndim == 0 or arr.size == 1:
+            return arr
+        return arr.reshape(-1, 1)
+
+    def _as_row(self, arr):
+        """
+        This method reshapes a per-bin (n_bins,) array to (1,n_bins) so it
+        broadcasts cleanly against a (some_dimension,1) array. Leaves 
+        true scalars (or scalar-like size-1 arrays untouched.
+
+        Parameters:
+        -----------
+        arr: array_like 
+            The array to reshape
+
+        Returns:
+        --------
+        arr: array_like 
+            The reshaped array
+        """
+        arr = np.asarray(arr)
+        if arr.ndim == 0 or arr.size == 1:
+            return arr
+        return arr.reshape(1, -1)    

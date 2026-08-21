@@ -29,6 +29,11 @@ Timing Classes
 .. autoclass:: ndspec.Timing.CrossSpectrum
    :members:
    
+Polarimetry Class
+~~~~~~~~~~~~~~~~~~~~~
+.. autoclass:: ndspec.Polarimetry.PolarimetryProduct   
+   :members:
+   
 SimpleFit Classes 
 ~~~~~~~~~~~~~~~~~
 
@@ -39,6 +44,9 @@ SimpleFit Classes
    :members:
    
 .. autoclass:: ndspec.SimpleFit.FrequencyDependentFit
+   :members:
+
+.. autoclass:: ndspec.SimpleFit.StokesDependentFit
    :members:
    
 Data loading utilities
@@ -64,6 +72,12 @@ FitCrossSpectrum Class
 ~~~~~~~~~~~~~~~~~~~~~~
 
 .. autoclass:: ndspec.FitCrossSpectrum.FitCrossSpectrum
+   :members:
+
+FitSpectroPolarimetry Class
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autoclass:: ndspec.FitSpectroPolarimetry.FitSpectroPolarimetry
    :members:
    
 FitTwoD Class
@@ -149,6 +163,16 @@ Model library
 .. autofunction:: ndspec.Models.bbody_bkn
 
 .. autofunction:: ndspec.Models.pivoting_pl
+
+.. autofunction:: ndspec.Models.pol_constant
+
+.. autofunction:: ndspec.Models.pol_degree_linear
+
+.. autofunction:: ndspec.Models.pol_angle_linear
+
+.. autofunction:: ndspec.Models.pol_linear
+
+.. autofunction:: ndspec.Models.pol_rotation
 
 .. autofunction:: ndspec.Models.plot_2d
 

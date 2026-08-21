@@ -13,7 +13,8 @@ from . import Timing
 from . import XspecInterface
 from . import Simulator
 from . import Likelihoods
+from . import Utils
 
 __all__ = ["SamplingUtils","FitCrossSpectrum","FitPowerSpectrum","FitTimeAvgSpectrum",
-           "JointFit","Models","Operator","Response","SimpleFit","Simulator","Timing",
-           "XspecInterface","Likelihoods"]
+           "FitSpectroPolarimetry","FitTwoD","JointFit","Models","Operator","Response",
+           "SimpleFit","Simulator","Timing","XspecInterface","Likelihoods","Utils"]
