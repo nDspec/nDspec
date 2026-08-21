@@ -19,13 +19,26 @@ colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 
 def lorentz(array,params):
     """
-    This model is a Lorentzian function, defined identically to Uttley and Malzac
-    2023. The input parameters are:
-    
-    array: the array over which the Lorentzian is to be computed \n
-    f_pk: the peak frequency of the Lorentzian \n   
-    q: the q-factor of the Lorentzian \n    
-    rms: the normalization of the Lorentzian
+    This model is a Lorentzian function, defined identically to Uttley and 
+    Malzac 2023. 
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array (typically Fourier frequency) over which the Lorentzian is
+        to be computed.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - f_pk: the peak frequency of the Lorentzian
+        - q: the q-factor of the Lorentzian
+        - rms: the normalization of the Lorentzian
+
+    Output:
+    -------
+    model: np.array(float)
+        A one-dimensional array of the same size as the input array.
     """
 
     if params.ndim == 1:
@@ -49,13 +62,32 @@ def cross_lorentz(array1,array2,params):
     """
     This model is a complex Lorentzian function, defined identically to Uttley 
     and Malzac 2023, and shifted by a fixed phase, defined identically to Mendez
-    et al. 2023. The input parameters are:
-    
-    array: the array over which the Lorentzian is to be computed \n    
-    f_pk: the peak frequency of the Lorentzian \n    
-    q: the q-factor of the Lorentzian  \n    
-    rms: the normalization of the Lorentzian \n    
-    phase: the phase lag associated with the Lorentzian
+    et al. 2023. This model is meant exclusively for fitting complex data like 
+    cross spectra.
+
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The array (typically energy) over which the model is tiled; the output 
+        does not depend on this axis.
+
+    array2: np.array(float)
+        The Fourier frequency array over which the Lorentzian is to be
+        computed.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - f_pk: the peak frequency of the Lorentzian
+        - q: the q-factor of the Lorentzian
+        - rms: the normalization of the Lorentzian
+        - phase: the phase lag associated with the Lorentzian
+
+    Output:
+    -------
+    twod_lorentz: np.array(complex), shape (len(array2),len(array1))
+        A two-dimensional array, constant over array1 (which in the case of a  
+        cross spectrum corresponds to the energy) and tiled across it.
     """
     n_energs = len(array1)
     n_freqs = len(array2)
@@ -71,19 +103,33 @@ def cross_lorentz(array1,array2,params):
         phase = params[:,3][:,np.newaxis]
     else:
         raise TypeError("Params has too many dimensions, limit to 1 or 2 dimensions")
-    lorentz_arr = lorentz(array2,params,grid_edges=grid_edges)*np.exp(1j*phase)
+    lorentz_arr = lorentz(array2,params)*np.exp(1j*phase)
     twod_lorentz = np.tile(lorentz_arr,n_energs).reshape((n_energs,n_freqs))
     twod_lorentz = np.transpose(twod_lorentz)
     return twod_lorentz
 
 def powerlaw(array,params):
     """
-    This model is a standard power-law. The input parameters are: 
-    
-    array: the array grid over which to compute the power-law \n    
-    norm: the normalization of the powerlaw \n    
-    slope: the slope over the powerlaw. Unlike in Xspec, this parameter does not 
-    implicitely assume a minus sign; it must be specified by the user.
+    This model is a standard power-law.
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array grid over which to compute the power-law.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the normalization of the power-law
+        - slope: the slope of the power-law. Unlike in Xspec, this parameter
+          does not implicitely assume a minus sign; it must be specified by
+          the user.
+
+    Output:
+    -------
+    model: np.array(float)
+        A one-dimensional array of the same size as array, containing the
+        power-law evaluated over it.
     """
     if params.ndim == 1:
         norm = params[0]
@@ -100,13 +146,26 @@ def powerlaw(array,params):
 def brokenpower(array,params):
     """
     This model is a smoothly broken powerlaw, defined identically to eq. 10 in 
-    Ghisellini and Tavecchio 2009. The input parameters are:
-    
-    array: the array over which to compute the broken powerlaw \n    
-    norm: the normalization of the broken powerlaw \n    
-    slope1: the slope of the broken powerlaw before the break \n    
-    slope2: the slope of the broken powerlaw after the break \n    
-    brk: the location of the break in the powerlaw 
+    Ghisellini and Tavecchio 2009.
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array grid over which to compute the broken power-law.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the normalization of the broken power-law
+        - slope1: the slope of the broken power-law before the break
+        - slope2: the slope of the broken power-law after the break
+        - brk: the location of the break in the power-law
+
+    Output:
+    -------
+    model: np.array(float)
+        A one-dimensional array of the same size as array, containing the
+        broken power-law evaluated over it.
     """
     if params.ndim == 1:
         norm = params[0]
@@ -132,12 +191,25 @@ def brokenpower(array,params):
 
 def gaussian(array,params):
     """
-    This model is a Gaussian function. The input parameters are: 
-    
-    array: the array over which the Gaussian is defined \n    
-    center: the centroid of the Gaussian \n    
-    width: the width of the Gaussian \n
-    gauss_norm: the normalization of the Gaussian 
+    This model is a Gaussian function.
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array (typically energy) over which the Gaussian is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - center: the centroid of the Gaussian
+        - width: the width of the Gaussian
+        - gauss_norm: the normalization of the Gaussian
+
+    Output:
+    -------
+    line: np.array(float)
+        A one-dimensional array of the same size as array, containing the
+        Gaussian line evaluated over it.
     """
     if params.ndim == 1:
         center = params[0]
@@ -159,12 +231,25 @@ def gaussian(array,params):
 
 def bbody(array,params):
     """
-    This model is a constant black body. The input parameters are:
-    
-    array: the array over which the spectrum is defined \n    
-    norm: the normalization of the black body, defined identically to that of 
-    the Xspec model \n    
-    temp: the temperature in keV
+    This model is a constant black body, identical to that included in Xspec.
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array of energy bin centers over which the spectrum is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the normalization of the black body, defined identically to
+          that of the Xspec model
+        - temp: the temperature, in keV
+
+    Output:
+    -------
+    model: np.array(float)
+        A one-dimensional array of the same size as array, containing the
+        black body spectrum evaluated over it.
     """
     if params.ndim == 1:
         #boltzkamnn constant in kev
@@ -199,12 +284,25 @@ def bbody(array,params):
 def varbbody(array,params):
     """
     This model is a variable black body, defined identically to Uttley and 
-    Malzac 2023. The input parameters are:
-    
-    array: the array over which the spectrum is defined \n    
-    norm: the normalization of the black body, defined identically to that of 
-    the Xspec model \n    
-    temp: the temperature in keV
+    Malzac 2023. It is meant for use in spectral-timing models.
+
+    Parameters:
+    -----------
+    array: np.array(float)
+        The array energy bin centers over which the spectrum is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the normalization of the black body, defined identically to
+          that of the Xspec model
+        - temp: the temperature, in keV
+
+    Output:
+    -------
+    model: np.array(float)
+        A one-dimensional array of the same size as array, containing the
+        black body spectrum evaluated over it.
     """
     if params.ndim == 1:
         #boltzkamnn constant in kev
@@ -241,22 +339,49 @@ def varbbody(array,params):
     
 def gauss_fred(array1,array2,params,return_full=False):
     """
-    This is a two-dimensional model for an impulse response function. The time 
-    dependence is a fast rise, exponential decay pulse. The dependence over the 
-    second axis (typically energy) is a Gaussian line narrowing over time 
+    This model is a two-dimensional model for an impulse response function. The  
+    time dependence is a fast rise, exponential decay pulse. The dependence over  
+    the second axis (typically energy) is a Gaussian line narrowing over time 
     following a powerlaw. The total model is the product of the two dependences. 
-    The input paramters are:
+    This model is meant exclusively for cross spectra.
     
-    array1: the time over which the pulse is defined \n    
-    array2: the second direction over which the model is defined \n    
-    norm: the total model normalization \n
-    width: the initial width of the Gaussian \n    
-    center: the centroid of the Gaussian \n    
-    rise_t: the rise pulse timescale \n    
-    decay_t: the decay pulse timescale \n    
-    decay_w: the slope of the energy width powerlaw decay \n    
-    return_full: a boolean to choose whether to return just the 2d model (done 
-    by default), or the additional projections over the two model axis
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The time array over which the pulse is defined.
+
+    array2: np.array(float)
+        The second array (typically energy) over which the model is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the total model normalization
+        - width: the initial width of the Gaussian
+        - center: the centroid of the Gaussian
+        - rise_t: the rise pulse timescale
+        - decay_t: the decay pulse timescale
+        - decay_w: the slope of the energy width power-law decay
+
+    return_full: bool, default=False
+        A boolean to choose whether to return just the two-dimensional model
+        (done by default), or also the additional projections over the two
+        model axes.
+
+    Output:
+    -------
+    fred_pulse: np.array(float), shape (len(array2),len(array1))
+        A two-dimensional array containing the impulse response function over
+        energy and time; if params is two-dimensional, fred_pulse has shape
+        (n_sets,len(array2),len(array1)) instead. 
+
+    line_profile: np.array(float), optional
+        The projection of fred_pulse over time, i.e. the time-averaged
+        spectrum; only returned if return_full is True.
+
+    pulse_profile: np.array(float), optional
+        The projection of fred_pulse over energy, i.e. the energy-integrated
+        pulse profile; only returned if return_full is True.
     """
     times = array1
     energy = array2
@@ -316,20 +441,47 @@ def gauss_bkn(array1,array2,params,return_full=False):
     dependence is a smoothly broken powerlaw pulse. The dependence over the 
     second axis (typically energy) is a Gaussian line narrowing over time 
     following a powerlaw. The total model is the product of the two dependences. 
-    The input paramters are:
-    
-    array1: the time over which the pulse is defined \n    
-    array2: the second direction over which the model is defined \n    
-    norm: the total model normalization \n    
-    center: the centroid of the Gaussian \n    
-    width: the initial width of the Gaussian \n    
-    rise_slope: the rise pulse slope \n    
-    decay_slope: the decay pulse slope \n    
-    break_time: the time at which the broken powerlaw changes from rise to decay 
-    slope \n    
-    decay_w: the slope of the energy width powerlaw decay \n    
-    return_full: a boolean to choose whether to return just the 2d model (done 
-    by default), or the additional projections over the two model axis
+    This model is meant exclusively for cross spectra.
+
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The time array over which the pulse is defined.
+
+    array2: np.array(float)
+        The second array (typically energy) over which the model is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the total model normalization
+        - width: the initial width of the Gaussian
+        - center: the centroid of the Gaussian
+        - rise_slope: the rise pulse slope
+        - decay_slope: the decay pulse slope
+        - break_time: the time at which the broken power-law changes from
+          rise to decay slope
+        - decay_w: the slope of the energy width power-law decay
+
+    return_full: bool, default=False
+        A boolean to choose whether to return just the two-dimensional model
+        (done by default), or also the additional projections over the two
+        model axes.
+
+    Output:
+    -------
+    brk_pulse: np.array(float), shape (len(array2),len(array1))
+        A two-dimensional array containing the impulse response function over
+        energy and time; if params is two-dimensional, brk_pulse has shape
+        (n_sets,len(array2),len(array1)) instead. 
+
+    line_profile: np.array(float), optional
+        The projection of brk_pulse over time, i.e. the time-averaged
+        spectrum; only returned if return_full is True.
+
+    pulse_profile: np.array(float), optional
+        The projection of brk_pulse over energy, i.e. the energy-integrated
+        pulse profile; only returned if return_full is True.
     """
     times = array1
     energy = array2
@@ -386,20 +538,45 @@ def bbody_fred(array1,array2,params,return_full=False):
     This is a two-dimensional model for an impulse response function. The time 
     dependence is a fast rise, exponential decay pulse. The dependence over the 
     second energy is a variable black body, cooling over time following a
-    powerlaw. The total model is the product of the two dependences. The input  
-    paramters are:
-    
-    array1: the time over which the pulse is defined \n    
-    array2: the second direction over which the model is defined \n    
-    norm: the total model normalization \n    
-    temp: the initial temperature \n    
-    rise_slope: the rise pulse slope \n    
-    decay_slope: the decay pulse slope \n    
-    break_time: the time at which the broken powerlaw changes from rise to decay 
-    slope \n    
-    decay_temp: the slope of the temperature powerlaw decay \n    
-    return_full: a boolean to choose whether to return just the 2d model (done 
-    by default), or the additional projections over the two model axis
+    powerlaw. The total model is the product of the two dependences. This model 
+    is meant exclusively for cross spectra.
+
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The time array over which the pulse is defined.
+
+    array2: np.array(float)
+        The second array (typically energy) over which the model is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the total model normalization
+        - temp: the initial temperature
+        - rise_t: the rise pulse timescale
+        - decay_t: the decay pulse timescale
+        - decay_temp: the slope of the temperature power-law decay
+
+    return_full: bool, default=False
+        A boolean to choose whether to return just the two-dimensional model
+        (done by default), or also the additional projections over the two
+        model axes.
+
+    Output:
+    -------
+    fred_pulse: np.array(float), shape (len(array2),len(array1))
+        A two-dimensional array containing the impulse response function over
+        energy and time; if params is two-dimensional, fred_pulse has shape
+        (n_sets,len(array2),len(array1)) instead. 
+
+    model_profile: np.array(float), optional
+        The projection of fred_pulse over time, i.e. the time-averaged
+        spectrum; only returned if return_full is True.
+
+    pulse_profile: np.array(float), optional
+        The projection of fred_pulse over energy, i.e. the energy-integrated
+        pulse profile; only returned if return_full is True.
     """
     times = array1
     energy = array2 
@@ -455,20 +632,47 @@ def bbody_bkn(array1,array2,params,return_full=False):
     This is a two-dimensional model for an impulse response function. The time 
     dependence is a smoothly broken powerlaw pulse. The dependence over the 
     second energy is a variable black body, cooling over time following a
-    powerlaw. The total model is the product of the two dependences. The input  
-    paramters are:
-    
-    array1: the time over which the pulse is defined \n    
-    array2: the second grid over which the model is defined \n    
-    norm: the total model normalization \n    
-    temp: the initial temperature \n    
-    rise_slope: the rise pulse slope \n      
-    decay_slope: the decay pulse slope \n    
-    break_time: the time at which the broken powerlaw changes from rise to decay 
-    slope\n    
-    decay_temp: the slope of the temperature powerlaw decay\n
-    return_full: a boolean to choose whether to return just the 2d model (done 
-    by default), or the additional projections over the two model axis
+    powerlaw. The total model is the product of the two dependences. This model 
+    is meant exclusively for cross spectra.
+
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The time array over which the pulse is defined.
+
+    array2: np.array(float)
+        The second array (typically energy) over which the model is defined.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the total model normalization
+        - temp: the initial temperature
+        - rise_slope: the rise pulse slope
+        - decay_slope: the decay pulse slope
+        - break_time: the time at which the broken power-law changes from
+          rise to decay slope
+        - decay_temp: the slope of the temperature power-law decay
+
+    return_full: bool, default=False
+        A boolean to choose whether to return just the two-dimensional model
+        (done by default), or also the additional projections over the two
+        model axes.
+
+    Output:
+    -------
+    brk_pulse: np.array(float), shape (len(array2),len(array1))
+        A two-dimensional array containing the impulse response function over
+        energy and time; if params is two-dimensional, brk_pulse has shape
+        (n_sets,len(array2),len(array1)) instead. 
+        
+    model_profile: np.array(float), optional
+        The projection of brk_pulse over time, i.e. the time-averaged
+        spectrum; only returned if return_full is True.
+
+    pulse_profile: np.array(float), optional
+        The projection of brk_pulse over energy, i.e. the energy-integrated
+        pulse profile; only returned if return_full is True.
     """
     times = array1
     energy = array2 
@@ -520,23 +724,47 @@ def bbody_bkn(array1,array2,params,return_full=False):
 
 def pivoting_pl(array1,array2,params):
     """
-    This is a pivoting power-law model similar to that implemented in reltrans
-    (Mastroserio et al. 2021). The main difference is that this implementation 
-    expresses the dependence of the paramters gamma and phi_ab (in the paper 
-    above) explicitely. The input paramters are:
-    
-    array1: the Fourier frequencies over which to compute the model \n    
-    array2: the second direction (typically energy) over which to compute the 
-    model \n    
-    norm: the model normalzation \n    
-    pl_index: the slope over the powerlaw \n    
-    gamma_0: the gamma parameter in Mastroserio et al. 2021, defined at a 
-    frequency nu_0 \n    
-    gamma_slope: the dependence of the gamma parameter with Fourier frequency, 
-    which is assumed to be log-linear \n    
-    phi_0: the phi_AB parameter in Mastroserio et al. 2021, defined at a 
-    frequency nu_0 \n    
-    nu_0: the initial frequency from which the pivoting parameters are defined
+    This is a pivoting power-law model for a transfer fuction, similar to that 
+    implemented in reltrans (Mastroserio et al. 2021). The main difference is 
+    that this implementation  expresses the dependence of the paramters gamma 
+    and phi_ab (in the paper above) explicitely. This model is meant exclusively  
+    for cross spectra.
+
+    Parameters:
+    -----------
+    array1: np.array(float)
+        The Fourier frequencies over which to compute the model.
+
+    array2: np.array(float)
+        The second array (typically energy) over which to compute the model.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - norm: the model normalization
+        - pl_index: the slope of the power-law
+        - gamma_0: the gamma parameter in Mastroserio et al. 2021, defined at
+          a frequency nu_0
+        - gamma_slope: the dependence of the gamma parameter with Fourier
+          frequency, which is assumed to be log-linear
+        - phi_0: the phi_AB parameter in Mastroserio et al. 2021, defined at
+          a frequency nu_0
+        - phi_slope: the dependence of the phi_AB parameter with Fourier
+          frequency, which is assumed to be log-linear
+        - nu_0: the initial frequency from which the pivoting parameters are
+          defined
+
+        params can either be a one-dimensional array containing a single set
+        of parameters, or a two-dimensional array containing multiple sets of
+        parameters to be computed simultaneously.
+
+    Output:
+    -------
+    pivoting: np.array(complex), shape (len(array2),len(array1))
+        A two-dimensional array containing the complex pivoting power-law
+        evaluated over energy and Fourier frequency. This model is intended
+        for use as a cross spectral timing product, tracking energy-dependent
+        spectral pivoting as a function of Fourier frequency.
     """
     freqs = array1
     energy = array2
@@ -595,13 +823,28 @@ def pol_constant(energs,params,grid_edges=False):
     """
     This model returns a polarization degree and angle which are both constant 
     with energy. It should be used as a multiplicative model against an array 
-    containing Stokes I, Q and U vectors. The input parameters are:
-    
-    energs: the array of photon energies over which to compute the model \n    
-    pol_degree: the polarization degree, defined between 0 and 1 \n    
-    pol_angle: the polarization angle, in degrees \n    
-    grid_edges: specifies whether the input array contains all the edges of a 
-    binned grid (identically to xspec), or the grid midpoints
+    containing Stokes I, Q and U vectors.
+
+    Parameters:
+    -----------
+    energs: np.array(float)
+        The array of photon energies over which to compute the model.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - pol_degree: the polarization degree, defined between 0 and 1
+        - pol_angle: the polarization angle, in degrees
+
+    grid_edges: bool, default=False
+        Specifies whether energs contains all the edges of a binned grid
+        (identically to Xspec), or the grid midpoints.
+
+    Output:
+    -------
+    model: np.array(float), shape (3,len(energs))
+        A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
+        stokes_U). 
     """
     if grid_edges is True:
         energs = 0.5*(energs[1:]+energs[:-1])
@@ -622,18 +865,32 @@ def pol_degree_linear(energs,params,grid_edges=False):
     This model returns a polarization degree which varies linearly with energy, 
     and a polarization angle which is constant with it. It should be used as a 
     multiplicative model against an array  containing Stokes I, Q and U vectors. 
-    The input parameters are:
-    
-    energs: the array of photon energies over which to compute the model \n    
-    pol_degree: the polarization degree at the pivot energy, defined between 0 
-    and 1 \n    
-    degree_slope: the slope of the polarization degree, in units of inverse keV 
-    \n    
-    pol_angle: the polarization angle, in degrees \n    
-    energ_pivot: the pivot energy, in keV, at which the polarization degree is 
-    equal to pol_degree \n    
-    grid_edges: specifies whether the input array contains all the edges of a 
-    binned grid (identically to xspec), or the grid midpoints
+
+    Parameters:
+    -----------
+    energs: np.array(float)
+        The array of photon energies over which to compute the model.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - pol_degree: the polarization degree at the pivot energy, defined
+          between 0 and 1
+        - degree_slope: the slope of the polarization degree, in units of
+          inverse keV
+        - pol_angle: the polarization angle, in degrees
+        - energ_pivot: the pivot energy, in keV, at which the polarization
+          degree is equal to pol_degree
+
+    grid_edges: bool, default=False
+        Specifies whether energs contains all the edges of a binned grid
+        (identically to Xspec), or the grid midpoints.
+
+    Output:
+    -------
+    model: np.array(float), shape (3,len(energs))
+        A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
+        stokes_U). 
     """
     if grid_edges is True:
         energs = 0.5*(energs[1:]+energs[:-1])
@@ -652,17 +909,31 @@ def pol_angle_linear(energs,params,grid_edges=False):
     This model returns a polarization angle which varies linearly with energy, 
     and a polarization degree which is constant with it. It should be used as a 
     multiplicative model against an array  containing Stokes I, Q and U vectors. 
-    The input parameters are:
-    
-    energs: the array of photon energies over which to compute the model \n    
-    pol_degree: the polarization degree, defined between 0 and 1 \n    
-    pol_angle: the polarization angle at the pivot energy, in degrees \n    
-    angle_slope: the slope of the polarization angle, in units of degrees per 
-    keV \n    
-    energ_pivot: the pivot energy, in keV, at which the polarization angle is 
-    equal to pol_angle \n    
-    grid_edges: specifies whether the input array contains all the edges of a 
-    binned grid (identically to xspec), or the grid midpoints
+
+    Parameters:
+    -----------
+    energs: np.array(float)
+        The array of photon energies over which to compute the model.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - pol_degree: the polarization degree, defined between 0 and 1
+        - pol_angle: the polarization angle at the pivot energy, in degrees
+        - angle_slope: the slope of the polarization angle, in units of
+          degrees per keV
+        - energ_pivot: the pivot energy, in keV, at which the polarization
+          angle is equal to pol_angle
+
+    grid_edges: bool, default=False
+        Specifies whether energs contains all the edges of a binned grid
+        (identically to Xspec), or the grid midpoints.
+
+    Output:
+    -------
+    model: np.array(float), shape (3,len(energs))
+        A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
+        stokes_U).
     """
     if grid_edges is True:
         energs = 0.5*(energs[1:]+energs[:-1])
@@ -680,20 +951,35 @@ def pol_linear(energs,params,grid_edges=False):
     """
     This model returns a polarization degree and angle which both vary linearly 
     with energy. It should be used as a multiplicative model against an array 
-    containing Stokes I, Q and U vectors. The input parameters are:
-        
-    energs: the array of photon energies over which to compute the model \n    
-    pol_degree: the polarization degree at the pivot energy, defined between 0 
-    and 1 \n    
-    degree_slope: the slope of the polarization degree, in units of inverse keV 
-    \n    
-    pol_angle: the polarization angle at the pivot energy, in degrees \n    
-    angle_slope: the slope of the polarization angle, in units of degrees per 
-    keV \n    
-    energ_pivot: the pivot energy, in keV, at which the polarization degree and 
-    angle are equal to pol_degree and pol_angle \n    
-    grid_edges: specifies whether the input array contains all the edges of a 
-    binned grid (identically to xspec), or the grid midpoints
+    containing Stokes I, Q and U vectors.
+
+    Parameters:
+    -----------
+    energs: np.array(float)
+        The array of photon energies over which to compute the model.
+
+    params: array_like(float)
+        The model parameters, in the following order:
+
+        - pol_degree: the polarization degree at the pivot energy, defined
+          between 0 and 1
+        - degree_slope: the slope of the polarization degree, in units of
+          inverse keV
+        - pol_angle: the polarization angle at the pivot energy, in degrees
+        - angle_slope: the slope of the polarization angle, in units of
+          degrees per keV
+        - energ_pivot: the pivot energy, in keV, at which the polarization
+          degree and angle are equal to pol_degree and pol_angle
+
+    grid_edges: bool, default=False
+        Specifies whether energs contains all the edges of a binned grid
+        (identically to Xspec), or the grid midpoints.
+
+    Output:
+    -------
+    model: np.array(float), shape (3,len(energs))
+        A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
+        stokes_U).
     """
     if grid_edges is True:
         energs = 0.5*(energs[1:]+energs[:-1])
@@ -721,17 +1007,25 @@ def pol_rotation(seed,params):
      
         base = pol_angle_linear(energs,base_params)
         rotated = pol_rotation(base,rotation_params)
-        
-    
-    The input parameters are:
-    
-    seed: np.array(float), shape (3, len(energs))
-        The Stokes vector returned by another polarization model, to be 
-        rotated. Its first row is Stokes I, and the second and third are the 
-        corresponding Stokes Q and U \n    
+
+    Parameters:
+    -----------
+    seed: np.array(float), shape (3,len(energs))
+        The Stokes vector returned by another polarization model, to be
+        rotated. Its first row is Stokes I, and the second and third rows are
+        the corresponding Stokes Q and U.
+
     params: array_like(float)
-        angle_rotation: the angle by which the whole polarization angle model 
-        is rotated, in degrees
+        The model parameters, in the following order:
+
+        - angle_rotation: the angle by which the whole polarization angle
+          model is rotated, in degrees
+
+    Output:
+    -------
+    model: np.array(float), shape (3,len(energs))
+        A two-dimensional, normalized Stokes vector (stokes_I, stokes_Q,
+        stokes_U).
     """
     if params.ndim != 1:
         raise TypeError("Params has too many dimensions, limit to 1 dimension")
@@ -747,16 +1041,40 @@ def plot_2d(xaxis,yaxis,impulse_2d,impulse_x,impulse_y,
             return_plot=False,normalize_en=True):
     """
     A simple automated plotter for the impulse response function models above. 
-    The input parameters are:
-    
-    xaxis, yaxis: the two grids over which the model is defined \n    
-    impulsed_2d: the two-dimensional model to plot \n
-    impulse_x,impulse_y: the projections of the model over the x/y axis \n    
-    xlim,ylim: the limits of the x/y axis to show in the plot \n    
-    xlog,ylog: booleans to switch between linera and log scales in each axis \n    
-    return_plot: boolean to return the figure object for storage/saving \n    
-    normalize_en: boolean to multiply the energy dependence (on the y axis) by 
-    the y axis values squared. Useful to highlight the model energy dependence.
+
+    Parameters:
+    -----------
+    xaxis, yaxis: np.array(float)
+        The two grids (typically time and energy) over which the model is
+        defined.
+
+    impulse_2d: np.array(float), shape (len(yaxis),len(xaxis))
+        The two-dimensional model to plot.
+
+    impulse_x, impulse_y: np.array(float)
+        The projections of the model over the x/y axis.
+
+    xlim, ylim: array_like(float), default=[0.,400.]/[0.1,10.5]
+        The limits of the x/y axis to show in the plot.
+
+    xlog, ylog: bool, default=False
+        Booleans to switch between linear and log scales in each axis.
+
+    return_plot: bool, default=False
+        A boolean to decide whether to return the figure object containing
+        the plot or not.
+
+    normalize_en: bool, default=True
+        A boolean to choose whether to multiply the energy dependence (on the
+        y axis) by the y axis values squared. Useful to highlight the model
+        energy dependence.
+
+    Output:
+    -------
+    fig: matplotlib.figure, optional
+        The plot object produced by the method, showing the impulse response
+        function together with its time and energy projections. Only
+        returned if return_plot is True.
     """
     fig = plt.figure(figsize=(9.,7.5))
 
@@ -806,4 +1124,4 @@ def plot_2d(xaxis,yaxis,impulse_2d,impulse_x,impulse_y,
     if return_plot is True:
         return fig 
     else:
-        return       
+        return
