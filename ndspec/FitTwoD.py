@@ -418,7 +418,8 @@ class FitTwoD(SimpleFit):
             self.noise_err = self._filter_2d_by_mask(self._data_err_unmasked)    
         return
 
-    def eval_model(self,params=None,column_grid=None,row_grid=None,fold=True,mask=True):
+    def eval_model(self,params=None,column_grid=None,row_grid=None,fold=True,
+                   mask=True,vectorize=False):
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters, over given row and column grids. If a response is 
@@ -429,9 +430,14 @@ class FitTwoD(SimpleFit):
         
         Parameters:
         -----------                         
-        params: lmfit.Parameters, default None
+        params: lmfit.Parameters or np.array(float,float), default None
             The parameter values to use in evaluating the model. If none are 
-            provided, the model_params attribute is used.
+            provided, the model_params attribute is used. If vectorize is set 
+            to True, this is instead an array of size (n_sets x n_free), 
+            containing the values of the free parameters of the model for each 
+            of the n_sets sets of parameters to be evaluated at once; these 
+            must be ordered identically to the free parameters stored in the 
+            model_params attribute.
 
         column_grid: np.array(float), default None
             The array of values in the x-axis over which to evaluate the model.
@@ -455,11 +461,21 @@ class FitTwoD(SimpleFit):
             include the noticed energy channels, or to also return the ones 
             that have been ignored by the users. 
             
+        vectorize: bool, default False
+            A boolean switch to evaluate the model, and fold it through the 
+            instrument response, for multiple sets of parameters at once rather 
+            than one set at a time. In order for this to work, the model 
+            function must return an array with an additional leading axis 
+            running over the parameter sets when it is passed arrays, rather 
+            than floats, as parameter values. 
+            
         Returns:
         --------
         model: np.array(float)
             The model evaluated over the given energy grid, for the given input 
-            parameters.  
+            parameters. If vectorize is set to True, this is an array of size 
+            (n_sets x n_bins), containing one flattened model evaluation for 
+            each set of input parameters.
         """
         
         if column_grid is None:
@@ -472,7 +488,14 @@ class FitTwoD(SimpleFit):
         elif self.response is not None:
             row_grid = self.ear                      
         
-        if params is None:
+        #when evaluating multiple sets of parameters at once, the parameter 
+        #values are passed to the model as arrays rather than through a lmfit 
+        #Parameters object
+        if vectorize is True:
+            par_values = self._stack_parameters(params)
+            model = self.model.eval(None,x_axis=column_grid,y_axis=row_grid,
+                                    **par_values)
+        elif params is None:
             model = self.model.eval(self.model_params,x_axis=column_grid,y_axis=row_grid)
         else:
             model = self.model.eval(params,x_axis=column_grid,y_axis=row_grid)            
@@ -480,13 +503,20 @@ class FitTwoD(SimpleFit):
         #add folding of the response if necessary here 
         #the transpositions are necessary because of the weirdness introduce 
         #by .flatten(). TBD check that this makes sense with xpsec models
+        #swapping the last two axes is identical to transposing a single model 
+        #evaluation, and also preserves the leading axis over parameter sets
         if self.response is not None and fold is True:
-            model = self.response.convolve_response(model.T).T 
+            model = np.swapaxes(model,-2,-1)
+            model = self.response.convolve_response(model,vectorize=vectorize)
+            model = np.swapaxes(model,-2,-1) 
         
         if mask is True:
-            model = self._filter_2d_by_mask(model)
+            model = self._filter_2d_by_mask(model,vectorize=vectorize)
 
-        model = model.flatten()
+        if vectorize is True:
+            model = np.reshape(model,(np.shape(model)[0],-1))
+        else:
+            model = model.flatten()
         
         return model 
 

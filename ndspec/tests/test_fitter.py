@@ -56,7 +56,53 @@ def pulsing_bb_eval(y_axis,x_axis,norm_bb,kT,norm_mod):
     model = pulsing_bb(y_axis,x_axis,norm_bb,kT,norm_mod)
     model = model.T
     return model
-     
+
+#the models below are used to test vectorized model evaluations; transposing the 
+#stacked parameters lets the same wrapper handle parameters passed either as 
+#floats (one set at a time) or as arrays (several sets at once)
+def vector_lorentz(freq,peak_f,q,rms):
+    par_array = np.transpose(np.array([peak_f,q,rms]))
+    return models.lorentz(freq,par_array)
+
+def vector_bbody(ear,norm_bb,kT):
+    energ = 0.5*(ear[1:]+ear[:-1])
+    par_array = np.transpose(np.array([norm_bb,kT]))
+    return models.bbody(energ,par_array)
+
+def vector_powerlaw(ear,norm_pl,index):
+    energ = 0.5*(ear[1:]+ear[:-1])
+    par_array = np.transpose(np.array([norm_pl,index]))
+    return models.powerlaw(energ,par_array)
+
+def vector_pulsing_bb(x_axis,y_axis,norm_bb,kT,norm_mod):
+    single = np.ndim(norm_bb) == 0
+    pars = np.atleast_2d(np.transpose(np.array([norm_bb,kT,norm_mod])))
+    norm_bb,kT,norm_mod = pars.T
+    energ = 0.5*(y_axis[1:]+y_axis[:-1])
+    widths = np.diff(y_axis)
+    var_norm = norm_mod[:,None]*np.sin(x_axis[None,:]*2*np.pi)+norm_bb[:,None]
+    model = np.zeros((pars.shape[0],len(x_axis),len(energ)))
+    for i in range(len(x_axis)):
+        bb_array = np.stack([var_norm[:,i],kT],axis=-1)
+        model[:,i,:] = models.bbody(energ,bb_array)*widths
+    if single is True:
+        return model[0]
+    return model
+
+#helper that evaluates a model one set of parameters at a time, in order to 
+#compare against a single vectorized evaluation of the same sets
+def loop_eval_model(fitobj,theta,**kwargs):
+    free_names = [key for key in fitobj.model_params 
+                  if fitobj.model_params[key].vary is True]
+    pars = fitobj.model_params.copy()
+    model = []
+    for row in theta:
+        for name, value in zip(free_names,row):
+            pars[name].value = value
+        pars.update_constraints()
+        model.append(fitobj.eval_model(params=pars,**kwargs))
+    return np.array(model)
+
 
 class TestFitPowerSpectrum(object):
  
@@ -724,3 +770,153 @@ class TestSimpleFit(object):
             wrong_input = np.ones(1)
             self.test_shared.set_params(wrong_input) 
 
+
+class TestVectorizedEval(object):
+ 
+    @classmethod
+    def setup_class(cls):
+        #a power spectrum fitter using one of the built-in models
+        cls.freqs = np.geomspace(0.05,20,60)
+        cls.psd_fit = FitPowerSpectrum()
+        cls.psd_fit.set_data(np.ones(60),0.1*np.ones(60),cls.freqs)
+        psd_model = LM_Model(vector_lorentz,independent_vars=['freq'])
+        cls.psd_fit.set_model(psd_model)
+        cls.psd_fit.set_params(psd_model.make_params(peak_f=1.0,q=2.0,rms=0.3))
+        cls.psd_theta = np.array([[1.0,2.0,0.3],[0.8,3.0,0.2],[1.5,1.5,0.4]])
+ 
+        #the response used by the energy dependent fitters
+        rmffile = os.getcwd()+"/ndspec/tests/data/xrt.rmf"
+        arffile = os.getcwd()+"/ndspec/tests/data/xrt.arf"
+        cls.response = ResponseMatrix(rmffile)
+        cls.response.load_arf(arffile)
+ 
+        #a time averaged spectrum fitter using two of the built-in models
+        cls.spec_fit = FitTimeAvgSpectrum()
+        cls.spec_fit.set_data(cls.response,os.getcwd()+"/ndspec/tests/data/xrt.fak")
+        spec_model = (LM_Model(vector_bbody,independent_vars=['ear'])+
+                      LM_Model(vector_powerlaw,independent_vars=['ear']))
+        cls.spec_fit.set_model(spec_model)
+        cls.spec_fit.set_params(spec_model.make_params(norm_bb=1.,kT=0.5,
+                                                       norm_pl=0.1,index=-1.8))
+        cls.spec_theta = np.array([[1.0,0.5,0.1,-1.8],[1.2,0.4,0.2,-2.0],
+                                   [0.8,0.6,0.05,-1.6]])
+ 
+        #a two-dimensional fitter which folds the model through the response
+        cls.phase_grid = np.linspace(0,1,12)
+        cls.ear = np.geomspace(0.3,10.,41)
+        dummy_data = np.ones((len(cls.ear)-1,len(cls.phase_grid)))
+        cls.twod_fit = FitTwoD()
+        cls.twod_fit.set_data(dummy_data,0.1*dummy_data,cls.phase_grid,cls.ear,
+                              response=cls.response)
+        twod_model = LM_Model(vector_pulsing_bb,independent_vars=['x_axis','y_axis'])
+        cls.twod_fit.set_model(twod_model)
+        cls.twod_fit.set_params(twod_model.make_params(norm_bb=1.,kT=0.6,
+                                                       norm_mod=0.3))
+        cls.twod_theta = np.array([[1.0,0.6,0.3],[1.2,0.5,0.2]])
+        return 
+ 
+    #test that a vectorized power spectrum evaluation returns the same values as
+    #evaluating one set of parameters at a time
+    def test_psd_vectorized(self):
+        test = self.psd_fit.eval_model(params=self.psd_theta,vectorize=True)
+        known = loop_eval_model(self.psd_fit,self.psd_theta)
+        assert test.shape == (len(self.psd_theta),len(self.freqs))
+        assert np.allclose(test,known) == True
+ 
+    #test the same for a spectrum, both folded through the response and not, and 
+    #with a set of energy channels ignored
+    def test_spec_vectorized(self):
+        test = self.spec_fit.eval_model(params=self.spec_theta,vectorize=True)
+        known = loop_eval_model(self.spec_fit,self.spec_theta)
+        assert test.shape == (len(self.spec_theta),self.spec_fit.n_chans)
+        assert np.allclose(test,known) == True
+ 
+        test = self.spec_fit.eval_model(params=self.spec_theta,vectorize=True,
+                                        fold=False,mask=False)
+        known = loop_eval_model(self.spec_fit,self.spec_theta,fold=False,
+                                mask=False)
+        assert np.allclose(test,known) == True
+ 
+        self.spec_fit.ignore_energies(0,0.5)
+        self.spec_fit.ignore_energies(8.,20.)
+        test = self.spec_fit.eval_model(params=self.spec_theta,vectorize=True)
+        known = loop_eval_model(self.spec_fit,self.spec_theta)
+        assert test.shape == (len(self.spec_theta),self.spec_fit.n_chans)
+        assert np.allclose(test,known) == True
+        self.spec_fit.notice_energies(0,20.)
+ 
+    #test the same for two-dimensional data folded through a response, and with 
+    #a set of rows and columns ignored
+    def test_twod_vectorized(self):
+        test = self.twod_fit.eval_model(params=self.twod_theta,vectorize=True)
+        known = loop_eval_model(self.twod_fit,self.twod_theta)
+        assert np.allclose(test,known) == True
+ 
+        self.twod_fit.ignore_columns(0.3,0.5)
+        self.twod_fit.ignore_rows(0.,1.)
+        test = self.twod_fit.eval_model(params=self.twod_theta,vectorize=True)
+        known = loop_eval_model(self.twod_fit,self.twod_theta)
+        assert np.allclose(test,known) == True
+        self.twod_fit.notice_columns(0.,1.)
+        self.twod_fit.notice_rows(0.,20.)
+ 
+    #test that frozen parameters, and parameters tied to others through an 
+    #expression, are handled identically by the two evaluation modes
+    def test_vectorized_frozen_and_tied(self):
+        pars = self.psd_fit.model_params.copy()
+        pars['q'].vary = False
+        self.psd_fit.set_params(pars)
+        theta = self.psd_theta[:,[0,2]]
+        test = self.psd_fit.eval_model(params=theta,vectorize=True)
+        known = loop_eval_model(self.psd_fit,theta)
+        assert np.allclose(test,known) == True
+ 
+        pars['q'].set(expr='4*rms')
+        self.psd_fit.set_params(pars)
+        test = self.psd_fit.eval_model(params=theta,vectorize=True)
+        known = loop_eval_model(self.psd_fit,theta)
+        assert np.allclose(test,known) == True
+ 
+        pars['q'].set(expr=None,vary=True,value=2.0)
+        self.psd_fit.set_params(pars)
+ 
+    #test that a single set of parameters is still evaluated correctly, and that 
+    #the model parameters are used when no parameters are passed
+    def test_vectorized_single_set(self):
+        test = self.psd_fit.eval_model(params=self.psd_theta[0],vectorize=True)
+        known = loop_eval_model(self.psd_fit,self.psd_theta[:1])
+        assert test.shape == (1,len(self.freqs))
+        assert np.allclose(test,known) == True
+ 
+        test = self.psd_fit.eval_model(vectorize=True)
+        known = self.psd_fit.eval_model()
+        assert np.allclose(test[0],known) == True
+ 
+    #test that the fitter rejects parameter arrays that do not match the number 
+    #of free parameters in the model
+    def test_vectorized_errors(self):
+        with pytest.raises(AttributeError):
+            wrong_theta = np.ones((3,7))
+            self.psd_fit.eval_model(params=wrong_theta,vectorize=True)
+ 
+    #test that folding several models through a response at once returns the 
+    #same result as folding them one at a time
+    def test_response_vectorized(self):
+        n_energs = self.response.resp_matrix.shape[0]
+        stack = np.array([np.ones(n_energs),2.*np.ones(n_energs),
+                          np.geomspace(1,10,n_energs)])
+        test = self.response.convolve_response(stack,vectorize=True)
+        known = np.array([self.response.convolve_response(model) 
+                          for model in stack])
+        assert np.allclose(test,known) == True
+ 
+        #the same, for a model that also depends on a second quantity
+        stack_2d = np.repeat(stack[:,:,np.newaxis],4,axis=2)
+        test = self.response.convolve_response(stack_2d,vectorize=True)
+        known = np.array([self.response.convolve_response(model) 
+                          for model in stack_2d])
+        assert np.allclose(test,known) == True
+ 
+        #an input whose energy axis does not match the response is rejected
+        with pytest.raises(TypeError):
+            self.response.convolve_response(np.ones((3,7)),vectorize=True)

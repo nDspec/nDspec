@@ -138,7 +138,9 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
         The model values for which to calculate the statistic. This MUST be 
         provided in units of counts/s/keV (e.g., identical to the array 
         calculated by the eval_model() method of a ndspec FitTimeAvgSpectrum
-        object).
+        object). It can also contain an additional leading axis running over 
+        multiple sets of model parameters, in which case the data and the 
+        background are compared to every set at once.
         
     exp: float 
         The exposure time (in seconds) of the data and background. 
@@ -155,7 +157,9 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
         
     summed: bool, default False 
         A boolean to either return the summed statistic (True) or an array with 
-        the contribution of each bin to the total statistic (False)
+        the contribution of each bin to the total statistic (False). The sum is 
+        taken over the last axis, so that a model containing one evaluation per 
+        set of parameters returns one statistic per set.
     
     Returns:
     --------
@@ -182,13 +186,18 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
     else:
         #convert the background array to counts 
         noise = noise*conv_factor       
+        #if the model contains more than one evaluation, one for each set of 
+        #parameters, the data and background are broadcast to its shape so that 
+        #the masks below can be applied to every set at once
+        data = np.broadcast_to(data,np.shape(model))
+        noise = np.broadcast_to(noise,np.shape(model))
         #see https://heasarc.gsfc.nasa.gov/docs/software/xspec/manual/node340.html
         #if the bkg and source exposures are identical, our model array is
         #== ts*mi from the xspec docs which simplifies things
         #first we calculate the factor fi in the xspec docs
-        cstat = np.zeros(len(data))
-        bkg_num = np.zeros(len(data))
-        bkg_den = np.zeros(len(data))
+        cstat = np.zeros(np.shape(model))
+        bkg_num = np.zeros(np.shape(model))
+        bkg_den = np.zeros(np.shape(model))
         
         test_sign = 2.*model - data - noise 
         #define the bkg model - fi in the xspec docs
@@ -233,6 +242,6 @@ def cstat(data,model,exp,widths,noise=None,summed=False):
                        mask_noise*(1.-np.log(mask_noise)))
     
     if summed is True:
-        return 2.*np.sum(cstat)
+        return 2.*np.sum(cstat,axis=-1)
     else:
         return 2.*cstat

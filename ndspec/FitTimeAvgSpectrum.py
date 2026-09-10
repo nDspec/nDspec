@@ -224,7 +224,8 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             raise ValueError("Fit statistic not recognized")
         self.likelihood = stat 
 
-    def eval_model(self,params=None,ear=None,fold=True,mask=True):    
+    def eval_model(self,params=None,ear=None,fold=True,mask=True,
+                   vectorize=False):    
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters, over a given model energy grid. By default it  
@@ -234,9 +235,14 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         
         Parameters:
         -----------                         
-        params: lmfit.Parameters, default None
+        params: lmfit.Parameters or np.array(float,float), default None
             The parameter values to use in evaluating the model. If none are 
-            provided, the model_params attribute is used.
+            provided, the model_params attribute is used. If vectorize is set 
+            to True, this is instead an array of size (n_sets x n_free), 
+            containing the values of the free parameters of the model for each 
+            of the n_sets sets of parameters to be evaluated at once; these 
+            must be ordered identically to the free parameters stored in the 
+            model_params attribute.
 
         ear: np.array(float), default None
             The array of photon energy channel edges over which to evaluate the 
@@ -254,11 +260,21 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             include the noticed energy channels, or to also return the ones 
             that have been ignored by the users. 
             
+        vectorize: bool, default False
+            A boolean switch to evaluate the model, and fold it through the 
+            instrument response, for multiple sets of parameters at once rather 
+            than one set at a time. In order for this to work, the model 
+            function must return an array with an additional leading axis 
+            running over the parameter sets when it is passed arrays, rather 
+            than floats, as parameter values. 
+            
         Returns:
         --------
         model: np.array(float)
             The model evaluated over the given energy grid, for the given input 
-            parameters.  
+            parameters. If vectorize is set to True, this is an array of size 
+            (n_sets x n_chans), containing one model evaluation for each set of 
+            input parameters.
         """    
             
         if ear is None:
@@ -269,16 +285,24 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             energ = 0.5*(ear[1:]+ear[:-1])
             energ_bounds = ear[1:]-ear[:-1]
             
-        if params is None:
-            params = self.model_params
-
-        model = self.model.eval(params,energ=energ,ear=ear)*energ_bounds
+        #when evaluating multiple sets of parameters at once, the parameter 
+        #values are passed to the model as arrays rather than through a lmfit 
+        #Parameters object
+        if vectorize is True:
+            par_values = self._stack_parameters(params)
+            model = self.model.eval(None,energ=energ,ear=ear,**par_values)
+        else:
+            if params is None:
+                params = self.model_params
+            model = self.model.eval(params,energ=energ,ear=ear)
+        model = model*energ_bounds
 
         if fold is True:
-            model = self.response.convolve_response(model) 
+            model = self.response.convolve_response(model,vectorize=vectorize) 
 
         if mask is True:
-            model = np.extract(self.ebounds_mask,model)            
+            model = self._filter_1d_by_mask(model,self.ebounds_mask,
+                                            vectorize=vectorize)            
 
         return model
 

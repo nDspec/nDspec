@@ -1,4 +1,5 @@
 import numpy as np
+import copy
 import warnings
 
 from lmfit import fit_report, minimize 
@@ -116,7 +117,104 @@ class SimpleFit():
             #future: add if timing polarimetry within the fit 
         return
 
-    def _filter_2d_by_mask(self,array):
+    def _stack_parameters(self,params=None):
+        """
+        This method converts an array containing multiple sets of free parameter 
+        values into a dictionary of parameter arrays, which can be passed to a 
+        model in order to evaluate every set of parameters at once. Parameters 
+        that are frozen during the fit are set to the value stored in the 
+        model_params attribute, and those defined through an expression are 
+        re-computed for each set of free parameters.
+        
+        Parameters:
+        -----------
+        params: np.array(float,float), default None
+            An array of size (n_sets x n_free), containing the values of the 
+            free parameters of the model for each of the n_sets sets that are 
+            to be evaluated. The parameters must be ordered identically to the 
+            free parameters stored in the model_params attribute. If none are 
+            provided, a single set is built from the model_params attribute.
+            
+        Output:
+        -------
+        par_values: dict(np.array(float))
+            A dictionary containing, for every parameter in the model, an array 
+            of size (n_sets) with the value of that parameter in each set.
+        """
+
+        if self.model_params is None:
+            raise AttributeError(("No model parameters found. Please set them"
+                                  " using the .set_params() method."))
+
+        free_names = [key for key in self.model_params 
+                      if self.model_params[key].vary is True]
+
+        if params is None:
+            params = np.array([[self.model_params[key].value 
+                                for key in free_names]])
+        else:
+            params = np.atleast_2d(params)
+
+        if np.shape(params)[1] != len(free_names):
+            raise AttributeError(("The number of parameter values does not match"
+                                  " the number of free parameters in the model"))
+
+        n_sets = np.shape(params)[0]
+        par_values = {}
+        for key in self.model_params:
+            par_values[key] = np.full(n_sets,self.model_params[key].value,
+                                      dtype=float)
+        for index, key in enumerate(free_names):
+            par_values[key] = np.asarray(params[:,index],dtype=float)
+
+        #parameters tied to others through an expression have to be updated one
+        #set at a time, because lmfit only evaluates scalar constraints
+        expr_names = [key for key in self.model_params 
+                      if self.model_params[key].expr is not None]
+        if len(expr_names) > 0:
+            expr_params = copy.deepcopy(self.model_params)
+            for index in range(n_sets):
+                for key in free_names:
+                    expr_params[key].value = par_values[key][index]
+                expr_params.update_constraints()
+                for key in expr_names:
+                    par_values[key][index] = expr_params[key].value
+        return par_values
+
+    def _filter_1d_by_mask(self,array,mask,vectorize=False):
+        """
+        This method is used to filter one-dimensional data (for example, a time 
+        averaged spectrum) after users define a range of energy channels, or 
+        Fourier frequency bins, to ignore.
+        
+        Parametrers:
+        ------------
+        array: np.float 
+            The array containing the data or model to be filtered. If vectorize 
+            is set to True, it contains an additional leading axis running over 
+            the parameter sets that were evaluated.
+            
+        mask: np.array(bool)
+            The one-dimensional mask of noticed bins to apply to the array. 
+            
+        vectorize: bool, default False 
+            A boolean switch to filter an array containing multiple model 
+            evaluations, one for each set of parameters, rather than a single 
+            one.
+            
+        Output:
+        -------
+        filter_arr: np.float 
+            The array filtered by the mask of noticed bins. 
+        """
+
+        if vectorize is True:
+            filter_arr = array[:,mask]
+        else:
+            filter_arr = np.extract(mask,array)
+        return filter_arr
+
+    def _filter_2d_by_mask(self,array,vectorize=False):
         """
         This method is used to filter two-dimensional data (for example, a cross
         spectrum) after users define a range of energy channels, or Fourier 
@@ -126,13 +224,21 @@ class SimpleFit():
         ------------
         array: np.float 
             The one-dimensional array containing the (flattened) two-dimensional 
-            data or model to be filtered 
+            data or model to be filtered. If vectorize is set to True, it 
+            contains an additional leading axis running over the parameter sets 
+            that were evaluated.
+            
+        vectorize: bool, default False 
+            A boolean switch to filter an array containing multiple model 
+            evaluations, one for each set of parameters, rather than a single 
+            one.
             
         Output:
         -------
         filter_arr: np.float 
             The one-dimensional array filtered by the two-d mask defind by the 
-            noticed frequency bins and channels.
+            noticed frequency bins and channels. If vectorize is set to True, 
+            it retains the leading axis running over the parameter sets.
         """
 
         if self.dependence == "generic":
@@ -153,14 +259,27 @@ class SimpleFit():
             raise AttributeError("Data dependence not specified")
         twod_mask = np.array(twod_mask).flatten()
 
+        #when filtering multiple parameter sets at once, the array is reshaped 
+        #so that the leading axis running over the sets is preserved, and every 
+        #set is flattened identically to the single-set case
+        if vectorize is True:
+            array = np.reshape(array,(np.shape(array)[0],-1))
+
         #handle the case of complex data being loaded first, in which case we 
         #need to mask both real and imaginary parts
         if self.units != "lags" and self.units != "real":
-            filter_first_dim = np.extract(twod_mask,array[:self._all_bins])
-            filter_second_dim = np.extract(twod_mask,array[self._all_bins:],)
-            filter_arr = np.append(filter_first_dim,filter_second_dim)          
+            if vectorize is True:
+                filter_first_dim = array[:,:self._all_bins][:,twod_mask]
+                filter_second_dim = array[:,self._all_bins:][:,twod_mask]
+                filter_arr = np.append(filter_first_dim,filter_second_dim,axis=1)
+            else:
+                filter_first_dim = np.extract(twod_mask,array[:self._all_bins])
+                filter_second_dim = np.extract(twod_mask,array[self._all_bins:],)
+                filter_arr = np.append(filter_first_dim,filter_second_dim)          
         #otherwise if we only have real data (or lags in a cross spectrum) the 
         #mask can be applied just once 
+        elif vectorize is True:
+            filter_arr = array[:,twod_mask]
         else:
             filter_arr = np.extract(twod_mask,array)
         return filter_arr

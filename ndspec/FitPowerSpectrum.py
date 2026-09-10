@@ -137,7 +137,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         self._set_unmasked_data()
         return
        
-    def eval_model(self,params=None,freq=None,mask=True):
+    def eval_model(self,params=None,freq=None,mask=True,vectorize=False):
         """
         This method is used to evaluate and return the model values for a given 
         set of parameters,  over a given Fourier frequency grid. By default it  
@@ -147,9 +147,14 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         
         Parameters:
         -----------                         
-        params: lmfit.Parameters, default None
+        params: lmfit.Parameters or np.array(float,float), default None
             The parameter values to use in evaluating the model. If none are 
-            provided, the model_params attribute is used.
+            provided, the model_params attribute is used. If vectorize is set 
+            to True, this is instead an array of size (n_sets x n_free), 
+            containing the values of the free parameters of the model for each 
+            of the n_sets sets of parameters to be evaluated at once; these 
+            must be ordered identically to the free parameters stored in the 
+            model_params attribute.
             
         freq: np.array(float), default None
             The the Fourier frequencies over which to evaluted the model. If 
@@ -161,23 +166,39 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             include the noticed energy channels, or to also return the ones 
             that have been ignored by the users. 
             
+        vectorize: bool, default False
+            A boolean switch to evaluate the model for multiple sets of 
+            parameters at once rather than one set at a time. In order for this 
+            to work, the model function must return an array with an additional 
+            leading axis running over the parameter sets when it is passed 
+            arrays, rather than floats, as parameter values. 
+            
         Returns:
         --------
         model: np.array(float)
             The model evaluated over the given Fourier frequency array, for the 
-            given input parameters.   
+            given input parameters. If vectorize is set to True, this is an 
+            array of size (n_sets x n_freqs), containing one model evaluation 
+            for each set of input parameters.
         """
         
         if freq is None:
             freq = self.freqs
         
-        if params is None:
+        #when evaluating multiple sets of parameters at once, the parameter 
+        #values are passed to the model as arrays rather than through a lmfit 
+        #Parameters object
+        if vectorize is True:
+            par_values = self._stack_parameters(params)
+            model = self.model.eval(None,freq=freq,**par_values)
+        elif params is None:
             model = self.model.eval(self.model_params,freq=freq)
         else:
             model = self.model.eval(params,freq=freq)            
         
         if mask is True:
-            model = np.extract(self.freqs_mask,model)
+            model = self._filter_1d_by_mask(model,self.freqs_mask,
+                                            vectorize=vectorize)
             
         return model
 

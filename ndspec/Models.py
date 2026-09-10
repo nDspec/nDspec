@@ -146,7 +146,7 @@ def gaussian(array,params):
     elif params.ndim == 2:
         center = params[:,0][:,np.newaxis]
         width = params[:,1][:,np.newaxis]
-        gauss_norm = params[:,1][:,np.newaxis]
+        gauss_norm = params[:,2][:,np.newaxis]
         norm = np.multiply(np.sqrt(2.0*np.pi),width)
         shape = np.exp(-np.power((array - center)/width,2.0)/2)
         line = gauss_norm*shape/norm 

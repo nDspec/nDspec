@@ -1,6 +1,7 @@
 import numpy as np 
 import corner
 import copy
+import inspect
 import math
 import lmfit
 
@@ -30,6 +31,7 @@ sampling_noise = None
 sampling_noise_err = None
 sampling_exp = None
 sampling_bins = None
+sampling_vectorize = False
 
 def set_sampling_priors(fitobj,priors):
     """
@@ -65,25 +67,42 @@ def set_sampling_priors(fitobj,priors):
     sampling_priors = priors 
     return 
 
-def set_sampling_model(fitobj): 
+def set_sampling_model(fitobj,vectorize=False): 
     """
     This function is used to set the model to be used with emcee sampling.  
     This model is saved in a global variable called sampling_model; therefore,  
     users should never re-use the variable name sampling_model in their code.
+    Whether the model is evaluated for one set of parameters at a time, or for 
+    every set at once, is stored in a global variable called sampling_vectorize.
     
     Parameters:
     -----------
     fitobj: ndspec.Fit...Object or ndspec.JointFit 
         Object containing the data, specified model, and parameters
+        
+    vectorize: bool, default False 
+        A boolean switch to evaluate the model for every set of parameters at 
+        once, rather than one set at a time, when computing the likelihood. It 
+        requires both a fitter object whose eval_model method supports 
+        vectorized evaluations, and a model which returns an array with an 
+        additional leading axis running over the parameter sets when it is 
+        passed arrays, rather than floats, as parameter values.
     """
     
     global sampling_model
+    global sampling_vectorize
     if type(fitobj) == JointFit:
         fitobj.flatten = True
     elif not issubclass(type(fitobj),SimpleFit):
         raise TypeError("Invalid fit object passed")
 
+    if (vectorize is True and "vectorize" not in 
+        inspect.signature(fitobj.eval_model).parameters):
+        raise TypeError(("The fitter object passed does not support vectorized"
+                         " model evaluations"))
+
     sampling_model = fitobj.eval_model
+    sampling_vectorize = vectorize
     return 
     
 def set_sampling_data(fitobj):
@@ -188,7 +207,7 @@ def set_sampling_parameters(params):
             theta = np.append(theta,params[key].value)  
     return theta
 
-def initialise_mcmc(fitobj,priors):
+def initialise_mcmc(fitobj,priors,vectorize=False):
     """
     This function is used to initialise an MCMC run. The Fit...Object can be
     any of the particular data products, or a JointFit object containing
@@ -205,6 +224,15 @@ def initialise_mcmc(fitobj,priors):
         with a method called "logprob", which returns the (negative) logarithm 
         of the prior evaluated at a given point.
 
+    vectorize: bool, default False 
+        A boolean switch to evaluate the model for every set of parameters at 
+        once, rather than one set at a time, when computing the likelihood. See 
+        the set_sampling_model function for the requirements this places on the 
+        fitter object and the model. If it is set to True, the likelihoods can 
+        be passed an array containing one set of parameters per row, and return 
+        one log-likelihood per set - which is the format expected e.g. by emcee 
+        when it is run with vectorize=True.
+
     Returns:
     --------
     theta: np.array 
@@ -219,7 +247,7 @@ def initialise_mcmc(fitobj,priors):
     
     theta = set_sampling_parameters(fitobj.model_params)
     set_sampling_data(fitobj)
-    set_sampling_model(fitobj)
+    set_sampling_model(fitobj,vectorize)
     set_sampling_priors(fitobj,priors)
     return theta
 
@@ -655,6 +683,99 @@ def log_priors(theta, prior_dict):
         logprior = logprior + obj.logprob(val) 
     return logprior
 
+def _reflect_theta(theta):
+    """
+    This function bounces one set of parameter values off the hard limits set by
+    their priors, for the parameters whose priors ask for it. It is called 
+    internally by the likelihood functions used for MCMC sampling. It requires 
+    the global variables sampling_priors and sampling_params to have been set 
+    beforehand.
+    
+    Parameters:
+    -----------
+    theta: np.array(float)
+        An array containing one set of values for the free parameters of the 
+        model.
+        
+    Returns:
+    --------
+    theta_r: np.array(float)
+        The array of parameter values, with the values of the parameters whose 
+        priors require it bounced off the limits of those priors.
+        
+    rejected: bool 
+        A boolean which is True if one of the parameters lies so far outside of 
+        the limits of its prior that the whole set is to be rejected.
+    """
+
+    global sampling_priors 
+    global sampling_params
+
+    theta_r = theta.copy()
+    rejected = False
+    index = 0
+    for name in sampling_params:
+        if sampling_params[name].vary is True:
+            if sampling_priors[name].reflect is True:
+                min_value = sampling_priors[name].min
+                max_value = sampling_priors[name].max   
+                #if we're too far from the original boundary just set a hard bound 
+                #on the likelihood
+                if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
+                    rejected = True
+                    return theta_r, rejected
+                #otherwise, just bounce the value off the limits
+                ref_value = reflect_parameter(theta[index],min_value,max_value)
+                theta_r[index] = ref_value
+                index = index + 1          
+    return theta_r, rejected
+
+def _vectorized_mcmc_likelihood(theta,likelihood_function):
+    """
+    This function computes the log-likelihood, including priors, for several 
+    sets of parameter values at once. It is called internally by the likelihood 
+    functions used for MCMC sampling when they are passed more than one set of 
+    parameters, e.g. by emcee running with vectorize=True. The priors are 
+    evaluated one set at a time, because the model evaluation is what dominates 
+    the run time; sets that are rejected by the priors are not passed on to the 
+    model at all.
+    
+    Parameters:
+    -----------
+    theta: np.array(float,float)
+        An array of size (n_sets x n_free), containing one set of values of the 
+        free parameters of the model per row.
+        
+    likelihood_function: function 
+        The function used to compute the log-likelihood excluding the priors, 
+        e.g. sampling_gaussian_likelihood or sampling_cash_likelihood.
+        
+    Returns:
+    --------
+    likelihood: np.array(float)
+        An array of size (n_sets), containing the log-likelihood of each set of 
+        input parameter values.
+    """
+
+    global sampling_priors
+
+    n_sets = np.shape(theta)[0]
+    theta_r = np.zeros(np.shape(theta))
+    logpriors = np.zeros(n_sets)
+    for index in range(n_sets):
+        theta_r[index], rejected = _reflect_theta(theta[index])
+        if rejected is True:
+            logpriors[index] = -np.inf
+        else:
+            logpriors[index] = log_priors(theta_r[index],sampling_priors)
+
+    likelihood = np.full(n_sets,-np.inf)
+    sampled = np.isfinite(logpriors)
+    if np.any(sampled):
+        likelihood[sampled] = (likelihood_function(theta_r[sampled]) +
+                               logpriors[sampled])
+    return likelihood
+
 def sampling_cash_likelihood(theta):
     """
     This function computes the log-likelihood of Poisson-distributed data 
@@ -666,14 +787,18 @@ def sampling_cash_likelihood(theta):
     
     Parameters:
     -----------
-    theta: np.array(float)
-        An array of parameter values for which to compute the log likelihood. 
+    theta: np.array(float) or np.array(float,float)
+        An array of parameter values for which to compute the log likelihood. If 
+        the model was set up for vectorized evaluations, this can also be an 
+        array of size (n_sets x n_free) containing one set of parameter values 
+        per row. 
         
     Returns:
     --------
-    likelihood: float 
+    likelihood: float or np.array(float)
         The value of the summed Cash log-likelihood for the given parameter 
-        values.
+        values, or one value per set of parameter values if several sets were 
+        passed.
     """
 
     global sampling_names
@@ -683,11 +808,22 @@ def sampling_cash_likelihood(theta):
     global sampling_noise
     global sampling_exp
     global sampling_bins
-     
-    for name, val in zip(sampling_names, theta):
-        sampling_params[name].value = val    
-    
-    model = sampling_model(params=sampling_params) 
+    global sampling_vectorize
+
+    #when computing the likelihood of several sets of parameters at once, the 
+    #values are passed to the fitter object directly rather than through the 
+    #lmfit Parameters object
+    theta = np.asarray(theta)
+    if np.ndim(theta) == 2:
+        if sampling_vectorize is not True:
+            raise AttributeError(("Vectorized model evaluations are not enabled;"
+                                  " enable them with the set_sampling_model or"
+                                  " initialise_mcmc functions"))
+        model = sampling_model(params=theta,vectorize=True)
+    else:
+        for name, val in zip(sampling_names, theta):
+            sampling_params[name].value = val    
+        model = sampling_model(params=sampling_params) 
  
     if isinstance(sampling_data, np.ndarray):
         residual = cstat(sampling_data,model,sampling_exp,sampling_bins,sampling_noise,summed=True)
@@ -719,35 +855,34 @@ def mcmc_cash_likelihood(theta):
     
     Parameters:
     -----------
-    theta: np.array(float)
-        An array of parameter values for which to compute the log likelihood. 
+    theta: np.array(float) or np.array(float,float)
+        An array of parameter values for which to compute the log likelihood. If 
+        the model was set up for vectorized evaluations, this can also be an 
+        array of size (n_sets x n_free) containing one set of parameter values 
+        per row - which is the format emcee uses when it is run with 
+        vectorize=True. 
         
     Returns:
     --------
-    likelihood: float 
+    likelihood: float or np.array(float)
         The value of the summed Cash log-likelihood for the given parameter 
-        values.
+        values, or one value per set of parameter values if several sets were 
+        passed.
     """
     
     global sampling_priors 
     global sampling_params
 
+    #when several sets of parameters are passed at once, both the priors and the 
+    #likelihood are computed for every set
+    theta = np.asarray(theta)
+    if np.ndim(theta) == 2:
+        return _vectorized_mcmc_likelihood(theta,sampling_cash_likelihood)
+
     #reflect parameters before computing the priors 
-    theta_r = theta.copy()
-    index = 0
-    for name in sampling_params:
-        if sampling_params[name].vary is True:
-            if sampling_priors[name].reflect is True:
-                min_value = sampling_priors[name].min
-                max_value = sampling_priors[name].max   
-                #if we're too far from the original boundary just set a hard bound 
-                #on the likelihood
-                if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
-                    return -np.inf
-                #otherwise, just bounce the value off the limits
-                ref_value = reflect_parameter(theta[index],min_value,max_value)
-                theta_r[index] = ref_value
-                index = index + 1          
+    theta_r, rejected = _reflect_theta(theta)
+    if rejected is True:
+        return -np.inf
     
     logpriors = log_priors(theta_r, sampling_priors)
     
@@ -768,14 +903,18 @@ def sampling_gaussian_likelihood(theta):
     
     Parameters: 
     -----------
-    theta: np.array(float)
-        An array of parameter values for which to compute the log likelihood. 
+    theta: np.array(float) or np.array(float,float)
+        An array of parameter values for which to compute the log likelihood. If 
+        the model was set up for vectorized evaluations, this can also be an 
+        array of size (n_sets x n_free) containing one set of parameter values 
+        per row. 
         
     Returns:
     --------
-    likelihood: float 
+    likelihood: float or np.array(float)
         The value of the chi-square log-likelihood for the given parameter 
-        values.
+        values, or one value per set of parameter values if several sets were 
+        passed.
     """   
 
     global sampling_names 
@@ -785,11 +924,22 @@ def sampling_gaussian_likelihood(theta):
     global sampling_noise
     global sampling_noise_err
     global sampling_model     
-    
-    for name, val in zip(sampling_names, theta):
-        sampling_params[name].value = val 
-   
-    model = sampling_model(params=sampling_params)
+    global sampling_vectorize
+
+    #when computing the likelihood of several sets of parameters at once, the 
+    #values are passed to the fitter object directly rather than through the 
+    #lmfit Parameters object
+    theta = np.asarray(theta)
+    if np.ndim(theta) == 2:
+        if sampling_vectorize is not True:
+            raise AttributeError(("Vectorized model evaluations are not enabled;"
+                                  " enable them with the set_sampling_model or"
+                                  " initialise_mcmc functions"))
+        model = sampling_model(params=theta,vectorize=True)
+    else:
+        for name, val in zip(sampling_names, theta):
+            sampling_params[name].value = val 
+        model = sampling_model(params=sampling_params)
 
     #flatten arrays if necessary
     if isinstance(sampling_data, list):
@@ -816,7 +966,7 @@ def sampling_gaussian_likelihood(theta):
         err = np.sqrt(err**2+noise_err**2)
 
     residual = (data-model)/err
-    statistic = -0.5*np.sum(residual**2)
+    statistic = -0.5*np.sum(residual**2,axis=-1)
     
     return statistic 
 
@@ -830,14 +980,19 @@ def mcmc_gaussian_likelihood(theta):
     
     Parameters: 
     -----------
-    theta: np.array(float)
-        An array of parameter values for which to compute the log likelihood. 
+    theta: np.array(float) or np.array(float,float)
+        An array of parameter values for which to compute the log likelihood. If 
+        the model was set up for vectorized evaluations, this can also be an 
+        array of size (n_sets x n_free) containing one set of parameter values 
+        per row - which is the format emcee uses when it is run with 
+        vectorize=True. 
         
     Returns:
     --------
-    likelihood: float 
+    likelihood: float or np.array(float)
         The value of the chi-square log-likelihood for the given parameter 
-        values.
+        values, or one value per set of parameter values if several sets were 
+        passed.
     """    
 
     global sampling_priors
@@ -848,23 +1003,17 @@ def mcmc_gaussian_likelihood(theta):
     global sampling_noise
     global sampling_noise_err
     global sampling_model 
+
+    #when several sets of parameters are passed at once, both the priors and the 
+    #likelihood are computed for every set
+    theta = np.asarray(theta)
+    if np.ndim(theta) == 2:
+        return _vectorized_mcmc_likelihood(theta,sampling_gaussian_likelihood)
     
     #reflect parameters before computing the priors 
-    theta_r = theta.copy()
-    index = 0
-    for name in sampling_params:
-        if sampling_params[name].vary is True:
-            if sampling_priors[name].reflect is True:
-                min_value = sampling_priors[name].min
-                max_value = sampling_priors[name].max       
-                #if we're too far from the original boundary just set a hard bound 
-                #on the likelihood
-                if (theta[index] < 0.5*min_value or theta[index] > 2.*max_value):
-                    return -np.inf
-                #otherwise, just bounce the value off the limits
-                ref_value = reflect_parameter(theta[index],min_value,max_value)
-                theta_r[index] = ref_value
-                index = index + 1        
+    theta_r, rejected = _reflect_theta(theta)
+    if rejected is True:
+        return -np.inf
     
     logpriors = log_priors(theta_r, sampling_priors)
 

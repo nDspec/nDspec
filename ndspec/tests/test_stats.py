@@ -9,6 +9,7 @@ from lmfit import Parameters as LM_Parameters
 
 from ndspec.SimpleFit import SimpleFit
 from ndspec.FitPowerSpectrum import FitPowerSpectrum
+from ndspec.JointFit import JointFit
 from ndspec.Likelihoods import chisq, cstat, ratio
 import ndspec.SamplingUtils as sampling_utils
 from ndspec.SamplingUtils import (set_sampling_priors,
@@ -20,6 +21,7 @@ from ndspec.SamplingUtils import (set_sampling_priors,
                                   log_priors,
                                   sampling_gaussian_likelihood,
                                   sampling_cash_likelihood,
+                                  mcmc_gaussian_likelihood,
                                   reflect_parameter,
                                   priorUniform,
                                   priorLogUniform,
@@ -37,6 +39,13 @@ _N_DATA = 8
 
 def flat_model(freq, value=1.0):
     return value*np.ones(_N_DATA)
+
+#a version of the model above that also supports vectorized evaluations: when it 
+#is passed an array of parameter values, it returns one model evaluation per set 
+def flat_model_vector(freq, value=1.0):
+    if np.ndim(value) == 0:
+        return value*np.ones(_N_DATA)
+    return np.asarray(value)[:,np.newaxis]*np.ones(_N_DATA)
 
 
 #this is used to build a dummy FitPowerSpectrum object used to check the sampling 
@@ -57,6 +66,22 @@ def make_psd_fitter(data_value=1.0, data_err=1.0, likelihood="chisq"):
     fitter.set_params(params)
     return fitter
 
+#the same as above, but using the model that supports vectorized evaluations
+def make_vector_psd_fitter(data_value=1.0, data_err=1.0, likelihood="chisq"):
+    data = data_value*np.ones(_N_DATA)
+    err = data_err*np.ones(_N_DATA)
+    freqs = np.linspace(1, _N_DATA, _N_DATA)
+
+    fitter = FitPowerSpectrum(likelihood=likelihood)
+    fitter.set_data(data, err, freqs)
+
+    model = LM_Model(flat_model_vector,independent_vars=['freq'])
+    params = LM_Parameters()
+    params.add_many(('value', data_value, True, None, None))
+    fitter.set_model(model)
+    fitter.set_params(params)
+    return fitter
+
 #This is used to reset the global variables to avoid contaminating the sampling 
 #unit tests. It is an unfortunate byproduct of the gross global variable stuff 
 #the sampling interfaces need.
@@ -72,6 +97,7 @@ def reset_globals():
     sampling_utils.sampling_exp = None
     sampling_utils.sampling_bins = None
     sampling_utils.sampling_params = None
+    sampling_utils.sampling_vectorize = False
 
 
 #this tests checks that priors throw errors when their bounds are specified badly
@@ -410,3 +436,89 @@ class TestReflectParameter(object):
         x = np.array([-0.2])
         y = reflect_parameter(x, 0.0, 1.0)
         assert np.allclose(y, 0.2)
+
+
+#test that computing likelihoods for several sets of parameters at once returns 
+#the same values as computing them one set at a time
+class TestVectorizedSampling(object):
+    def setup_method(self, method):
+        reset_globals()
+
+    #test the likelihood used by nested sampling algorithms
+    def test_vectorized_gaussian_likelihood(self):
+        fitter = make_vector_psd_fitter(data_value=3.0, data_err=1.0)
+        initialise_mcmc(fitter, {'value': priorUniform(0.0, 10.0)}, vectorize=True)
+
+        theta = np.array([[3.0],[2.0],[4.5],[0.5]])
+        test = sampling_gaussian_likelihood(theta)
+        known = np.array([sampling_gaussian_likelihood(row) for row in theta])
+        assert test.shape == (len(theta),)
+        assert np.allclose(test,known) == True
+
+    #test the likelihood used by MCMC algorithms, including sets of parameters 
+    #that lie outside of the priors and are therefore rejected
+    def test_vectorized_mcmc_likelihood(self):
+        fitter = make_vector_psd_fitter(data_value=3.0, data_err=1.0)
+        initialise_mcmc(fitter, {'value': priorUniform(0.0, 10.0)}, vectorize=True)
+
+        theta = np.array([[3.0],[2.0],[-1.0],[4.5],[20.0]])
+        test = mcmc_gaussian_likelihood(theta)
+        known = np.array([mcmc_gaussian_likelihood(row) for row in theta])
+        assert test.shape == (len(theta),)
+        assert np.allclose(test,known) == True
+        #the third and fifth sets lie outside of the prior and are rejected
+        assert np.all(np.isinf(test[[2,4]])) == True
+        assert np.all(np.isfinite(test[[0,1,3]])) == True
+
+    #test that the likelihoods refuse several sets of parameters at once if the 
+    #model was not set up for vectorized evaluations
+    def test_vectorized_not_enabled(self):
+        fitter = make_vector_psd_fitter(data_value=3.0, data_err=1.0)
+        initialise_mcmc(fitter, {'value': priorUniform(0.0, 10.0)})
+        with pytest.raises(AttributeError):
+            sampling_gaussian_likelihood(np.array([[3.0],[2.0]]))
+
+    #test that fitter objects whose eval_model does not support vectorized 
+    #evaluations are rejected
+    def test_vectorized_unsupported_fitter(self):
+        fitter = make_vector_psd_fitter(data_value=3.0, data_err=1.0)
+        joint = JointFit()
+        joint.add_fitobj(fitter,"psd")
+        with pytest.raises(TypeError):
+            set_sampling_model(joint,vectorize=True)
+
+
+#test that the Cash statistic can also be computed for several model evaluations 
+#at once, and returns the same values as computing them one at a time
+class TestVectorizedCstat(object):
+
+    def test_vectorized_cstat_no_background(self):
+        data = np.array([2.0,4.0,0.0,7.0])
+        widths = np.ones(len(data))
+        models = np.array([[2.0,4.0,1.0,7.0],[1.0,5.0,0.5,6.0]])
+
+        test = cstat(data,models,exp=1.0,widths=widths,summed=True)
+        known = np.array([cstat(data,model,exp=1.0,widths=widths,summed=True)
+                          for model in models])
+        assert test.shape == (len(models),)
+        assert np.allclose(test,known) == True
+
+        test = cstat(data,models,exp=1.0,widths=widths,summed=False)
+        known = np.array([cstat(data,model,exp=1.0,widths=widths,summed=False)
+                          for model in models])
+        assert np.allclose(test,known) == True
+
+    def test_vectorized_cstat_with_background(self):
+        #the bins are chosen so that every branch of the background handling in 
+        #cstat is exercised: normal bins, a bin with no counts, and a bin with 
+        #no background
+        data = np.array([2.0,4.0,0.0,7.0])
+        noise = np.array([0.5,1.0,0.5,0.0])
+        widths = np.ones(len(data))
+        models = np.array([[2.0,4.0,1.0,7.0],[1.0,5.0,0.5,6.0]])
+
+        test = cstat(data,models,exp=1.0,widths=widths,noise=noise,summed=True)
+        known = np.array([cstat(data,model,exp=1.0,widths=widths,noise=noise,
+                                summed=True) for model in models])
+        assert test.shape == (len(models),)
+        assert np.allclose(test,known) == True

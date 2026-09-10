@@ -410,7 +410,8 @@ class ResponseMatrix(nDspecOperator):
         bin_resp.resp_matrix = rebinned_response
         return bin_resp
 
-    def convolve_response(self,model_input,units_in="xspec",units_out="kev"):
+    def convolve_response(self,model_input,units_in="xspec",units_out="kev",
+                          vectorize=False):
         """
         This method applies the response matrix loaded in the class to a user
         defined mode. 
@@ -442,6 +443,16 @@ class ResponseMatrix(nDspecOperator):
             A string setting the normalization of the output model. The default 
             "kev" normalizations returns a model in units of counts/s/kev, 
             "channel" instead returns a model in units of counts/s/channel.
+            
+        vectorize: bool, default=False
+            A boolean switch to fold multiple models, each computed from a 
+            different set of model parameters, through the response at once. If 
+            it is set to True, the input model is assumed to contain an 
+            additional leading axis running over the parameter sets - e.g. an 
+            array of size (n_sets x n_energs) rather than (n_energs), or one of
+            size (n_sets x n_energs x arbitrary length) rather than 
+            (n_energs x arbitrary length). Folding a CrossSpectrum object is not 
+            supported in this mode.
         
         Returns:
         -------- 
@@ -451,7 +462,9 @@ class ResponseMatrix(nDspecOperator):
             secondary quantity identical to the input model_input (Fourier 
             frequency, time, pulse phase, etc.), or a CrossSpectrum object from
             nDspec, containing the folded model cross spectrum as a function of
-            energy channel and Fourier frequency.
+            energy channel and Fourier frequency. If vectorize is set to True, 
+            the array contains an additional leading axis running over the 
+            parameter sets folded through the response.
         """
 
         #if passing a nDspec CrossSpectrum object, we are returning a new class 
@@ -467,19 +480,31 @@ class ResponseMatrix(nDspecOperator):
                 output_model.set_psd_weights(model_input.power_spec)
         else: 
            unfolded_model = model_input 
-    
-        if np.shape(self.resp_matrix)[0] != np.shape(unfolded_model)[0]:
+
+        #when folding multiple parameter sets at once, the first axis of the 
+        #input runs over the parameter sets, and the energy axis is the second 
+        #one rather than the first  
+        if vectorize is True:
+            if isinstance(model_input,CrossSpectrum):
+                raise TypeError(("Folding a CrossSpectrum object over multiple"
+                                 " parameter sets is not supported"))
+            energ_axis = 1
+        else:
+            energ_axis = 0
+
+        if np.shape(self.resp_matrix)[0] != np.shape(unfolded_model)[energ_axis]:
             raise TypeError(("Model energy grid has a different size from"
                              " response"))    
 
-        #all the transpose calls are to get the right format for the matrix 
-        #multiplication                 
+        #all the axis swaps are to get the right format for the matrix 
+        #multiplication, which always acts on the last axis of the input
         if units_in == "rate":
             bin_widths = self.energ_hi-self.energ_lo
-            renorm_model = np.multiply(np.transpose(unfolded_model),bin_widths)
+            renorm_model = np.multiply(np.swapaxes(unfolded_model,energ_axis,-1),
+                                       bin_widths)
             conv_model = np.matmul(renorm_model,self.resp_matrix)
         elif units_in == "xspec":
-            trans_model = np.transpose(unfolded_model)
+            trans_model = np.swapaxes(unfolded_model,energ_axis,-1)
             conv_model = np.matmul(trans_model,self.resp_matrix)
         else:
             raise ValueError(("Please specify units of either count rate or"
@@ -492,8 +517,8 @@ class ResponseMatrix(nDspecOperator):
         elif units_out != "channel":
             raise ValueError(("Output units incorrect, specify either kev or"
                               " channel"))
-        #finally transpose to obtain the correct format 
-        conv_model = np.transpose(conv_model)
+        #finally swap the axes back to obtain the correct format 
+        conv_model = np.swapaxes(conv_model,energ_axis,-1)
         
         if isinstance(model_input,CrossSpectrum):
             output_model.cross = conv_model
