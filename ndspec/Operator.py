@@ -1,11 +1,11 @@
 import numpy as np
 from scipy.interpolate import interp1d
+from .Utils import check_shape
 
 try:
     trapezoid = np.trapezoid
 except AttributeError:
     trapezoid = np.trapz
-
 
 class nDspecOperator(object):
     """
@@ -733,13 +733,7 @@ class nDspecOperator(object):
         arr: array_like
             The array after checking its size.
         """
-        arr = np.atleast_1d(np.asarray(arr, dtype=dtype))
-        if arr.shape[0] != size:
-            raise ValueError(
-                f"{name} has shape {arr.shape}, expected first dimension "
-                f"n_bins={size}"
-            )
-        return arr
+        return check_shape(arr, size, name, dtype=dtype)
 
     def _require(self, *names):
         """
