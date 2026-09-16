@@ -7,6 +7,8 @@ import matplotlib.colors as mcolors
 from matplotlib import rc
 import colorsys
 
+from .Utils import check_matching_length, check_two_arrays
+
 def set_plot_style(use_tex=True,font_size=17,font_family='serif',font=None):
     """
     This function sets the matplotlib style used throughout the library. It is a 
@@ -100,6 +102,32 @@ def make_panel_data(x_points=None,y_points=None,x_bars=None,y_bars=None,
     panel_data: dict 
         A dictionary containing every key listed above.
     """
+
+    #every array defined over the data grid has to matchthe size of x_points, 
+    #and the model grid has to be internally consistent
+    check_matching_length("x_points",x_points,"y_points",y_points)
+    check_matching_length("x_points",x_points,"x_bars",x_bars)
+    check_matching_length("x_points",x_points,"y_bars",y_bars)
+    check_matching_length("x_points",x_points,"bkg_vals",bkg_vals)
+    check_matching_length("x_points",x_points,"resid",resid)
+    check_matching_length("x_points",x_points,"reserr",reserr)
+    #this also ensures that the residuals and arrays have the same size
+    check_two_arrays("resid",resid,"reserr",reserr)
+    check_matching_length("resid",resid,"reserr",reserr)
+    check_matching_length("model_points",model_points,"model_vals",model_vals)
+ 
+    if model_edges is not None and model_vals is not None:
+        if len(model_edges) != len(model_vals)+1:
+            raise ValueError("model_edges must contain exactly one more "
+                             "element than model_vals, got "+
+                             str(len(model_edges))+" and "+
+                             str(len(model_vals))+" respectively")
+ 
+    if component_vals is not None:
+        for key in component_vals.keys():
+            check_matching_length("model_vals",model_vals,
+                                  "component_vals['"+str(key)+"']",
+                                  component_vals[key])
     
     panel_data = dict(x_points=x_points,
                       y_points=y_points,
@@ -141,6 +169,18 @@ def make_mesh_data(x_points=None,y_points=None,z_values=None,x_label="",
     mesh_data: dict 
         A dictionary containing every key listed above.
     """
+
+    #z_values has to be oriented so that its first axis runs over y_points
+    if z_values is not None:
+        if np.ndim(z_values) != 2:
+            raise ValueError("z_values must be a two-dimensional array, got "+
+                             str(np.ndim(z_values))+" dimension(s) instead")
+        if x_points is not None and y_points is not None:
+            expected_shape = (len(y_points),len(x_points))
+            if np.shape(z_values) != expected_shape:
+                raise ValueError("z_values has shape "+str(np.shape(z_values))+
+                                 ", expected "+str(expected_shape)+
+                                 " to match (len(y_points),len(x_points))")
     
     mesh_data = dict(x_points=x_points,
                      y_points=y_points,
@@ -200,6 +240,26 @@ def make_layout(nrows=1,ncols=1,height_ratios=None,width_ratios=None,
     layout: dict 
         A dictionary containing every key listed above.
     """
+
+    if height_ratios is not None and len(height_ratios) != nrows:
+        raise ValueError("height_ratios must contain "+str(nrows)+
+                         " elements to match nrows, got "+
+                         str(len(height_ratios))+" instead")
+    if width_ratios is not None and len(width_ratios) != ncols:
+        raise ValueError("width_ratios must contain "+str(ncols)+
+                         " elements to match ncols, got "+
+                         str(len(width_ratios))+" instead")
+    if projections is not None and len(projections) != nrows*ncols:
+        raise ValueError("projections must contain nrows*ncols="+
+                         str(nrows*ncols)+" elements, got "+
+                         str(len(projections))+" instead")
+    if panels is not None:
+        for name, index in panels.items():
+            row, col = index
+            if not (0 <= row < nrows) or not (0 <= col < ncols):
+                raise ValueError("panel '"+str(name)+"' has index "+str(index)+
+                                 ", which falls outside a grid of shape ("+
+                                 str(nrows)+","+str(ncols)+")")
     
     layout = dict(nrows=nrows,
                   ncols=ncols,
@@ -319,7 +379,7 @@ def _merge_style(defaults,overrides):
     
     return style
 
-def draw_main_panel(axes,panel_data,colour="C0",draw_data=True,
+def draw_main_panel(axes,panel_data,color="C0",draw_data=True,
                     draw_model=True,draw_bkg=False,draw_components=False,
                     log_xaxis=True,log_yaxis=True,xlim=None,ylim=None,
                     data_kwargs=None,model_kwargs=None,
@@ -343,8 +403,8 @@ def draw_main_panel(axes,panel_data,colour="C0",draw_data=True,
         If an element (e.g. the model) is not contained in the dictionary, it
         just get skipped.
         
-    colour: str, default="C0"
-        The base colour of the plot added to the panel. By default, the model is
+    color: str, default="C0"
+        The base color of the plot added to the panel. By default, the model is
         changed to a darkened shade of it to better separate it from the data.
         
     draw_data: bool, default=True 
@@ -372,21 +432,37 @@ def draw_main_panel(axes,panel_data,colour="C0",draw_data=True,
     """
     
     if draw_data is True:
+        if panel_data.get("x_points") is None or panel_data.get("y_points") is None:
+            raise ValueError("draw_data is True but panel_data does not "
+                             "contain both x_points and y_points")
+
         style = _merge_style(dict(linestyle='',marker='o',alpha=0.35,
-                                  color=colour),data_kwargs)
+                                  color=color),data_kwargs)
         axes.errorbar(panel_data["x_points"],panel_data["y_points"],
                       xerr=panel_data["x_bars"],yerr=panel_data["y_bars"],
                       **style)
     
-    if draw_bkg is True and panel_data.get("bkg_vals") is not None:
+    if draw_bkg is True:
+        if panel_data.get("bkg_vals") is None:
+            raise ValueError("draw_bkg is True but panel_data does not "
+                             "contain bkg_vals")
+
         style = _merge_style(dict(linestyle='',marker='s',alpha=0.35,
-                                  color=colour),bkg_kwargs)
+                                  color=color),bkg_kwargs)
         axes.errorbar(panel_data["x_points"],panel_data["bkg_vals"],
                       xerr=panel_data["x_bars"],**style)
     
     if draw_model is True:
+        if panel_data.get("model_vals") is None:
+            raise ValueError("draw_model is True but panel_data does not "
+                             "contain model_vals")
+        if panel_data.get("model_points") is None and panel_data.get("model_edges") is None:
+            raise ValueError("draw_model is True but panel_data does not "
+                             "contain either model_points or model_edges to "
+                             "draw model_vals against")
+    
         style = _merge_style(dict(linewidth=2.5,zorder=10,
-                                  color=darken_colour(colour)),model_kwargs)
+                                  color=darken_color(color)),model_kwargs)
         #if panel_data contains bin edges, draw the model as a histogram
         #otherwise just plot a line for each point
         if panel_data.get("model_edges") is not None:
@@ -397,7 +473,7 @@ def draw_main_panel(axes,panel_data,colour="C0",draw_data=True,
                       **style)
     
     if draw_components is True:
-        draw_model_components(axes,panel_data,colour=colour,
+        draw_model_components(axes,panel_data,color=color,
                               component_kwargs=component_kwargs)
     
     if log_xaxis is True:
@@ -414,7 +490,7 @@ def draw_main_panel(axes,panel_data,colour="C0",draw_data=True,
     
     return
 
-def draw_model_components(axes,panel_data,colour="C0",
+def draw_model_components(axes,panel_data,color="C0",
                           component_kwargs=None):
     """
     This function draws the individual additive components of a model onto an 
@@ -431,8 +507,8 @@ def draw_model_components(axes,panel_data,colour="C0",
         The arrays to be displayed, as returned by make_panel_data. The 
         component_vals entry is required.
         
-    colour: str, default="C0"
-        The base colour of the dataset the components belong to.
+    color: str, default="C0"
+        The base color of the dataset the components belong to.
         
     component_kwargs: dict, default=None 
         Keyword arguments passed to matplotlib, overriding the defaults.
@@ -441,6 +517,10 @@ def draw_model_components(axes,panel_data,colour="C0",
     if panel_data.get("component_vals") is None:
         return
     
+    if panel_data.get("model_points") is None and panel_data.get("model_edges") is None:
+        raise ValueError("panel_data contains component_vals but neither "
+                         "model_points nor model_edges to draw them against")
+
     style = _merge_style(dict(linestyle='-',linewidth=2.,alpha=0.8),
                          component_kwargs)
     
@@ -458,7 +538,7 @@ def draw_model_components(axes,panel_data,colour="C0",
     return
 
 
-def draw_residual_panel(axes,panel_data,residuals,colour="C0",
+def draw_residual_panel(axes,panel_data,residuals,color="C0",
                         log_xaxis=True,log_yaxis=False,
                         resid_kwargs=None,line_kwargs=None):
     """
@@ -478,9 +558,9 @@ def draw_residual_panel(axes,panel_data,residuals,colour="C0",
         The units of the residuals being displayed. This sets the value of the 
         horizontal reference line.
         
-    colour: str, default="C0"
-        The colour of the residual points, ignored if resid_kwargs sets a 
-        colour of its own.
+    color: str, default="C0"
+        The color of the residual points, ignored if resid_kwargs sets a 
+        color of its own.
 
     log_xaxis, log_yaxis: bool, default=True, False
         Booleans to choose whether each axis uses a logarithmic scale.
@@ -493,12 +573,18 @@ def draw_residual_panel(axes,panel_data,residuals,colour="C0",
         Keyword arguments passed to matplotlib for the horizontal reference 
         line, overriding the defaults.
     """
+
+    if panel_data.get("resid") is None or panel_data.get("reserr") is None:
+        raise ValueError("panel_data does not contain both resid and reserr")
+    if panel_data.get("x_points") is None:
+        raise ValueError("panel_data does not contain x_points to draw the "
+                         "residuals against")
     
     reference = 0.
     if residuals == "ratio":
         reference = 1.
     
-    style = _merge_style(dict(linestyle='',marker='o',color=colour),
+    style = _merge_style(dict(linestyle='',marker='o',color=color),
                          resid_kwargs)
     axes.errorbar(panel_data["x_points"],panel_data["resid"],
                   xerr=panel_data["x_bars"],yerr=panel_data["reserr"],**style)
@@ -563,6 +649,11 @@ def draw_colormesh_panel(axes,panel_data,cmap="viridis",diverging=False,
     mesh: matplotlib.collections.QuadMesh
         The colormesh that was drawn.
     """
+
+    if (panel_data.get("x_points") is None or panel_data.get("y_points") is None
+        or panel_data.get("z_values") is None):
+        raise ValueError("panel_data does not contain all of x_points, "
+                         "y_points and z_values")
     
     norm = None
     ticks = None
@@ -595,7 +686,7 @@ def draw_colormesh_panel(axes,panel_data,cmap="viridis",diverging=False,
 
 
 def draw_polarization_ellipse(axes,mod_angle,pol_degree,pol_error,
-                              angle_error,colour="C0",fill=True):
+                              angle_error,color="C0",fill=True):
     """
     This function draws a single confidence ellipse in the polarization plane 
     onto an existing polar axis object. 
@@ -620,8 +711,8 @@ def draw_polarization_ellipse(axes,mod_angle,pol_degree,pol_error,
         The one sigma uncertainty on the polarization angle in radians, which 
         sets the azimuthal extent of the ellipse.
         
-    colour: str, default="C0"
-        The colour of the ellipse.
+    color: str, default="C0"
+        The color of the ellipse.
         
     fill: bool, default=True 
         A boolean to choose whether the ellipse is filled or drawn as an 
@@ -629,7 +720,7 @@ def draw_polarization_ellipse(axes,mod_angle,pol_degree,pol_error,
     """
 
     #sort out which parts from the polarimetry classes are needed here
-    print("Work in progress!")
+    raise NotImplementedError("draw_polarization_ellipse is wip")    
     
     return
 
@@ -675,7 +766,7 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
                             marginal_y=None,x_label="",y_label="",z_label="",
                             marginal_labels=("",""),cmap="PuRd",
                             diverging=False,log_xaxis=False,log_yaxis=False,
-                            log_zaxis=False,colour=None,panel_size=(9.0,9.0),
+                            log_zaxis=False,color=None,panel_size=(9.0,9.0),
                             mesh_kwargs=None,bottom_kwargs=None,side_kwargs=None):
     """
     This function displays a two-dimensional array as a colormesh, together 
@@ -719,8 +810,8 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
         along the axis holding their values. This does not affect the mesh, 
         whose scaling is set through diverging instead.
         
-    colour: str or tuple, default=None 
-        The colour of the two projections. If it is None, a colour is sampled 
+    color: str or tuple, default=None 
+        The color of the two projections. If it is None, a color is sampled 
         from the colormap of the mesh.
     
     panel_size: tuple(float), default=(3.5,3.5)
@@ -742,13 +833,21 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
         right panel of the grid is unused and is removed.
 
     """
+    expected_shape = (len(yaxis),len(xaxis))
+    if np.shape(values) != expected_shape:
+        raise ValueError("values has shape "+str(np.shape(values))+
+                         ", expected "+str(expected_shape)+
+                         " to match (len(yaxis),len(xaxis))")
+    check_matching_length("xaxis",xaxis,"marginal_x",marginal_x)
+    check_matching_length("yaxis",yaxis,"marginal_y",marginal_y)
+
     #set the color of the projection
-    if colour is None:
-        colour = plt.get_cmap(cmap)(0.75)
+    if color is None:
+        color = plt.get_cmap(cmap)(0.75)
 
     #set the kwargs and arrays on the side panels
-    bottom_kwargs = _merge_style(dict(color=colour),bottom_kwargs)
-    side_kwargs = _merge_style(dict(color=colour),side_kwargs)    
+    bottom_kwargs = _merge_style(dict(color=color),bottom_kwargs)
+    side_kwargs = _merge_style(dict(color=color),side_kwargs)    
     if marginal_x is None:
         marginal_x = np.sum(values,axis=0)
     if marginal_y is None:
@@ -806,27 +905,32 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
     
     return fig, axes
 
-def darken_colour(colour,factor=0.6):
+def darken_color(color,factor=0.6):
     """
-    This function returns a darker shade of an input colour, and is used to 
-    draw a model in a shade of the colour of the data it is being compared to.
+    This function returns a darker shade of an input color, and is used to 
+    draw a model in a shade of the color of the data it is being compared to.
     
     Parameters:
     -----------
-    colour: str or tuple 
-        The colour to be darkened, in any format understood by matplotlib.
+    color: str or tuple 
+        The color to be darkened, in any format understood by matplotlib.
         
     factor: float, default=0.6 
-        The factor by which the lightness of the colour is multiplied.
+        The factor by which the lightness of the color is multiplied.
     
     Returns:
     --------
-    darker_colour: tuple 
-        The darkened colour, as an rgb tuple.
+    darker_color: tuple 
+        The darkened color, as an rgb tuple.
     """
     
-    rgb = mcolors.to_rgb(colour)
+    try:
+        rgb = mcolors.to_rgb(color)
+    except ValueError:
+        raise ValueError("color '"+str(color)+"' is not a format "
+                         "recognized by matplotlib")
+
     hue, lightness, saturation = colorsys.rgb_to_hls(*rgb)
-    darker_colour = colorsys.hls_to_rgb(hue,factor*lightness,saturation)
+    darker_color = colorsys.hls_to_rgb(hue,factor*lightness,saturation)
     
-    return darker_colour
+    return darker_color
