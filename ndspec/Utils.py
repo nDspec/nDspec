@@ -5,6 +5,8 @@ import matplotlib.pylab as pl
 import matplotlib.colors as mcolors
 import operator as mathop
 
+import lmfit
+
 def model_expand(model,params,distribute=True,**kwargs):
     """
     This function expands a composite lmfit model into its additive terms. For 
@@ -49,10 +51,12 @@ def model_expand(model,params,distribute=True,**kwargs):
             values = _eval_term(model,leaf,params,**kwargs)
         else:
             values = leaf.eval(params,**kwargs)
-        components[_leaf_label(leaf)] = values
+        label = _leaf_label(leaf)
+        if label in components:
+            raise ValueError(f"Two additive components share the label {label}")
+        components[label] = values
     
     return components
- 
  
 def _additive_leaves(model):
     """
