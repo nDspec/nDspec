@@ -2,7 +2,6 @@ name: Tests
  
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
  
@@ -16,9 +15,9 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
  
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
  
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
  
@@ -28,3 +27,7 @@ jobs:
       - name: Run tests
         run: pytest ndspec/tests
 
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
