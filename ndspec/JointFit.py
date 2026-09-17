@@ -21,7 +21,7 @@ from .FitCrossSpectrum import FitCrossSpectrum
 from .FitPowerSpectrum import FitPowerSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
 from .Utils import get_plot_info
-from .Plotting import darken_colour
+from .Plotting import darken_color
 from .Likelihoods import cstat, chisq, ratio
 
 ndspec_oned_fit_types = (FitTimeAvgSpectrum, FitPowerSpectrum)
@@ -750,7 +750,7 @@ class JointFit():
             ax1.plot(plot_data["x_points"], model,
                      linestyle=plot_data["linestyle"][0],
                      linewidth= plot_data["linewidth"][0],
-                     color=darken_colour(col),zorder=10)
+                     color=darken_color(col),zorder=10)
             
             ax1.set_xscale("log",base=10)
             ax1.set_yscale("log",base=10)    
