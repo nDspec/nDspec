@@ -8,12 +8,8 @@ from pyfftw.interfaces.numpy_fft import (
     rfftfreq,
 )
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-from matplotlib import cm
-from matplotlib.colors import TwoSlopeNorm
-
 from .Operator import nDspecOperator
+from . import Plotting
 
 pyfftw.interfaces.cache.enable()
 
@@ -523,7 +519,7 @@ class PowerSpectrum(FourierProduct):
         self.power_spec = new_power                
         return 
     
-    def plot_psd(self,units='Power*freq',return_plot=False):
+    def plot_psd(self,units='Power*freq',return_plot=False,psd_kwargs=None):
         """ 
         This method plots the either the power or power per unit frequency 
         as a function of frequency, stored in the class instance.  
@@ -535,32 +531,40 @@ class PowerSpectrum(FourierProduct):
             displays the power at that frequency, "power" instead uses the power
             per unit frequency.  
             
+        psd_kwargs: dict, default=None 
+            Keyword arguments for the PSD plot
+
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+        
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
         
-        fig, ((ax1)) = plt.subplots(1,1,figsize=(9.,6.))   
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout) 
         
         if units == 'Power':
-            ax1.plot(self.freqs,self.power_spec)
-            ax1.set_ylabel("Power")
+            y_array = self.power_spec
+            y_label = "Power"
         elif units == "Power*freq":
-            ax1.plot(self.freqs,self.power_spec*self.freqs)
-            ax1.set_ylabel("Power$\\times$frequency")
+            y_array = self.power_spec*self.freqs
+            y_label = "Power$\\times$frequency"
         else:
             raise ValueError("Y axis units not recognized")
         
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
-        ax1.set_xlabel("Frequency")  
-        
-        plt.tight_layout()
-        plt.show()        
+        data = Plotting.make_panel_data(model_points=self.freqs,
+                                        model_vals=y_array,                               
+                                        x_label="Frequency (Hz)",
+                                        y_label=y_label)   
+
+        Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                 model_kwargs=psd_kwargs)     
         
         if return_plot is True:
-            return fig 
+            return fig, panel  
         else:
             return   
         

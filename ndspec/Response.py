@@ -806,11 +806,17 @@ class ResponseMatrix(nDspecOperator):
         plot_scale: string, default="log"
             Switches between log10(arf) (plot_scale="log", the default behavior)
             and just the arf (plot_scale="lin").
+
+        arf_kwargs: dict, default=None 
+            Keyword arguments for the arf plot
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+        
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
     
 

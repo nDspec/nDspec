@@ -460,9 +460,9 @@ def draw_main_panel(axes,panel_data,color="C0",draw_data=True,
             raise ValueError("draw_model is True but panel_data does not "
                              "contain either model_points or model_edges to "
                              "draw model_vals against")
-    
+
         style = _merge_style(dict(linewidth=2.5,zorder=10,
-                                  color=darken_color(color)),model_kwargs)
+                                  color=color),model_kwargs)
         #if panel_data contains bin edges, draw the model as a histogram
         #otherwise just plot a line for each point
         if panel_data.get("model_edges") is not None:
