@@ -1494,7 +1494,7 @@ class CrossSpectrum(FourierProduct):
         return lag_spectrum        
 
     def plot_cross_1d(self,units="polar",dependence="frequency",bounds=None,
-                      return_plot=False,cross_kwargs=None):
+                      scale_yaxis=False,return_plot=False,cross_kwargs=None):
         """   
         This method plots a one-dimensional cross spectrum, either as a function 
         of Fourier frequency for a given range of energy channels, or as a 
@@ -1520,6 +1520,11 @@ class CrossSpectrum(FourierProduct):
             dependence="energy" they are the lower and upper Fourier frequency 
             bounds over which the cross spectrum is averaged.
 
+        scale_yaxis: bool, default=False 
+            A boolean to choose whether the real part, imaginary part and 
+            modulus are multiplied by Fourier frequency or energy for ease of 
+            reading.
+
         cross_kwargs: dict, default=None 
             Keyword arguments for the cross spectrum plot
             
@@ -1539,12 +1544,16 @@ class CrossSpectrum(FourierProduct):
         if dependence == "frequency":
             x_axis = self.freqs
             x_label = "Frequency (Hz)"
+            scaling = self.freqs
+            scale_label = "$\\times$frequency"
             spectra = dict(real=self.real_frequency,imag=self.imag_frequency,
                            mod=self.mod_frequency,phase=self.phase_frequency,
                            lag=self.lag_frequency)
         elif dependence == "energy":
             x_axis = self.energ
             x_label = "Energy (keV)"
+            scaling = self.energ**2
+            scale_label = "$\\times$energy$^{2}$"            
             spectra = dict(real=self.real_energy,imag=self.imag_energy,
                            mod=self.mod_energy,phase=self.phase_energy,
                            lag=self.lag_energy)
@@ -1570,6 +1579,11 @@ class CrossSpectrum(FourierProduct):
         
         for panel, quantity, y_label in zip(panels,quantities,y_labels):
             y_axis = spectra[quantity](bounds)
+            #multiply by either frequency or E^2 if we want to make the plot 
+            #in units equivalent to nuFnu in an SED/nuPnu in a PSD
+            if scale_yaxis is True and quantity in ("real","imag","mod"):
+                y_axis = y_axis*scaling
+                y_label = y_label+scale_label
             data = Plotting.make_panel_data(model_points=x_axis,
                                             model_vals=y_axis,
                                             x_label=x_label,
