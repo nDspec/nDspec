@@ -4,13 +4,9 @@ import warnings
 from astropy.io import fits
 from scipy.interpolate import interp1d
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-
-colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
-
 from .Operator import nDspecOperator
 from .Timing import CrossSpectrum
+from . import Plotting
 
 class ResponseMatrix(nDspecOperator):
     """
@@ -86,6 +82,7 @@ class ResponseMatrix(nDspecOperator):
     """ 
     
     def __init__(self, resp_path, arf_path=None):
+        self.specresp = None
         self.load_rmf(resp_path)
         if (arf_path is not None):
             self.load_arf(arf_path)
@@ -744,7 +741,7 @@ class ResponseMatrix(nDspecOperator):
  
         return unfold_model
 
-    def plot_response(self,plot_type="channel",return_plot=False):
+    def plot_response(self,plot_type="channel",return_plot=False,resp_kwargs=None):
         """
         Plots the instrument response as a function of incoming energy and 
         instrument channel. For ease of visualization, the z-axis plots 
@@ -755,39 +752,51 @@ class ResponseMatrix(nDspecOperator):
         plot_type: string, default="channel"
             Sets the units of the X-axis to be either the channel number (by 
             default) or the bounds of each channel (plot_type="energy").
+
+        resp_kwargs: dict, default=None 
+            Keyword arguments for the two-d response plot
         
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+            
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
     
-        fig = plt.figure(figsize=(9.,7.5))
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout)
         
         if plot_type == "channel":
             x_axis = self.chans
-            plt.xlabel("Channel")
+            x_label = "Channel"
         elif plot_type == "energy":
             x_axis = (self.emax+self.emin)/2.
-            plt.xlabel("Bounds (keV)")
+            x_label = "Bounds (keV)"
         else:
             raise TypeError("Specify either channel or energy for the x-axis")
                 
         energy_array = (self.energ_hi+self.energ_lo)/2.
-        p = plt.pcolormesh(x_axis,energy_array,np.log10(self.resp_matrix),
-                           cmap="PuRd",shading='auto',linewidth=0,
-                           rasterized=True)
-        fig.colorbar(p)
-        plt.ylabel("Energy (keV)")
-        plt.title("log10(Response)")
-        plt.show()
+
+        data = Plotting.make_mesh_data(x_points=x_axis,
+                                       y_points=energy_array,
+                                       z_values=np.log10(self.resp_matrix),
+                                       x_label=x_label,
+                                       y_label="Energy (keV)",
+                                       z_label="log10(Response)",
+        )
+
+        mesh = Plotting.draw_colormesh_panel(panel,data,
+                                             log_yaxis=False,
+                                             mesh_kwargs=resp_kwargs)
         
         if return_plot is True:
-            return fig 
+            return fig, panel
         else:
             return   
         
-    def plot_arf(self,plot_scale="log",return_plot=False):
+    def plot_arf(self,return_plot=False,arf_kwargs=None):
         """
         Plots the instrument effective area, if one has been loaded, as a 
         function of energy. 
@@ -804,23 +813,25 @@ class ResponseMatrix(nDspecOperator):
             The plot object produced by the method.
         """
     
-        #tbd: only allow this to happen if specresp is defined
+
         energy_array = (self.energ_hi+self.energ_lo)/2.
-        fig = plt.figure(figsize=(9.,7.5))
-        plt.plot(energy_array,self.specresp,linewidth=2.5,color=colorscale[3])
-        plt.xlabel("Energy (keV)")
-        plt.ylabel("Effective area (cm$^{2}$)")
-        plt.yscale("log",base=10)
-        
-        if plot_scale == "log":
-            plt.xscale("log",base=10)
-        elif plot_scale != "lin":
-            raise TypeError(("Please specify either linear (lin) or"
-                             " logarithmic (log) x scale")) 
-        
-        plt.show()
+        if self.specresp is None:
+            arf_array = np.sum(self.resp_matrix,axis=1)
+        else:
+            arf_array = self.specresp
+
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout)            
+
+        data = Plotting.make_panel_data(model_points=energy_array,
+                                        model_vals=arf_array,                               
+                                        x_label="Energy (keV)",
+                                        y_label="Effective area (cm$^{2}$)",)        
+            
+        Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                 model_kwargs=arf_kwargs) 
         
         if return_plot is True:
-            return fig 
+            return fig, panel 
         else:
             return           
