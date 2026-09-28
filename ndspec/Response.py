@@ -1,6 +1,7 @@
 import numpy as np
 import copy
 import warnings
+import scipy.sparse
 from astropy.io import fits
 from scipy.interpolate import interp1d
 
@@ -124,8 +125,6 @@ class ResponseMatrix(nDspecOperator):
             channel_info = self.bounds.data
             data = h.data
             hdr = h.header
-            if (hdr["TELESCOP"] == "ATHENA") or (hdr["TELESCOP"] == "XRiSM"):
-                raise AttributeError(hdr["TELESCOP"],"data not supported!")
             if hdr["HDUCLASS"] != "OGIP":
                 raise TypeError("File is not OGIP compliant")   
             self.mission = hdr["TELESCOP"]
@@ -152,11 +151,11 @@ class ResponseMatrix(nDspecOperator):
         f_chan = np.array(data.field("F_CHAN"))
         n_chan = np.array(data.field("N_CHAN"))
         matrix = np.array(data.field("MATRIX"))
-        
-        self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix)        
+
+        self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix,n_cols=self.n_chans)
         return
-        
-    def _read_matrix(self,n_grp,f_chan,n_chan,matrix):
+
+    def _read_matrix(self,n_grp,f_chan,n_chan,matrix,first_channel=0,n_cols=0):
         """
         This method converts the information in the n_grp, f_chan, n_chan and 
         matrix columns of a response file into a (n_energs x n_chans) matrix.
@@ -173,54 +172,78 @@ class ResponseMatrix(nDspecOperator):
         n_chan: np.array(int)
             The number of channels after f_chan that are stored in each set 
             labelled from n_grp.
-        
-        matrix: np.array(float) 
-            The non-zero values of the instrument response stored in each set 
-            marked by n_grp, starting at channel f_chan and ending at channel 
-            f_chan+n_chan.          
-        
+
+        matrix: np.array(float)
+            The non-zero values of the instrument response stored in each set
+            marked by n_grp, starting at channel f_chan and ending at channel
+            f_chan+n_chan.
+
+        first_channels: int
+            This is an optional parameter but can be used to shift the offsets
+            into the `f_chan` array. Depending on the FITS reader you are
+            using and if `TLMIN` is not 0, the offsets may not already be
+            applied. In that case, these keyword can be used to apply them
+            whilst assembling the sparse matrix.
+
+        n_cols: int
+            The number of columns (channels) in this matrix.
+
         Returns:
         --------
-        resp_matrix: np.array(float,float)
+        resp_matrix: scipy.sparse.csr_matrix(float)
             The instrument response matrix, loaded in an array of dimensions
-            (n_energs x n_chans). The elements that are not present in the 
-            response file are hard-coded to 0.
-        """        
-        #start with an empty matrix - we need to figure out 
-        #which elements from the FITS file are not zero. These are the only 
-        #values reported in the FITS file, where the matrix has format 
-        #(number of successive energy bins with no empty values n_grp) x
-        #(number of bins that are not empty n_chan) x energy
-        #we are trying to convert this to a matrix with format channel x energy
-        resp_matrix = np.zeros((self.n_energs,self.n_chans),dtype=np.float32)
-        #loop over the detector energies over which the rmf is binned 
-        for j in range(self.n_energs):
-            i = 0
-            #loop over the number of channels in each channel set of consecutive
-            #bins with no empty values
-            for k in range(n_grp[j]):
-                #Sometimes there are more than one groups of entries per row
-                #As a result, we loop over the groups and assign the matrix  
-                #values in the appropariate channel range as below:
-                if any(m>1 for m in n_grp):
-                    for l in range(f_chan[j][k],n_chan[j][k]+f_chan[j][k]):
-                        resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]
-                        i = i + 1
-                #In this case, the length of j-th row of the "Matrix" array is 
-                #n_chan[j]+f_chan[j] corresponding to channel indexes 
-                #f_chan[j]+1 to n_chan[j]+f_chan[j]. We set those values in 
-                #coordinates j,l in the matrix array resp_matrix
-                #IMPORTANT: loading the matrix this way doesn't read the very 
-                #last channel correctly. This is fine because nobody sane is 
-                #ever going to use the very last detector channel for science 
-                #anyway.
-                else:
-                    for l in range(f_chan[j],n_chan[j]+f_chan[j]):
-                        resp_matrix[j][l] = resp_matrix[j][l] + matrix[j][i]  
-                        i = i + 1              
-        return resp_matrix        
-    
-    def load_arf(self,filepath):       
+            (n_energs x n_chans).
+        """
+        ptrs = [0]
+        indices = []
+        data = []
+
+        prev = ptrs[0]
+
+        for i in range(len(f_chan)):
+            M = matrix[i]
+
+            fs = f_chan[i]
+            ns = n_chan[i]
+
+            # This is a hack so that `zip` works. Not all matrices have
+            # `n_chan` and `f_chan` as simple vectors, and some are vectors of
+            # vectors.
+            if not isinstance(ns, np.ndarray):
+                fs = [fs]
+                ns = [ns]
+
+            row_len = 0
+            for (f, n) in zip(fs, ns):
+                # This may seem redundant, but numpy may encode `n` and `f` as
+                # int 16, in which case, for large matrices, these numbers
+                # overflow. By casting them to Python arbitrary-length
+                # integers, the overflows are avoided.
+                f = int(f)
+                n = int(n)
+                if n == 0:
+                    # Advance row
+                    break
+
+                first = (f - first_channel)
+
+                # Append all of the indices
+                indices.extend(np.arange(first, first + n))
+
+                data.extend(M[row_len:row_len + n])
+                row_len += n
+
+
+            next_ptr = row_len + prev
+            ptrs.append(next_ptr)
+            prev = next_ptr
+
+        return scipy.sparse.csr_matrix(
+            (data, indices, ptrs),
+            shape=(len(f_chan), n_cols),
+        )
+
+    def load_arf(self,filepath):
         """
         This method reads an effective area .arf file, and applies it to a
         redistribution matrix previously loaded with the load_rmf method. The
@@ -263,10 +286,8 @@ class ResponseMatrix(nDspecOperator):
             self.exposure = 1.0
             
         
-        for k in range(self.n_chans):
-            for j in range(self.n_energs):
-                self.resp_matrix[j][k] = self.resp_matrix[j][k]* \
-                                         self.specresp[j]*self.exposure      
+        diag = scipy.sparse.diags(self.specresp * self.exposure, format='csr')
+        self.resp_matrix = diag @ self.resp_matrix
         print("Arf loaded")
         return 
         
@@ -515,10 +536,10 @@ class ResponseMatrix(nDspecOperator):
         if units_in == "rate":
             bin_widths = self.energ_hi-self.energ_lo
             renorm_model = np.multiply(np.transpose(unfolded_model),bin_widths)
-            conv_model = np.matmul(renorm_model,self.resp_matrix)
+            conv_model = renorm_model @ self.resp_matrix
         elif units_in == "xspec":
             trans_model = np.transpose(unfolded_model)
-            conv_model = np.matmul(trans_model,self.resp_matrix)
+            conv_model = trans_model @ self.resp_matrix
         else:
             raise ValueError(("Please specify units of either count rate or"
                               " count rate normalized to bin width"))
