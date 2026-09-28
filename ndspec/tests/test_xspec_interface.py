@@ -14,11 +14,14 @@ Fortran-style arguments is ABI-identical to a gfortran subroutine, so no
 Fortran compiler is needed; when gfortran is available, one extra test also
 checks a real Fortran subroutine.
 
-Tests at the bottom run against the installed HEASOFT library and model.dat,
-and are skipped unless $HEADAS points to a usable installation (e.g. in CI).
+Tests at the bottom run against a real Xspec library: a HEASOFT installation
+(if $HEADAS is set) and/or the xspectrampoline package (if installed and
+$HEADAS is not set). Each is skipped when unavailable.
 """
 import ctypes as ct
+import importlib.util
 import os
+import types
 import re
 import shutil
 import subprocess
@@ -356,12 +359,59 @@ def test_library_without_fninit(tmp_path):
 
 
 def test_fortran_interface_defaults(mock_paths, monkeypatch):
-    """FortranInterface() takes its paths from find_heasoft (not loaded from a
+    """FortranInterface() takes its paths from find_xspec (not loaded from a
     fake $HEADAS tree: the file would have to be called libXSFunctions, which
     macOS resolves through $DYLD_LIBRARY_PATH first)."""
-    monkeypatch.setattr(X, "find_heasoft", lambda headas=None: mock_paths)
-    lib = X.FortranInterface()
+    calls = []
+    monkeypatch.setattr(X, "find_xspec", lambda backend: calls.append(backend) or mock_paths)
+    lib = X.FortranInterface(backend="xspectrampoline")
     assert (lib.lib_path, lib.pars_path) == mock_paths
+    assert calls == ["xspectrampoline"]
+
+
+@pytest.fixture
+def fake_xspectrampoline(monkeypatch):
+    """Replace find_heasoft with a recorder and xspectrampoline with a stub."""
+    calls = []
+    monkeypatch.setattr(X, "find_heasoft",
+                        lambda headas=None: calls.append(headas) or ("/x/lib.so", "/x/model.dat"))
+    stub = types.ModuleType("xspectrampoline")
+    stub.get_HEADAS = lambda: "/bundle/LibXSPEC"
+    monkeypatch.setitem(sys.modules, "xspectrampoline", stub)
+    return calls
+
+
+def test_find_xspec_backends(fake_xspectrampoline, monkeypatch):
+    calls = fake_xspectrampoline
+    monkeypatch.setenv("HEADAS", "/my/heasoft")
+    X.find_xspec("auto")                      # HEADAS set -> HEASOFT
+    X.find_xspec("heasoft")
+    assert calls == [None, None]
+    monkeypatch.delenv("HEADAS")
+    X.find_xspec("auto")                      # no HEADAS -> xspectrampoline's library
+    X.find_xspec("xspectrampoline")
+    assert calls[2:] == ["/bundle/LibXSPEC"] * 2
+    # FNINIT already ran when xspectrampoline was imported
+    assert os.path.realpath("/x/lib.so") in X._INITIALISED_LIBS
+    with pytest.raises(ValueError, match="backend"):
+        X.find_xspec("pyxspec")
+
+
+def test_find_xspec_without_xspectrampoline(fake_xspectrampoline, monkeypatch, tmp_path):
+    monkeypatch.delenv("HEADAS", raising=False)
+    monkeypatch.setitem(sys.modules, "xspectrampoline", None)     # not installed
+    with pytest.raises(EnvironmentError, match="pip install xspectrampoline"):
+        X.find_xspec("auto")
+    with pytest.raises(ImportError, match="not installed"):
+        X.find_xspec("xspectrampoline")
+    # installed, but its import fails (it raises NoLibXSPEC if it cannot load
+    # its libraries, and AttributeError on Python 3.8)
+    _touch(tmp_path / "xspectrampoline" / "__init__.py").write_text(
+        "raise RuntimeError('NoLibXSPEC')\n")
+    monkeypatch.delitem(sys.modules, "xspectrampoline")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    with pytest.raises(ImportError, match="could not load.*NoLibXSPEC"):
+        X.find_xspec("xspectrampoline")
 
 
 def test_dyld_shadowing(tmp_path, monkeypatch):
@@ -527,41 +577,50 @@ def test_real_fortran_subroutines(tmp_path):
 
 
 # =============================================================================
-# Against an installed HEASOFT (skipped when unavailable)
+# Against a real Xspec library (skipped when unavailable)
 # =============================================================================
-def _heasoft():
-    try:
-        return X.find_heasoft()
-    except (EnvironmentError, FileNotFoundError, OSError):
-        return None
+# Taken at import, before anything imports xspectrampoline (which sets HEADAS).
+_USER_HEADAS = os.environ.get("HEADAS")
+_HAVE_XSPECTRAMPOLINE = (sys.version_info >= (3, 9)
+                         and importlib.util.find_spec("xspectrampoline") is not None)
 
 
-needs_heasoft = pytest.mark.skipif(_heasoft() is None,
-                                   reason="no HEASOFT installation found via $HEADAS")
+@pytest.fixture(scope="module", params=["heasoft", "xspectrampoline"])
+def real_lib(request):
+    if request.param == "heasoft":
+        if not _USER_HEADAS:
+            pytest.skip("HEADAS not set: no HEASOFT installation to test")
+        return X.FortranInterface(*X.find_heasoft(_USER_HEADAS))
+    if not _HAVE_XSPECTRAMPOLINE:
+        pytest.skip("xspectrampoline not installed")
+    if _USER_HEADAS:
+        # xspectrampoline would use that HEASOFT instead of its bundled copy
+        pytest.skip("HEADAS is set, so xspectrampoline would not use its own library")
+    return X.FortranInterface(backend="xspectrampoline")
+
 
 _HEADER = re.compile(r"^(\S+)\s+(\d+)\s+\S+\s+\S+\s+(\S+)\s+(add|mul|con|mix|acn|amx)\b")
 
 
-@needs_heasoft
-def test_heasoft_model_dat_and_symbols():
+def test_real_model_dat_and_symbols(real_lib):
     """Every model in the real model.dat parses with the declared number of
     parameters and resolves to a symbol in the real library."""
-    lib = X.FortranInterface()
     expected = {}
-    with open(lib.pars_path) as fh:
+    with open(real_lib.pars_path) as fh:
         for line in fh:
             m = _HEADER.match(line)
             if m:
                 expected[m.group(1).lower()] = int(m.group(2)) + (m.group(4) == "add")
-    assert {k: len(v["parameters"]) for k, v in lib._all_info.items()} == expected
-    assert lib.check_symbols()[1] == []
+    assert {k: len(v["parameters"]) for k, v in real_lib._all_info.items()} == expected
+    assert real_lib.check_symbols()[1] == []
 
 
-@needs_heasoft
-def test_heasoft_models_evaluate():
-    lib = X.FortranInterface()
-    for model in ["powerlaw", "tbabs", "nthcomp", "gaussian", "kerrbb"]:
-        lib.add_model(_stub(model))
-        pars = [v["value"] for v in lib._all_info[model]["parameters"].values()]
-        out = getattr(lib, model)(np.logspace(-1, 2, 200), pars)
+def test_real_models_evaluate(real_lib):
+    # Only models that need no data files: xspectrampoline does not ship
+    # spectral/modelData, and some models (e.g. kerrbb) exit the process
+    # when a data file is missing.
+    for model in ["powerlaw", "tbabs", "nthcomp", "gaussian", "diskbb"]:
+        real_lib.add_model(_stub(model))
+        pars = [v["value"] for v in real_lib._all_info[model]["parameters"].values()]
+        out = getattr(real_lib, model)(np.logspace(-1, 2, 200), pars)
         assert np.all(np.isfinite(out)) and np.any(out != 0), model

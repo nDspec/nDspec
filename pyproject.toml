@@ -55,6 +55,8 @@ tests = [
     "pytest",
     "pytest-cov",
 ]
+# Xspec model library without a HEASOFT installation (Linux x86_64, macOS)
+xspec = ["xspectrampoline>=0.1.5; python_version >= '3.9'"]
 notebooks = ["ipykernel", "nbconvert", "jupyter"]
  
 [project.urls]

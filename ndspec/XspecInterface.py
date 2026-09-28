@@ -33,9 +33,10 @@ This module derives both the symbol *and* the calling convention from that
 prefix, so users never need to know them. The two public classes differ only
 in where they look for the library by default:
 
-* ``FortranInterface()`` -- the HEASOFT model library (libXSFunctions), found
-  from ``$HEADAS``. The name is kept for backwards compatibility; it handles
-  Fortran, C and C++ models alike.
+* ``FortranInterface()`` -- the Xspec model library (libXSFunctions), either
+  from a HEASOFT installation found via ``$HEADAS`` or from the pip-installable
+  xspectrampoline package (``backend=...``). The name is kept for backwards
+  compatibility; it handles Fortran, C and C++ models alike.
 * ``CInterface(lib_path, pars_path)`` -- any other Xspec-compatible library
   (e.g. relxill) together with its ``lmodel.dat``.
 """
@@ -50,7 +51,8 @@ from sys import platform
 import numpy as np
 
 __all__ = ["ModelInterface", "FortranInterface", "CInterface",
-           "find_heasoft", "resolve_symbols"]
+           "find_heasoft", "find_xspectrampoline", "find_xspec",
+           "resolve_symbols"]
 
 # Calling conventions ---------------------------------------------------------
 F77_SINGLE = "f77_single"   # subroutine f(ear,ne,par,ifl,photar,photer), real*4
@@ -145,6 +147,78 @@ def _dyld_shadowing(lib_path):
                 pass
             return candidate
     return None
+
+
+def find_xspectrampoline():
+    """
+    Locate the Xspec model library bundled by xspectrampoline
+    (``pip install xspectrampoline``), which needs no HEASOFT installation.
+
+    Importing xspectrampoline loads the library and runs FNINIT. If $HEADAS is
+    already set, xspectrampoline (and therefore this function) uses that
+    HEASOFT installation instead of its bundled copy.
+
+    The bundle does not include the model data directory
+    (spectral/modelData), so models that read data files (e.g. kerrbb, apec)
+    fail until the files are copied into
+    ``xspectrampoline_helpers.get_model_data_dir()``. Some of them stop the
+    Python process outright when a file is missing.
+
+    Output:
+    -------
+    lib_path, pars_path: str, str
+        Paths to libXSFunctions.{so,dylib} and model.dat.
+    """
+    try:
+        import xspectrampoline
+    except ImportError as exc:
+        raise ImportError(
+            "xspectrampoline is not installed. Install it with "
+            "'pip install xspectrampoline' (Python >= 3.9, Linux x86_64 or "
+            "macOS), or set HEADAS to use a HEASOFT installation.") from exc
+    except Exception as exc:    # NoLibXSPEC, or an unsupported Python version
+        raise ImportError(
+            f"xspectrampoline is installed but could not load its Xspec "
+            f"library: {exc!r}") from exc
+    lib_path, pars_path = find_heasoft(xspectrampoline.get_HEADAS())
+    # importing xspectrampoline has already run FNINIT on this library
+    _INITIALISED_LIBS.add(os.path.realpath(lib_path))
+    return lib_path, pars_path
+
+
+_BACKENDS = ("auto", "heasoft", "xspectrampoline")
+
+
+def find_xspec(backend="auto"):
+    """
+    Locate an Xspec model library and its model.dat.
+
+    Parameters:
+    -----------
+    backend: str
+        "heasoft": a HEASOFT installation found via $HEADAS.
+        "xspectrampoline": the library bundled by the xspectrampoline package.
+        "auto" (default): HEASOFT if $HEADAS is set, otherwise xspectrampoline.
+
+    Output:
+    -------
+    lib_path, pars_path: str, str
+    """
+    if backend not in _BACKENDS:
+        raise ValueError(f"backend must be one of {_BACKENDS}, not {backend!r}")
+    if backend == "heasoft":
+        return find_heasoft()
+    if backend == "xspectrampoline":
+        return find_xspectrampoline()
+    if os.environ.get("HEADAS"):
+        return find_heasoft()
+    try:
+        return find_xspectrampoline()
+    except ImportError as exc:
+        raise EnvironmentError(
+            "No Xspec model library found. Either set HEADAS to a HEASOFT "
+            "installation (source $HEADAS/headas-init.sh), or run "
+            f"'pip install xspectrampoline'.\n({exc})") from exc
 
 
 # -----------------------------------------------------------------------------
@@ -624,15 +698,22 @@ class ModelInterface():
 
 class FortranInterface(ModelInterface):
     """
-    Interface to the HEASOFT Xspec model library (libXSFunctions). With no
-    arguments the library and model.dat are located from $HEADAS and FNINIT is
-    called. Despite the (historical) name, Fortran, C and C++ models are all
+    Interface to the Xspec model library (libXSFunctions). With no path
+    arguments the library and model.dat are located according to `backend`
+    (see find_xspec), and FNINIT is called:
+
+        FortranInterface()                           # HEASOFT if $HEADAS is set,
+                                                     # else xspectrampoline
+        FortranInterface(backend="heasoft")          # require HEASOFT
+        FortranInterface(backend="xspectrampoline")  # pip install xspectrampoline
+
+    Despite the (historical) name, Fortran, C and C++ models are all
     supported: the correct symbol and calling convention for each are derived
     from model.dat.
     """
-    def __init__(self, lib_path=None, pars_path=None, initialize=None):
+    def __init__(self, lib_path=None, pars_path=None, initialize=None, backend="auto"):
         if lib_path is None or pars_path is None:
-            default_lib, default_pars = find_heasoft()
+            default_lib, default_pars = find_xspec(backend)
             lib_path = lib_path or default_lib
             pars_path = pars_path or default_pars
         ModelInterface.__init__(self, lib_path, pars_path, initialize)
