@@ -126,6 +126,27 @@ def find_heasoft(headas=None):
     return os.path.normpath(lib_path), os.path.normpath(pars_path)
 
 
+def _dyld_shadowing(lib_path):
+    """
+    On macOS, dlopen() first looks for the *file name* of lib_path in every
+    $DYLD_LIBRARY_PATH directory, and only then at lib_path itself. Return
+    the library that would be loaded instead of lib_path, or None.
+    """
+    if platform != "darwin":
+        return None
+    leaf = os.path.basename(lib_path)
+    for d in os.environ.get("DYLD_LIBRARY_PATH", "").split(os.pathsep):
+        candidate = os.path.join(d, leaf) if d else ""
+        if candidate and os.path.exists(candidate):
+            try:
+                if os.path.samefile(candidate, lib_path):
+                    return None
+            except OSError:
+                pass
+            return candidate
+    return None
+
+
 # -----------------------------------------------------------------------------
 # Symbol resolution
 # -----------------------------------------------------------------------------
@@ -304,6 +325,13 @@ class ModelInterface():
         # RTLD_GLOBAL lets libraries loaded later (e.g. local model packages)
         # resolve the XSPEC utility symbols exported by this one.
         self.lib = ct.CDLL(lib_path, mode=ct.RTLD_GLOBAL)
+        shadow = _dyld_shadowing(lib_path)
+        if shadow is not None:
+            warnings.warn(
+                f"{shadow} is loaded instead of {lib_path}: on macOS, "
+                "DYLD_LIBRARY_PATH is searched for the library's file name "
+                "before the path given. Rename the library or remove that "
+                "directory from DYLD_LIBRARY_PATH.", UserWarning)
         if initialize is None:
             initialize = self._has_symbol("FNINIT") or self._has_symbol("fninit_")
         if initialize:
@@ -552,8 +580,12 @@ class ModelInterface():
         if model_type == "add":
             @wraps(func)
             def wrapper(ear, params):
+                # check bounds before any cast to float32, so that values at
+                # a limit are not pushed across it by rounding
+                in_bounds = self.check_param_values(
+                    func_name, np.asarray(params, dtype=np.float64))
                 ear, params = prepare(ear, params)
-                if not self.check_param_values(func_name, params):
+                if not in_bounds:
                     return np.full(len(ear) - 1, np.nan)
                 # the normalisation is applied here, not passed to the model
                 flux = call(ear, np.ascontiguousarray(params[:-1]),
@@ -562,16 +594,24 @@ class ModelInterface():
         elif model_type == "mul":
             @wraps(func)
             def wrapper(ear, params):
+                # check bounds before any cast to float32, so that values at
+                # a limit are not pushed across it by rounding
+                in_bounds = self.check_param_values(
+                    func_name, np.asarray(params, dtype=np.float64))
                 ear, params = prepare(ear, params)
-                if not self.check_param_values(func_name, params):
+                if not in_bounds:
                     return np.full(len(ear) - 1, np.nan)
                 flux = call(ear, params, np.zeros(len(ear) - 1, dtype=dtype))
                 return flux.astype(np.float64)
         else:   # con: the input spectrum is modified in place
             @wraps(func)
             def wrapper(ear, params, seed):
+                # check bounds before any cast to float32, so that values at
+                # a limit are not pushed across it by rounding
+                in_bounds = self.check_param_values(
+                    func_name, np.asarray(params, dtype=np.float64))
                 ear, params = prepare(ear, params)
-                if not self.check_param_values(func_name, params):
+                if not in_bounds:
                     return np.full(len(ear) - 1, np.nan)
                 flux = np.array(seed, dtype=dtype, copy=True)
                 if flux.shape != (len(ear) - 1,):
