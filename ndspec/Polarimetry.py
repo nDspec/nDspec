@@ -8,6 +8,7 @@ from matplotlib import cm
 from matplotlib.colors import TwoSlopeNorm
 
 from .Operator import nDspecOperator
+from . import Plotting
 
 class PolarimetryProduct(nDspecOperator):
     """
@@ -16,14 +17,14 @@ class PolarimetryProduct(nDspecOperator):
     model Stokes parameters (I, Q, U), polarization degree/angle, and modulation
     curves.
 
-    The object is initialized in one of two modes at construction, depending on
-    the initial inputs:
+    The object is initialized in one of two modes:
 
     - 'stokes':       the user supplies Stokes parameters, which can then be
                       converted to polarization degree/angle, or to a modulation
-                      curve per data bin
-    - 'polarization': the user supplies stokes I (an array of count rates per 
-                      bin), polarization degree Pi and polarization angle psi.                      
+                      curve, per data bin
+    - 'polarization': the user supplies Stokes I (an array of count rates per 
+                      bin), polarization degree Pi and polarization angle psi,
+                      and can then derive Stokes Q/U and/or modulation curves.                     
 
     Parameters:
     -----------
@@ -115,16 +116,19 @@ class PolarimetryProduct(nDspecOperator):
             An array containing the Stokes I values for each bin. 
 
         degree: array_like(float)
-            An array containing the polarization degree for each bin.
+            An array containing the fractional polarization degree for each bin.
 
         angle: array_like(float)
-            An array containing the polarization angle for each bin.        
+            An array containing the polarization angle in radians for each bin.        
         """
         if self.input_type != 'polarization':
             raise ValueError(
                 f"This object was initialized with input_type={self.input_type!r}; "
                 "set_polarization() is only valid for input_type='polarization'."
             )
+        if np.any(degree < 0.) or np.any(degree > 1.):
+            raise ValueError("The polarization degree must be between 0 and 1")
+            
         self.stokes_I = self._check_shape(I, self.n_bins, "I")
         self.pol_degree = self._check_shape(degree, self.n_bins, "polarization degree")
         self.pol_angle = self._check_shape(angle, self.n_bins, "polarization angle")
@@ -298,7 +302,7 @@ class PolarimetryProduct(nDspecOperator):
         )
         return self.modulation_curve
 
-    def plot_stokes(self, x_label="bin", return_plot=False):
+    def plot_stokes(self, x_label="bin", return_plot=False, stokes_kwargs=None):
         """
         This method plots Stokes I, Q, U vs. all the bins defined in the object.
 
@@ -310,32 +314,52 @@ class PolarimetryProduct(nDspecOperator):
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
             the plot or not.
+
+        stokes_kwargs: dict, default=None 
+            Keyword arguments for the stokes paramters plots
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+            
+        panels: np.array(matplotlib.axes), optional 
+            The panels containing the plot produced by the method.
         """
         
         self._require('stokes_I', 'stokes_Q', 'stokes_U')
         labels = ['Stokes I', 'Stokes Q', 'Stokes U']
         arrays = [self.stokes_I, self.stokes_Q, self.stokes_U]
+        x_axis = self.bins
 
-        fig, axes = plt.subplots(1, 3, sharex=True, figsize=(15, 5))
-        for ax, label, arr in zip(axes, labels, arrays):
-            ax.plot(self.bins, arr, marker='o',ms=3,drawstyle='steps-mid')
-            ax.set_title(label)
-            ax.set_xlabel(x_label)
+        plot_layout = Plotting.make_layout(ncols=len(arrays),
+                                           panel_size=(6.5,4.5))
+        fig, panels = Plotting.make_panels(plot_layout)
+
+        model_style = dict(drawstyle="steps-mid")
+        if stokes_kwargs is not None:
+            model_style.update(stokes_kwargs)
         
-        plt.tight_layout()
-        plt.show()        
+        for panel, array, label in zip(panels,arrays,labels):
+            data = Plotting.make_panel_data(model_points=x_axis,
+                                            model_vals=array,
+                                            x_label=x_label,
+                                            y_label=label)
+            #log scale only for Stokes I
+            Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                     log_yaxis=(label == "Stokes I"),
+                                     log_xaxis=(label == "Stokes I"),
+                                     model_kwargs=model_style)
+            if label != "Stokes I":
+                panel.axhline(0.,linestyle=':',linewidth=2.,color='black')         
         
         if return_plot is True:
-            return fig 
+            return fig, panels 
         else:
             return  
 
-    def plot_polarization_1d(self, x_label="bin", return_plot=False):
+    def plot_polarization_1d(self, x_label="bin", return_plot=False, 
+                             pol_kwargs=None):
         """
         This method plots polarizatoin degree and angle vs. all the bins defined 
         in the object, using one-dimensional plots.
@@ -348,6 +372,9 @@ class PolarimetryProduct(nDspecOperator):
         return_plot: bool, default=False
             A boolean to decide whether to return the figure objected containing 
             the plot or not.
+
+        pol_kwargs: dict, default=None 
+            Keyword arguments for the polarization degree/angle plots
             
         Returns: 
         --------
@@ -356,21 +383,29 @@ class PolarimetryProduct(nDspecOperator):
         """
         
         self._require('pol_degree', 'pol_angle')
-        fig, ((ax1,ax2)) = plt.subplots(1, 2, sharex=True, figsize=(10, 5))
-
-        ax1.plot(self.bins, self.pol_degree, marker='o',ms=3,drawstyle='steps-mid')
-        ax1.set_ylabel('Polarization degree')
-        ax1.set_xlabel(x_label)
+        labels = ['Polarization degree', 'Polarization angle (deg)']
+        arrays = [self.pol_degree, np.degrees(self.pol_angle)]
+        x_axis = self.bins
         
-        ax2.plot(self.bins, np.degrees(self.pol_angle),marker='o',ms=3,drawstyle='steps-mid')
-        ax2.set_ylabel('Polarization angle (deg)')
-        ax2.set_xlabel(x_label)
+        plot_layout = Plotting.make_layout(ncols=len(arrays),
+                                           panel_size=(6.5,4.5))
+        fig, panels = Plotting.make_panels(plot_layout)
 
-        plt.tight_layout()
-        plt.show()        
+        model_style = dict(drawstyle="steps-mid")
+        if pol_kwargs is not None:
+            model_style.update(pol_kwargs)
+        
+        for panel, array, label in zip(panels,arrays,labels):
+            data = Plotting.make_panel_data(model_points=x_axis,
+                                            model_vals=array,
+                                            x_label=x_label,
+                                            y_label=label)
+            Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                     log_yaxis=False,log_xaxis=False,
+                                     model_kwargs=model_style)   
         
         if return_plot is True:
-            return fig 
+            return fig, panels 
         else:
             return  
 
@@ -425,8 +460,9 @@ class PolarimetryProduct(nDspecOperator):
         else:
             return  
 
-    def plot_modulation(self, bin_index=None, y_label="bins", renormalize=True,
-                        cmap='viridis', return_plot=False):
+    def plot_modulation(self, bin_index=None, y_label="bin", renormalize=True,
+                        cmap="viridis", colors=None, return_plot=False, 
+                        mod_kwargs=None):
         """
         This method plots the modulation curve in the bins chosen by the user.
 
@@ -441,66 +477,93 @@ class PolarimetryProduct(nDspecOperator):
 
         Parameters:
         -----------
-        bin_index: array_like(int)
-            One or more integers to pick which bins for which to plot the
-            modulation curve 
+        bin_index: int or array_like(int), default=None
+            One or more indexes of the bins for which to plot the modulation 
+            curve.
 
-        y_label: str, default=`bins`
-            The name to give to the y axis of the plot, when plotting in two
-            dimensions against all bins 
+        y_label: str, default="bin"
+            The label of the y axis when plotting all bins in two dimensions.
 
         renormalize: bool, default=True
             A boolean to choose whether to re-normalize the modulation curve 
             by stokes I for visualization purposes.
 
-        cmap: str, default=`viridis`
-            The name of the color map to use when plotting all the modulation 
-            curves in two dimensions
+        cmap: str, default="viridis"
+            The colormap used when plotting all bins in two dimensions.
+
+        colors: list(str), default=None
+            The colors of each modulation curve when plotting in one dimension, 
+            one per entry of bin_index. By default, the curves follow the 
+            matplotlib color cycle.
             
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
-            the plot or not.
+            A boolean to decide whether to return the figure and panel 
+            containing the plot or not.
+
+        mod_kwargs: dict, default=None 
+            Keyword arguments for the modulation curves, or for the colormesh 
+            when plotting in two dimensions.
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+            
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
         if renormalize is True:
-            self._require('stokes_I','modulation_curve', 'mod_angles')
+            self._require('stokes_I','modulation_curve','mod_angles')
         else:
-            self._require('modulation_curve', 'mod_angles')
+            self._require('modulation_curve','mod_angles')
         
         curve = self.modulation_curve
         mod_name = "Modulation"
         
         if renormalize is True:
-            I = self._as_column(self.stokes_I)
-            curve = curve/I
-            mod_name = "Normalized modulation"
+            curve = curve/self._as_column(self.stokes_I)
+            mod_name = "Normalised modulation"
+
+        if bin_index is None and curve.shape[0] == 1:
+            bin_index = [0]
         
-        fig, ax = plt.subplots()
-        if bin_index is not None:
-            for index in bin_index:
-                ax.plot(self.mod_angles, curve[index, :])
-            ax.set_xlabel('Modulation angle (rad)')
-            ax.set_ylabel(mod_name)
-        elif curve.shape[0] == 1:
-            ax.plot(self.mod_angles, curve[0, :])
-            ax.set_xlabel('Modulation angle (rad)')
-            ax.set_ylabel(mod_name)
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout)
+        
+        if bin_index is None:
+            data = Plotting.make_mesh_data(x_points=self.mod_angles,
+                                           y_points=self.bins,
+                                           z_values=curve,
+                                           x_label="Modulation angle (rad)",
+                                           y_label=y_label,
+                                           z_label=mod_name)
+            mesh_style = dict(rasterized=True,linewidth=0)
+            if mod_kwargs is not None:
+                mesh_style.update(mod_kwargs)
+            Plotting.draw_colormesh_panel(panel,data,cmap=cmap,
+                                          log_yaxis=False,
+                                          mesh_kwargs=mesh_style)
         else:
-            im = ax.pcolormesh(self.mod_angles, self.bins, curve, 
-                               cmap=cmap, shading='auto',
-                               rasterized=True,linewidth=0)
-            ax.set_xlabel('Modulation angle (rad)')
-            ax.set_ylabel(y_label)
-            fig.colorbar(im, ax=ax, label=mod_name)
-        
-        plt.tight_layout()
-        plt.show()        
+            bin_index = np.atleast_1d(bin_index)
+            if colors is None:
+                colors = ["C"+str(count) for count in range(len(bin_index))]
+            elif len(colors) != len(bin_index):
+                raise ValueError("Specify one color for each bin to be plotted")
+            for index, color in zip(bin_index,colors):
+                data = Plotting.make_panel_data(model_points=self.mod_angles,
+                                                model_vals=curve[index,:],
+                                                x_label="Modulation angle (rad)",
+                                                y_label=mod_name)
+                model_style = dict(label="bin = {:g}".format(self.bins[index]))
+                if mod_kwargs is not None:
+                    model_style.update(mod_kwargs)
+                Plotting.draw_main_panel(panel,data,color=color,
+                                         draw_data=False,draw_model=True,
+                                         log_xaxis=False,log_yaxis=False,
+                                         model_kwargs=model_style)
+            panel.legend(loc="best")                               
         
         if return_plot is True:
-            return fig 
+            return fig, panel
         else:
-            return  
+            return
