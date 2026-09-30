@@ -5,6 +5,7 @@ import matplotlib.pylab as pl
 import matplotlib.gridspec as gridspec
 import matplotlib.colors as mcolors
 from matplotlib import rc
+from matplotlib.ticker import MaxNLocator
 import colorsys
 
 from .Utils import check_matching_length, check_two_arrays
@@ -191,6 +192,63 @@ def make_mesh_data(x_points=None,y_points=None,z_values=None,x_label="",
     
     return mesh_data
 
+def make_polar_data(angle=None,degree=None,angle_err=None,degree_err=None,
+                    model_angle=None,model_degree=None,color_values=None,
+                    color_label="",title=""):
+    """
+    This function assembles the dictionary of arrays that can be included in 
+    a polar panel showing polarization degree and angle, from either operator 
+    or fitter objects. All angles are in radians.
+    
+    Parameters:
+    -----------
+    angle, degree: numpy.ndarray, default=None 
+        The polarization angle and degree of each data bin.
+        
+    angle_err, degree_err: numpy.ndarray, default=None 
+        The one sigma uncertainty on the polarization angle and degree of each 
+        data bin, which set the extent of the confidence ellipses. 
+        
+    model_angle, model_degree: numpy.ndarray, default=None 
+        The polarization angle and degree of each model bin.
+        
+    color_values: numpy.ndarray, default=None 
+        The values used to color each bin (e.g. its energy), shared between data
+        and model. If None, every bin is drawn in the same color. 
+        
+    color_label: str, default="" 
+        The label of the colorbar.
+        
+    title: str, default="" 
+        The title of the panel, which takes the place of the axis labels on a 
+        polar wedge.
+    
+    Returns:
+    --------
+    panel_data: dict 
+        A dictionary containing every key listed above.
+    """
+
+    check_matching_length("angle",angle,"degree",degree)
+    check_matching_length("angle",angle,"angle_err",angle_err)
+    check_matching_length("angle",angle,"degree_err",degree_err)
+    check_matching_length("model_angle",model_angle,"model_degree",model_degree)
+    check_matching_length("angle",angle,"color_values",color_values)
+    check_matching_length("model_angle",model_angle,"color_values",color_values)
+    if angle is not None and (angle_err is None or degree_err is None):
+        raise ValueError("Data polarization requires both angle_err and "
+                         "degree_err")
+    
+    panel_data = dict(angle=angle,
+                      degree=degree,
+                      angle_err=angle_err,
+                      degree_err=degree_err,
+                      model_angle=model_angle,
+                      model_degree=model_degree,
+                      color_values=color_values,
+                      color_label=color_label,
+                      title=title)
+    return panel_data
 
 def make_layout(nrows=1,ncols=1,height_ratios=None,width_ratios=None,
                 sharex=False,projections=None,colorbars=False,
@@ -684,44 +742,146 @@ def draw_colormesh_panel(axes,panel_data,cmap="viridis",diverging=False,
     #somewhere else on the grid/plot
     return mesh
 
-
-def draw_polarization_ellipse(axes,mod_angle,pol_degree,pol_error,
-                              angle_error,color="C0",fill=True):
+def draw_polar_panel(axes,panel_data,color="C0",cmap="viridis",colorbar=True,
+                     draw_data=True,draw_model=True,draw_track=True,
+                     angle_range=None,degree_range=None,model_size=0.05,
+                     data_kwargs=None,model_kwargs=None,track_kwargs=None):
     """
-    This function draws a single confidence ellipse in the polarization plane 
-    onto an existing polar axis object. 
+    This function draws polarization degree and angle in polar coordinates on 
+    an existing polar axis. Each data bin is shown as its one sigma confidence 
+    ellipse; each model bin as a filled ellipse of fixed size, optionally 
+    joined to its neighbours by a track. 
     
     Parameters:
     -----------
-    axes: matplotlib.axes.Axes
-        The panel onto which the ellipse is drawn. This must have been created 
-        with the polar projection.
+    axes: matplotlib.axes.Axes 
+        The panel to draw on. This must have been created with a polar 
+        projection through make_layout.
         
-    mod_angle: float 
-        The polarization angle at the centre of the ellipse, in radians.
+    panel_data: dict 
+        The dictionary returned by make_polar_data.
         
-    pol_degree: float 
-        The polarization degree at the centre of the ellipse.
+    color: str, default="C0" 
+        The color used for every bin when panel_data contains no color_values.
         
-    pol_error: float 
-        The one sigma uncertainty on the polarization degree, which sets the 
-        radial extent of the ellipse.
+    cmap: str, default="viridis" 
+        The colormap used to color each bin by its color_values.
         
-    angle_error: float 
-        The one sigma uncertainty on the polarization angle in radians, which 
-        sets the azimuthal extent of the ellipse.
+    colorbar: bool, default=True 
+        A boolean to choose whether a colorbar is drawn, when panel_data 
+        contains color_values.
         
-    color: str, default="C0"
-        The color of the ellipse.
+    draw_data, draw_model, draw_track: bool, default=True 
+        Booleans to choose whether the data ellipses, the model markers, and 
+        the track joining the model markers are drawn.
         
-    fill: bool, default=True 
-        A boolean to choose whether the ellipse is filled or drawn as an 
-        outline only.
+    angle_range: list(float), default=None 
+        The lower and upper bounds of the wedge, in degrees, less than 180 
+        degrees apart. Bounds outside 0 to 180 degrees are supported, so that 
+        a range straddling the origin can be given as (-30,30). If None, the 
+        full 0 to 180 degree range is shown.
+        
+    degree_range: list(float), default=None 
+        The lower and upper bounds of the radial axis. If None, the axis runs 
+        from zero to slightly above the largest value drawn.
+        
+    model_size: float, default=0.05 
+        The size of the model markers, as a fraction of the angular and radial 
+        ranges of the wedge.
+        
+    data_kwargs, model_kwargs, track_kwargs: dict, default=None 
+        Keyword arguments for the data ellipses, model markers and track.
     """
 
-    #sort out which parts from the polarimetry classes are needed here
-    raise NotImplementedError("draw_polarization_ellipse is wip")    
+    if draw_data is True and panel_data["angle"] is None:
+        raise ValueError("No data polarization to draw")
+    if draw_model is True and panel_data["model_angle"] is None:
+        raise ValueError("No model polarization to draw")
     
+    if angle_range is None:
+        angle_lo, angle_hi = 0., np.pi
+    else:
+        angle_lo = np.radians(np.min(angle_range))
+        angle_hi = np.radians(np.max(angle_range))
+        if np.isclose(angle_lo,angle_hi) or (angle_hi-angle_lo) > np.pi+1e-8:
+            raise ValueError("The polarization angle range must be between 0 "
+                             "and 180 degrees wide")
+    
+    if degree_range is None:
+        degree_lo = 0.
+        degree_hi = 0.
+        if draw_data is True:
+            degree_hi = np.max(panel_data["degree"]+panel_data["degree_err"])
+        if draw_model is True:
+            degree_hi = max(degree_hi,np.max(panel_data["model_degree"]))
+        degree_hi = 1.08*degree_hi
+    else:
+        degree_lo = np.min(degree_range)
+        degree_hi = np.max(degree_range)
+        if degree_lo < 0. or np.isclose(degree_lo,degree_hi):
+            raise ValueError("The polarization degree range must be positive "
+                             "and of non-zero width")
+    
+    color_values = panel_data["color_values"]
+    if color_values is None:
+        if draw_data is True:
+            colors = [color]*len(panel_data["angle"])
+        else:
+            colors = [color]*len(panel_data["model_angle"])
+    else:
+        norm = mcolors.Normalize(vmin=np.min(color_values),
+                                 vmax=np.max(color_values))
+        colormap = plt.get_cmap(cmap)
+        colors = colormap(norm(color_values))
+    
+    if draw_data is True:
+        #every bin is placed on the appropriate interval specified by
+        #angle_range
+        angle = angle_lo+np.mod(panel_data["angle"]-angle_lo,np.pi)
+        for k in range(len(angle)):
+            angles, radii = _polar_ellipse(angle[k],panel_data["degree"][k],
+                                           panel_data["angle_err"][k],
+                                           panel_data["degree_err"][k])
+            style = _merge_style(dict(facecolor=colors[k],edgecolor=colors[k],
+                                      alpha=0.5,linewidth=2.,zorder=2),
+                                 data_kwargs)
+            for shift in (-np.pi,0.,np.pi):
+                axes.fill(angles+shift,radii,**style)
+    
+    if draw_model is True:
+        model_angle = angle_lo+np.mod(panel_data["model_angle"]-angle_lo,np.pi)
+        model_degree = panel_data["model_degree"]
+        if draw_track is True:
+            track_angle = np.array(model_angle,dtype=float)
+            track_degree = np.array(model_degree,dtype=float)
+            wraps = np.abs(np.diff(track_angle)) > 0.5*np.pi
+            #this avoids plotting the track when the plot would phase wrap 
+            track_angle[:-1][wraps] = np.nan
+            track_degree[:-1][wraps] = np.nan
+            style = _merge_style(dict(color="0.15",linewidth=2,zorder=3),
+                                 track_kwargs)
+            for shift in (-np.pi,0.,np.pi):
+                axes.plot(track_angle+shift,track_degree,**style)
+        style = _merge_style(dict(c=colors,s=350.,edgecolors="0.15",
+                                  linewidths=0.6,zorder=4),
+                             model_kwargs)
+        for shift in (-np.pi,0.,np.pi):
+            axes.scatter(model_angle+shift,model_degree,**style)
+
+    if colorbar is True and color_values is not None:
+        bar = axes.get_figure().colorbar(plt.cm.ScalarMappable(norm=norm,
+                                                               cmap=colormap),
+                                         ax=axes,pad=0.1)
+        bar.set_label(panel_data["color_label"])
+    
+    axes.set_thetamin(np.degrees(angle_lo))
+    axes.set_thetamax(np.degrees(angle_hi))
+    axes.set_rlim(degree_lo,degree_hi)
+    axes.set_rorigin(0.)
+    axes.yaxis.set_major_locator(MaxNLocator(4,prune="lower"))
+    axes.grid(color="0.85",linewidth=0.8)
+    #the angle label is set as a title rather than placed along the arc
+    axes.set_title(panel_data["title"])
     return
 
 def get_diverging_norm(values,n_ticks=5):
@@ -904,6 +1064,39 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
     axes[panels["right"]].tick_params(labelleft=False)
     
     return fig, axes
+
+def _polar_ellipse(angle,degree,angle_err,degree_err,n_points=200):
+    """
+    This function returns the ellipse centered on a given polarization angle 
+    and degree, with half extents along each axis set by angle_err and 
+    degree_err. When these are the errors of the data, the ellipse is the one 
+    sigma confidence region of that bin, assuming negligible covariance between 
+    the Stokes parameters.
+    
+    Parameters:
+    -----------
+    angle, degree: float 
+        The polarization angle (in radians) and degree at the ellipse center.
+        
+    angle_err, degree_err: float 
+        The half extent of the ellipse along the angular (in radians) and 
+        radial axis.
+        
+    n_points: int, default=200 
+        The number of points used to sample the ellipse.
+    
+    Returns:
+    --------
+    angles, radii: numpy.ndarray 
+        The polarization angles and degrees along the ellipse.
+    """
+    
+    parameter = np.linspace(0.,2.*np.pi,n_points)
+    angles = angle+angle_err*np.cos(parameter)
+    #the polarization degree is positive definite, so the ellipse is clipped 
+    #at the origin rather than allowed to wrap through it
+    radii = np.clip(degree+degree_err*np.sin(parameter),0.,None)
+    return angles, radii
 
 def darken_color(color,factor=0.6):
     """

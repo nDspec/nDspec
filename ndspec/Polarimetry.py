@@ -2,11 +2,6 @@ import numpy as np
 import os
 import warnings
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-from matplotlib import cm
-from matplotlib.colors import TwoSlopeNorm
-
 from .Operator import nDspecOperator
 from . import Plotting
 
@@ -409,56 +404,65 @@ class PolarimetryProduct(nDspecOperator):
         else:
             return  
 
-    def plot_polarization_slice(self, cmap='viridis', marker='o', return_plot=False):
-        """
-        This method plots polarization degree and angle vs. all the bins defined 
-        in the object, showing polar coordinates. Note that due to the ambiguity 
-        in X-ray detectors, the angles shown are limited from 0 to 180 degrees 
-        (or 0 to pi radians) only. The markers shown are colored by polarization
-        degree.
+    def plot_polarization_slice(self,cmap="viridis",angle_range=None,
+                                    degree_range=None,return_plot=False, 
+                                    pol_kwargs=None):
+            """
+            This method plots polarization degree and angle for all the bins 
+            defined in the object as markers in polar coordinates, with the angle 
+            as the azimuth and the degree as the radius. Due to the ambiguity in 
+            X-ray detectors, the angle is only defined modulo 180 degrees. The  
+            markers are colored by bin.
 
-        Parameters:
-        -----------
-        cmap: str, default='viridis'
-            Name of the colormap to color the markers.
+            Parameters:
+            -----------
+            cmap: str, default="viridis"
+                The colormap used to color the markers by bin.
+                
+            angle_range: list(float), default=None 
+                The lower and upper bounds of the polarization angles shown, in 
+                degrees. If None, the full 0 to 180 degree range is shown.
+                
+            degree_range: list(float), default=None 
+                The lower and upper bounds of the polarization degrees shown. If 
+                None, the axis runs from zero to slightly above the largest 
+                value.
 
-        marker: str, default='o'
-            The maker to use to plot the computed values.
+            return_plot: bool, default=False
+                A boolean to decide whether to return the figure and panel 
+                containing the plot or not.
 
-        return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
-            the plot or not.
+            pol_kwargs: dict, default=None 
+                Keyword arguments for the markers.
+                
+            Returns: 
+            --------
+            fig: matplotlib.figure, optional 
+                The plot object produced by the method.
+                
+            panel: matplotlib.axes, optional 
+                The panel containing the plot produced by the method.
+            """
+            self._require('pol_degree', 'pol_angle')
             
-        Returns: 
-        --------
-        fig: matplotlib.figure, optional 
-            The plot object produced by the method.
-        """
-        self._require('pol_degree', 'pol_angle')
- 
-        # wrap angle into [0, pi) since EVPA is only defined mod pi
-        psi_wrapped = np.mod(self.pol_angle, np.pi)
- 
-        fig, ax = plt.subplots(subplot_kw={'projection': 'polar'})
-        ax.set_thetamin(0)
-        ax.set_thetamax(180)
- 
-        sc = ax.scatter(
-            psi_wrapped, self.pol_degree,
-            c=self.bins, cmap=cmap, marker=marker,
-            s=350, edgecolors='k', linewidths=0.5
-        )
-
-        ax.set_title('Polarization degree / angle by bin')
-        fig.colorbar(sc, ax=ax, label='Bin', pad=0.1)
-
-        plt.tight_layout()
-        plt.show()        
-        
-        if return_plot is True:
-            return fig 
-        else:
-            return  
+            data = Plotting.make_polar_data(model_angle=self.pol_angle,
+                                            model_degree=self.pol_degree,
+                                            color_values=self.bins,
+                                            color_label="Bin",
+                                            title="Polarization angle/degree")
+            
+            plot_layout = Plotting.make_layout(panel_size=(6.5,4.5),
+                                               projections=["polar"])
+            fig, panel = Plotting.make_panels(plot_layout)
+            Plotting.draw_polar_panel(panel,data,cmap=cmap,draw_data=False,
+                                      angle_range=angle_range,
+                                      degree_range=degree_range,
+                                      model_kwargs=pol_kwargs)
+            
+            if return_plot is True:
+                return fig, panel
+            else:
+                return
 
     def plot_modulation(self, bin_index=None, y_label="bin", renormalize=True,
                         cmap="viridis", colors=None, return_plot=False, 
