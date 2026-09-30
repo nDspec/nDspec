@@ -1,46 +1,3 @@
-"""
-Interface between nDspec and Xspec-compatible model libraries.
-
-How Xspec itself decides how to call a model
----------------------------------------------
-Every model in ``model.dat`` (or a local ``lmodel.dat``) has a header line
-
-    <name>  <npars>  <elow>  <ehigh>  <function>  <type>  <errflag> ...
-
-The *model name* (first field, e.g. ``gaussian``) is what users type; the
-*function* field (e.g. ``C_gaussianLine``) is what gets called, and its
-**prefix encodes the language and precision** of the routine:
-
-    ==========  ===========================  ===================  =========
-    prefix      language / precision         library symbol       ABI
-    ==========  ===========================  ===================  =========
-    (none)      Fortran, single precision    ``lower(func)_``     f77 real*4
-    ``F_``      Fortran, double precision    ``lower(func)_``     f77 real*8
-    ``c_``      C (or C++ with a C ABI)      ``func``             C double
-    ``C_``      C++                          ``C_func``           C double
-    ==========  ===========================  ===================  =========
-
-(see the Xspec manual, "Writing a new model function"; this is also the rule
-used by Sherpa and xspec-models-cxc). For C++ models the actual C++ routine is
-name-mangled and cannot be called through ctypes; HEASOFT's ``funcWrappers``
-provide an ``extern "C"`` wrapper called ``C_<func>`` for *every* built-in
-model, with the double-precision C signature
-
-    void C_func(const double* ear, int ne, const double* par, int spec,
-                double* flux, double* fluxErr, const char* init)
-
-This module derives both the symbol *and* the calling convention from that
-prefix, so users never need to know them. The two public classes differ only
-in where they look for the library by default:
-
-* ``FortranInterface()`` -- the Xspec model library (libXSFunctions), either
-  from a HEASOFT installation found via ``$HEADAS`` or from the pip-installable
-  xspectrampoline package (``backend=...``). The name is kept for backwards
-  compatibility; it handles Fortran, C and C++ models alike.
-* ``CInterface(lib_path, pars_path)`` -- any other Xspec-compatible library
-  (e.g. relxill) together with its ``lmodel.dat``.
-"""
-
 import ctypes as ct
 import os
 import shlex
@@ -54,7 +11,7 @@ __all__ = ["ModelInterface", "FortranInterface", "CInterface",
            "find_heasoft", "find_xspectrampoline", "find_xspec",
            "resolve_symbols"]
 
-# Calling conventions ---------------------------------------------------------
+# Calling conventions
 F77_SINGLE = "f77_single"   # subroutine f(ear,ne,par,ifl,photar,photer), real*4
 F77_DOUBLE = "f77_double"   # same, real*8
 C_DOUBLE = "c_double"       # void f(double*,int,double*,int,double*,double*,char*)
@@ -68,10 +25,6 @@ _SUPPORTED_TYPES = ("add", "mul", "con")
 # FNINIT must run once per loaded library, not once per interface object.
 _INITIALISED_LIBS = set()
 
-
-# -----------------------------------------------------------------------------
-# Locating HEASOFT
-# -----------------------------------------------------------------------------
 def find_heasoft(headas=None):
     """
     Locate the Xspec model library and model.dat of a HEASOFT installation.
@@ -221,9 +174,6 @@ def find_xspec(backend="auto"):
             f"'pip install xspectrampoline'.\n({exc})") from exc
 
 
-# -----------------------------------------------------------------------------
-# Symbol resolution
-# -----------------------------------------------------------------------------
 def resolve_symbols(func_call):
     """
     Return the ordered list of (symbol, abi) candidates for a model.dat
@@ -268,10 +218,6 @@ def _abi_for_user_symbol(symbol, func_call):
         return F77_DOUBLE if func_call.startswith("F_") else F77_SINGLE
     return C_DOUBLE
 
-
-# -----------------------------------------------------------------------------
-# model.dat parsing
-# -----------------------------------------------------------------------------
 def _tokens(line):
     try:
         return shlex.split(line, posix=True)
@@ -361,9 +307,6 @@ def parse_model_file(input_file):
     return models_info
 
 
-# -----------------------------------------------------------------------------
-# Interfaces
-# -----------------------------------------------------------------------------
 class ModelInterface():
     """
     This class allows users to load a library file containing Xspec-compatible
@@ -704,7 +647,7 @@ class FortranInterface(ModelInterface):
 
         FortranInterface()                           # HEASOFT if $HEADAS is set,
                                                      # else xspectrampoline
-        FortranInterface(backend="heasoft")          # require HEASOFT
+        FortranInterface(backend="heasoft")          # requires HEASOFT
         FortranInterface(backend="xspectrampoline")  # pip install xspectrampoline
 
     Despite the (historical) name, Fortran, C and C++ models are all

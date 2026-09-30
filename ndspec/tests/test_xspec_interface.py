@@ -35,9 +35,7 @@ import ndspec.XspecInterface as X
 
 LIBEXT = ".dylib" if sys.platform == "darwin" else ".so"
 
-# -----------------------------------------------------------------------------
 # Mock model file and library
-# -----------------------------------------------------------------------------
 MODEL_DAT = """\
 nthComp        5  0.         1.e20          donthcomp  add  0
 Gamma      " "    1.7   1.001   1.005   5.     10.     0.01
@@ -330,9 +328,6 @@ def test_find_heasoft_errors(heasoft_tree, monkeypatch):
         X.find_heasoft(str(heasoft_tree["headas"]))
 
 
-# =============================================================================
-# Loading the library
-# =============================================================================
 def test_fninit_once_per_library(fresh_lib):
     a = X.CInterface(*fresh_lib, initialize=False)
     assert _getter(a, "mock_fninit_calls") == 0
@@ -423,10 +418,6 @@ def test_dyld_shadowing(tmp_path, monkeypatch):
     monkeypatch.setattr(X, "platform", "linux")   # Linux has no such lookup
     assert X._dyld_shadowing(str(wanted)) is None
 
-
-# =============================================================================
-# add_model
-# =============================================================================
 @pytest.mark.parametrize("model, symbol, abi", [
     ("nthcomp", "donthcomp_", X.F77_SINGLE),
     ("ismabs", "ismabs_", X.F77_DOUBLE),
@@ -460,10 +451,6 @@ def test_symbol_and_language_override(lib):
     with pytest.raises(AttributeError):
         lib.add_model(_stub("gaussian"), language=X.F77_DOUBLE)
 
-
-# =============================================================================
-# Model evaluation
-# =============================================================================
 EAR = np.array([1.0, 1.5, 2.5, 4.0, 8.0])   # non-uniform bins
 
 
@@ -533,12 +520,9 @@ def test_input_types_and_layouts(loaded):
         loaded.gaussian([1.0], [6.5, 0.1, 1.0])
 
 
-# =============================================================================
-# Parameter checks
-# =============================================================================
 @pytest.mark.parametrize("params, bad", [
-    ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),        # first parameter
-    ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),  # a later one (old code only checked the first)
+    ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),
+    ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),
     ([2.0, 100, 0.1, 0, 0], "Wrong parameter number"),
 ])
 def test_invalid_parameters_return_nan(loaded, params, bad):
@@ -558,9 +542,6 @@ def test_valid_edge_parameters(loaded):
         loaded.nthcomp(EAR, [10.0, 100, 0.1, 0, 10.0, 1.0])
 
 
-# =============================================================================
-# Real gfortran ABI (optional)
-# =============================================================================
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="gfortran not available")
 def test_real_fortran_subroutines(tmp_path):
     path = tmp_path / ("libndspec_f" + LIBEXT)
@@ -576,10 +557,6 @@ def test_real_fortran_subroutines(tmp_path):
     assert np.allclose(lib.ismabs(EAR, [0.25]), 0.25 + (EAR.size - 1))
 
 
-# =============================================================================
-# Against a real Xspec library (skipped when unavailable)
-# =============================================================================
-# Taken at import, before anything imports xspectrampoline (which sets HEADAS).
 _USER_HEADAS = os.environ.get("HEADAS")
 _HAVE_XSPECTRAMPOLINE = (sys.version_info >= (3, 9)
                          and importlib.util.find_spec("xspectrampoline") is not None)
