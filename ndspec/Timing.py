@@ -8,12 +8,8 @@ from pyfftw.interfaces.numpy_fft import (
     rfftfreq,
 )
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-from matplotlib import cm
-from matplotlib.colors import TwoSlopeNorm
-
 from .Operator import nDspecOperator
+from . import Plotting
 
 pyfftw.interfaces.cache.enable()
 
@@ -523,7 +519,7 @@ class PowerSpectrum(FourierProduct):
         self.power_spec = new_power                
         return 
     
-    def plot_psd(self,units='Power*freq',return_plot=False):
+    def plot_psd(self,units='Power*freq',return_plot=False,psd_kwargs=None):
         """ 
         This method plots the either the power or power per unit frequency 
         as a function of frequency, stored in the class instance.  
@@ -535,32 +531,40 @@ class PowerSpectrum(FourierProduct):
             displays the power at that frequency, "power" instead uses the power
             per unit frequency.  
             
+        psd_kwargs: dict, default=None 
+            Keyword arguments for the PSD plot
+
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+        
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
         
-        fig, ((ax1)) = plt.subplots(1,1,figsize=(9.,6.))   
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout) 
         
         if units == 'Power':
-            ax1.plot(self.freqs,self.power_spec)
-            ax1.set_ylabel("Power")
+            y_array = self.power_spec
+            y_label = "Power"
         elif units == "Power*freq":
-            ax1.plot(self.freqs,self.power_spec*self.freqs)
-            ax1.set_ylabel("Power$\\times$frequency")
+            y_array = self.power_spec*self.freqs
+            y_label = "Power$\\times$frequency"
         else:
             raise ValueError("Y axis units not recognized")
         
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
-        ax1.set_xlabel("Frequency")  
-        
-        plt.tight_layout()
-        plt.show()        
+        data = Plotting.make_panel_data(model_points=self.freqs,
+                                        model_vals=y_array,                               
+                                        x_label="Frequency (Hz)",
+                                        y_label=y_label)   
+
+        Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                 model_kwargs=psd_kwargs)     
         
         if return_plot is True:
-            return fig 
+            return fig, panel  
         else:
             return   
         
@@ -1489,236 +1493,224 @@ class CrossSpectrum(FourierProduct):
         lag_spectrum = self.phase_energy(freq_bounds)/(2.*np.pi*nu_c)        
         return lag_spectrum        
 
-    def plot_cross_1d(self,form="polar",return_plot=False):
+    def plot_cross_1d(self,units="polar",dependence="frequency",bounds=None,
+                      scale_yaxis=False,return_plot=False,cross_kwargs=None):
         """   
-        This method plots the a one-dimensional cross spectrum as a function of  
-        Fourier frequency.
+        This method plots a one-dimensional cross spectrum, either as a function 
+        of Fourier frequency for a given range of energy channels, or as a 
+        function of energy for a given range of Fourier frequencies. In both 
+        cases the reference band is the one set when initializing the object.
         
         Parameters:
         -----------
-        form: string, default="polar" 
+        units: string, default="polar" 
             A qualifier to choose in which units to plot the cross spectrum. 
-            By default, form="polar" will plot the modulus, phase, and lag 
-            frequency spectrum. Alternatively, form="cartesian" plots the real 
-            and imaginary parts of the cross spectrum.
+            Units="polar" plots the modulus and phase, "cartesian" plots the real 
+            and imaginary parts, "lag" plots the phase converted to time lags.
+            
+        dependence: string, default="frequency" 
+            A qualifier to choose whether the cross spectrum is plotted as a 
+            function of Fourier frequency (dependence="frequency") or of energy 
+            (dependence="energy").
+            
+        bounds: np.array(float), default=None 
+            The bounds over which the two-dimensional cross spectrum is reduced 
+            to one dimension. For dependence="frequency" these are the lower and
+            upper energy bounds of the channels of interest; for 
+            dependence="energy" they are the lower and upper Fourier frequency 
+            bounds over which the cross spectrum is averaged.
+
+        scale_yaxis: bool, default=False 
+            A boolean to choose whether the real part, imaginary part and 
+            modulus are multiplied by Fourier frequency or energy for ease of 
+            reading.
+
+        cross_kwargs: dict, default=None 
+            Keyword arguments for the cross spectrum plot
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+            
+        panels: np.array(matplotlib.axes), optional 
+            The panels containing the plot produced by the method.
         """
         
-        #same as power spectrum, double check plotting style
-        if form == "cartesian":
-            fig, ((ax1,ax2)) = plt.subplots(1,2,figsize=(10.,5.))   
-            
-            ax1.plot(self.freqs,np.transpose(self.real()))
-            ax1.set_xscale("log",base=10)
-            ax1.set_ylabel("Real")
-            ax1.set_xlabel("Frequency")  
-            
-            ax2.plot(self.freqs,np.transpose(self.imag()))
-            ax2.set_xscale("log",base=10)
-            ax2.set_ylabel("Imaginary")
-            ax2.set_xlabel("Frequency")
-            
-            plt.tight_layout()
-            plt.show()
-        elif form == "polar":
-            zero_line = np.zeros(self.n_freqs)
-            #tbd: sort out the limits for the lag plot
-            phase_wrap = 1/(2.*self.freqs)   
-            
-            fig, ((ax1,ax2,ax3)) = plt.subplots(1,3,figsize=(15.,5.))
-            
-            ax1.plot(self.freqs,np.transpose(self.mod()))
-            ax1.set_xscale("log",base=10)
-            ax1.set_yscale("log",base=10)
-            ax1.set_xlabel("Frequency")
-            ax1.set_ylabel("Modulus")    
-            
-            ax2.plot(self.freqs,np.transpose(self.phase()))
-            ax2.plot(self.freqs,zero_line,linestyle='dotted',color='black')
-            ax2.set_xscale("log",base=10)
-            ax2.set_ylabel("Phase")
-            ax2.set_xlabel("Frequency") 
-
-            lag_min = np.min(np.transpose(self.lag()))
-            lag_max = np.max(np.transpose(self.lag()))
-            
-            ax3.plot(self.freqs,zero_line,linestyle='dotted',color='black')
-            ax3.plot(self.freqs,np.transpose(self.lag()))
-            ax3.plot(self.freqs,phase_wrap,
-                     linestyle='dotted',color='tab:orange')
-            ax3.plot(self.freqs,-phase_wrap,
-                     linestyle='dotted',color='tab:orange')
-            ax3.set_xscale("log",base=10)
-            ax3.set_ylabel("Time")
-            ax3.set_xlabel("Frequency")
-            ax3.set_ylim([min(0,lag_min)-0.05*lag_max,
-                          max(0,lag_max)+0.05*lag_min])
-            
-            plt.tight_layout()
-            plt.show()
+        if bounds is None:
+            raise ValueError("Specify the bounds over which to reduce the "
+                             "cross spectrum to one dimension")
+        
+        if dependence == "frequency":
+            x_axis = self.freqs
+            x_label = "Frequency (Hz)"
+            scaling = self.freqs
+            scale_label = "$\\times$frequency"
+            spectra = dict(real=self.real_frequency,imag=self.imag_frequency,
+                           mod=self.mod_frequency,phase=self.phase_frequency,
+                           lag=self.lag_frequency)
+        elif dependence == "energy":
+            x_axis = self.energ
+            x_label = "Energy (keV)"
+            scaling = self.energ**2
+            scale_label = "$\\times$energy$^{2}$"            
+            spectra = dict(real=self.real_energy,imag=self.imag_energy,
+                           mod=self.mod_energy,phase=self.phase_energy,
+                           lag=self.lag_energy)
         else:
-            raise ValueError("plot format not supported")
-
+            raise ValueError("Specify either frequency or energy for the x-axis")
+        
+        if units == "cartesian":
+            quantities = ["real","imag"]
+            y_labels = ["Real","Imaginary"]
+        elif units == "polar":
+            quantities = ["mod","phase"]
+            y_labels = ["Modulus","Phase (rad)"]
+        elif units == "lag":
+            quantities = ["lag"]
+            y_labels = ["Lag (s)"]
+        else:
+            raise ValueError("Plot format not supported")
+        
+        plot_layout = Plotting.make_layout(ncols=len(quantities),
+                                           panel_size=(6.5,4.5))
+        fig, panels = Plotting.make_panels(plot_layout)
+        panels = np.atleast_1d(panels)
+        
+        for panel, quantity, y_label in zip(panels,quantities,y_labels):
+            y_axis = spectra[quantity](bounds)
+            #multiply by either frequency or E^2 if we want to make the plot 
+            #in units equivalent to nuFnu in an SED/nuPnu in a PSD
+            if scale_yaxis is True and quantity in ("real","imag","mod"):
+                y_axis = y_axis*scaling
+                y_label = y_label+scale_label
+            data = Plotting.make_panel_data(model_points=x_axis,
+                                            model_vals=y_axis,
+                                            x_label=x_label,
+                                            y_label=y_label)
+            #log scale only for the modulus
+            Plotting.draw_main_panel(panel,data,draw_data=False,draw_model=True,
+                                     log_yaxis=(quantity == "mod"),
+                                     model_kwargs=cross_kwargs)
+            if quantity != "mod":
+                panel.axhline(0.,linestyle=':',linewidth=2.,color='black')
+            #for lags, include phase wrapping limits for visual clarity 
+            if quantity == "lag":
+                if dependence == "frequency":
+                    phase_wrap = 1./(2.*self.freqs)
+                else:
+                    phase_wrap = np.full(len(x_axis),1./(bounds[0]+bounds[1]))
+                panel.plot(x_axis,phase_wrap,linestyle=':',color='black')
+                panel.plot(x_axis,-phase_wrap,linestyle=':',color='black')
+                pad = 0.05*(np.max(y_axis)-np.min(y_axis))
+                panel.set_ylim([min(0.,np.min(y_axis))-pad,
+                                max(0.,np.max(y_axis))+pad])
+        
         if return_plot is True:
-            return fig 
+            return fig, panels
         else:
-            return   
-
-    def _plot_limits(self,plot_input):
-        """   
-        This method computes the normalization and ticks for two-dimensional 
-        plots of the cross spectrum. 
-        
-        Parameters:
-        -----------
-        plot_input: np.array(float,float) 
-            The two-dimensional array to be plotted, from which to define the 
-            axis limits for the plots.
-
-        Returns:
-        --------
-        norm: np.float 
-            The normalization to be used for the colorbar in the plot. 
-            
-        ticks: np.array 
-            The list of ticks to show on the colorbar. 
-        """
-       
-        lim_min = np.min(plot_input)
-        lim_max = np.max(plot_input)
-
-        if (lim_max > 0 and lim_min < 0):
-            norm = TwoSlopeNorm(vmin=lim_min,vcenter=0,vmax=lim_max)
-        elif (lim_max < 0):
-            norm = TwoSlopeNorm(vmin=lim_min,vcenter=0,vmax=-lim_max)   
-        elif (lim_min > 0 ):
-            norm = TwoSlopeNorm(vmin=-lim_min,vcenter=0,vmax=lim_max) 
-        else:
-            print(lim_min,lim_max)
-            raise ValueError("Both lower and upper plot limits are 0")  
-                         
-        ticks_negative = np.linspace(0.99*lim_min,0,5)
-        ticks_positive = np.linspace(0,1.01*lim_max,5)
-        ticks = np.append(ticks_negative[:-1],ticks_positive)
-        
-        return norm,ticks
+            return
    
-    def plot_cross_2d(self,form="polar",energy_limits=[0.3,10.5],
-                      return_plot=False,normalize_en=True):
+    def plot_cross_2d(self,units="polar",energy_limits=[0.3,10.5],
+                      scale_axis=None,return_plot=False,cross_kwargs=None):
         """   
-        Plots the a two-dimensional cross spectrum as a function of Fourier 
-        frequency and energy.
+        This method plots a two-dimensional cross spectrum as a function of 
+        Fourier frequency and energy.
         
         Parameters:
         -----------
-        form: string,default="polar" 
+        units: string, default="polar" 
             A qualifier to choose in which units to plot the cross spectrum. 
-            By default, form="polar" will plot the modulus, phase, and lag 
-            spectrum. Alternatively, form="cartesian" plots the real 
-            and imaginary parts of the cross spectrum.
+            By default, units="polar" plots the modulus and phase in two panels; 
+            units="cartesian" plots the real and imaginary parts in two panels, 
+            and form="lag" plots the time lags in a single panel.
             
-        energy_limits: list(float)
-            The lower and upper bound to be used in the energy axis of the 
-            cross spectrum.
+        energy_limits: list(float), default=[0.3,10.5]
+            The lower and upper bound of the energy axis of the cross spectrum. 
+            The colormap normalization is set from the channels within these 
+            bounds.
+            
+        scale_axis: string, default=None 
+            Sets whether the real part, imaginary part and modulus are scaled by
+            Fourier frequency (scale_axis="frequency") or by energy squared 
+            (scale_axis="energy"), following the same convention as 
+            plot_cross_1d. By default no scaling is applied. 
+
+        cross_kwargs: dict, default=None 
+            Keyword arguments for the cross spectrum colormesh
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+            
+        panels: np.array(matplotlib.axes), optional 
+            The panels containing the plot produced by the method.
         """
-               
-        energy_indexes = np.where(np.logical_and(self.energ>energy_limits[0],
-                                                 self.energ<energy_limits[1]))
+
+        if scale_axis not in (None,"frequency","energy"):
+            raise ValueError("Specify either frequency or energy to scale the "
+                             "cross spectrum")
         
-        if form == "cartesian":
-            if normalize_en is True:
-                plot_real = self.energ.reshape(self.n_chans,1)**2*self.real()
-                plot_imag = self.energ.reshape(self.n_chans,1)**2*self.imag()
-            else:
-                plot_real = self.real()
-                plot_real = self.imag()
-                
-            norm_real, ticks_real = self._plot_limits(
-                                    plot_real[energy_indexes,:])
-            norm_imag, ticks_imag = self._plot_limits(
-                                    plot_imag[energy_indexes,:])
-                       
-            fig, ((ax1,ax2)) = plt.subplots(1,2,figsize=(12.5,5.))
-            
-            real = ax1.pcolormesh(self.freqs,self.energ,self.real(),cmap="PuOr",
-                                  shading='auto',linewidth=0,
-                                  rasterized=True,norm=norm_real)
-            cb = fig.colorbar(real,ax=ax1,ticks=ticks_real,format="%.1f")
-            ax1.set_xscale("log",base=10)
-            ax1.set_title("Real")
-            ax1.set_xlabel("Frequency")
-            ax1.set_ylabel("Energy")
-            ax1.set_ylim([energy_limits[0],energy_limits[1]])
-            
-            imag = ax2.pcolormesh(self.freqs,self.energ,self.imag(),cmap="PuOr",
-                                  shading='auto',linewidth=0,
-                                  rasterized=True,norm=norm_imag)
-            cb = fig.colorbar(imag,ax=ax2,ticks=ticks_imag,format="%.1f")              
-            ax2.set_xscale("log",base=10)
-            ax2.set_title("Imaginary")
-            ax2.set_xlabel("Frequency")
-            ax2.set_ylabel("Energy")
-            ax2.set_ylim([energy_limits[0],energy_limits[1]])
-            
-            plt.tight_layout()
-            plt.show()
-        elif form == "polar":
-            if normalize_en is True:
-                plot_mod = self.energ.reshape(self.n_chans,1)**2*self.mod()
-            else:
-                plot_mod = self.mod()
+        energ_range = np.where(np.logical_and(self.energ>=energy_limits[0],
+                                              self.energ<=energy_limits[1]))[0]
+        if len(energ_range) == 0:
+            raise ValueError("No bins found within the energy bounds")
+        energ_axis = self.energ[energ_range]
         
-            norm_phase, ticks_phase = self._plot_limits(
-                                      self.phase()[energy_indexes,:])            
-            norm_lag, ticks_lag = self._plot_limits(
-                                  self.lag()[energy_indexes,:])
-            
-            fig, ((ax1,ax2,ax3)) = plt.subplots(1,3,figsize=(15.,5.))
-            modulus = ax1.pcolormesh(self.freqs,self.energ,np.log10(plot_mod),
-                                     cmap="magma",shading='auto',
-                                     linewidth=0,rasterized=True)
-            cb = fig.colorbar(modulus,ax=ax1,format="%.1f")            
-            ax1.set_xscale("log",base=10)
-            ax1.set_title("Log10(Modulus)")
-            ax1.set_xlabel("Frequency")
-            ax1.set_ylabel("Energy")
-            ax1.set_ylim([energy_limits[0],energy_limits[1]])
-           
-            phase = ax2.pcolormesh(self.freqs,self.energ,self.phase(),cmap="twilight",
-                                   shading='auto',linewidth=0,
-                                   rasterized=True,norm=norm_phase)
-            cb = fig.colorbar(phase,ax=ax2,ticks=ticks_phase,format="%.2f")           
-            ax2.set_xscale("log",base=10)
-            ax2.set_title("Phase")
-            ax2.set_xlabel("Frequency")
-            ax2.set_ylabel("Energy")
-            ax2.set_ylim([energy_limits[0],energy_limits[1]])
-            
-            lags = ax3.pcolormesh(self.freqs,self.energ,self.lag(),cmap="twilight",
-                                  shading='auto',linewidth=0,
-                                  rasterized=True,norm=norm_lag)
-            cb = fig.colorbar(lags,ax=ax3,ticks=ticks_lag,format="%.2f")
-            ax3.set_xscale("log",base=10)
-            ax3.set_title("Lag")
-            ax3.set_xlabel("Frequency")
-            ax3.set_ylabel("Energy")
-            ax3.set_ylim([energy_limits[0],energy_limits[1]])            
-            
-            plt.tight_layout()
-            plt.show()
+        spectra = dict(real=self.real,imag=self.imag,mod=self.mod,
+                       phase=self.phase,lag=self.lag)
+        
+        if units == "cartesian":
+            quantities = ["real","imag"]
+            z_labels = ["Real","Imaginary"]
+            cmaps = ["PuOr","PuOr"]
+        elif units == "polar":
+            quantities = ["mod","phase"]
+            z_labels = ["Modulus","Phase (rad)"]
+            cmaps = ["magma","twilight"]
+        elif units == "lag":
+            quantities = ["lag"]
+            z_labels = ["Lag (s)"]
+            cmaps = ["twilight"]
         else:
-            raise ValueError("plot mode not supported")
+            raise ValueError("Plot format not supported")
+        
+        plot_layout = Plotting.make_layout(ncols=len(quantities),colorbars=True,
+                                           panel_size=(6.5,4.5))
+        fig, panels = Plotting.make_panels(plot_layout)
+        panels = np.atleast_1d(panels)
+        
+        for panel, quantity, z_label, cmap in zip(panels,quantities,z_labels,
+                                                  cmaps):
+            z_values = spectra[quantity]()[energ_range,:]
+            #only the psd-like quantities are scaled
+            if quantity in ("real","imag","mod"):
+                if scale_axis == "frequency":
+                    z_values = self.freqs*z_values
+                    z_label = z_label+"$\\times$frequency"
+                elif scale_axis == "energy":
+                    z_values = energ_axis.reshape(len(energ_axis),1)**2*z_values
+                    z_label = z_label+"$\\times$energy$^{2}$"
+            #the modulus is always positive and can several decades, so it 
+            #is displayed logarithmically
+            if quantity == "mod":
+                z_values = np.log10(z_values)
+                z_label = "log10("+z_label+")"
             
+            data = Plotting.make_mesh_data(x_points=self.freqs,
+                                           y_points=energ_axis,
+                                           z_values=z_values,
+                                           x_label="Frequency (Hz)",
+                                           y_label="Energy (keV)",
+                                           z_label=z_label)
+            
+            Plotting.draw_colormesh_panel(panel,data,cmap=cmap,
+                                          diverging=(quantity != "mod"),
+                                          log_xaxis=True,log_yaxis=False,
+                                          mesh_kwargs=cross_kwargs)
+        
         if return_plot is True:
-            return fig 
+            return fig, panels
         else:
-            return     
+            return
