@@ -15,7 +15,7 @@ __all__ = ["ModelInterface", "FortranInterface", "CInterface",
 F77_SINGLE = "f77_single"   # subroutine f(ear,ne,par,ifl,photar,photer), real*4
 F77_DOUBLE = "f77_double"   # same, real*8
 C_DOUBLE = "c_double"       # void f(double*,int,double*,int,double*,double*,char*)
-_ABIS = (F77_SINGLE, F77_DOUBLE, C_DOUBLE)
+_ABIS = (F77_SINGLE, F77_DOUBLE, C_DOUBLE)  # supported ABIs (application binary interfaces)
 
 _DTYPES = {F77_SINGLE: np.float32, F77_DOUBLE: np.float64, C_DOUBLE: np.float64}
 _CTYPES = {F77_SINGLE: ct.c_float, F77_DOUBLE: ct.c_double, C_DOUBLE: ct.c_double}
@@ -177,9 +177,8 @@ def find_xspec(backend="auto"):
 def resolve_symbols(func_call):
     """
     Return the ordered list of (symbol, abi) candidates for a model.dat
-    function field. The first entry is the one Xspec itself would use; the
-    others are ABI-safe fallbacks. The ABI of every candidate is fixed by the
-    form of the symbol, so a symbol is never called with the wrong signature.
+    function field. Xspec uses the symbol, but we need to use the ABI to call it
+    correctly.
 
     Parameters:
     -----------
@@ -219,6 +218,7 @@ def _abi_for_user_symbol(symbol, func_call):
     return C_DOUBLE
 
 def _tokens(line):
+    """Split a line into tokens, handling quoted strings and unbalanced quotes."""
     try:
         return shlex.split(line, posix=True)
     except ValueError:          # unbalanced quotes, apostrophes in units, ...
@@ -234,6 +234,7 @@ def _is_float(tok):
 
 
 def _parse_parameter(line):
+    """Parse a single parameter line from a model.dat entry."""
     parts = _tokens(line)
     if not parts:
         return None
@@ -339,8 +340,9 @@ class ModelInterface():
         self.models_info = {}
         self.lib_path = lib_path
         self.pars_path = pars_path
-        # RTLD_GLOBAL lets libraries loaded later (e.g. local model packages)
-        # resolve the XSPEC utility symbols exported by this one.
+        # Load with RTLD_GLOBAL so that libraries loaded afterwards (e.g. local
+        # model packages such as relxill) can use the XSPEC helper functions
+        # exported by this one, even if they were not linked against it.
         self.lib = ct.CDLL(lib_path, mode=ct.RTLD_GLOBAL)
         shadow = _dyld_shadowing(lib_path)
         if shadow is not None:
@@ -456,7 +458,7 @@ class ModelInterface():
 
     def load_models(self, models):
         """
-        This method allows users to initialized multiple models simultaneously
+        This method allows users to initialize multiple models simultaneously
         by passing a dictionary with model names and calling functions.
 
         Parameters:
@@ -475,9 +477,10 @@ class ModelInterface():
 
         Output:
         -------
-        resolved, missing: dict, list
-            resolved maps model name -> (symbol, abi); missing lists the models
-            for which none of the candidate symbols is exported.
+        resolved: dict
+            dictionary mapping model names to (symbol, abi) tuples
+        missing: list
+            A list of model names for which no candidate symbols are exported.
         """
         resolved, missing = {}, []
         for name, info in self._all_info.items():
