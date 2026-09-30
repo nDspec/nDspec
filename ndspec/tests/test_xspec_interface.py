@@ -228,9 +228,6 @@ def _getter(interface, name, restype=ct.c_int):
 
 
 
-# =============================================================================
-# Symbol resolution
-# =============================================================================
 @pytest.mark.parametrize("func_call, expected", [
     # no prefix: single-precision Fortran, lower-case symbol; C_ wrapper fallback
     ("doNthComp", [("donthcomp_", X.F77_SINGLE), ("C_doNthComp", X.C_DOUBLE)]),
@@ -245,9 +242,6 @@ def test_resolve_symbols(func_call, expected):
     assert X.resolve_symbols(func_call) == expected
 
 
-# =============================================================================
-# model.dat parsing
-# =============================================================================
 def test_parser(tmp_path):
     """MODEL_DAT has irregular blank lines (none, several, whitespace-only,
     one inside an entry), quoted multi-word units, switch/scale parameters
@@ -281,9 +275,6 @@ def test_parser_bad_input(tmp_path):
     assert list(info["bb"]["parameters"]) == ["r"]
 
 
-# =============================================================================
-# Locating HEASOFT
-# =============================================================================
 def _touch(path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("")
@@ -509,13 +500,16 @@ def test_arguments_received(loaded, model, params):
 
 
 def test_input_types_and_layouts(loaded):
+    """Inputs are converted to contiguous arrays of the right dtype."""
     ref = loaded.gaussian(EAR, [6.5, 0.1, 1.0])
+    # lists, tuples and ints are accepted
     assert np.allclose(loaded.gaussian(list(EAR), (6.5, 0.1, 1)), ref)
-    # non-contiguous views must be copied, not read with the wrong stride
+    # non-contiguous slice: without a copy the library would read the -99 fillers
     big = np.full(2 * EAR.size, -99.0)
     big[::2] = EAR
-    assert np.allclose(loaded.gaussian(big[::2], [6.5, 0.1, 1.0]), ref)
-    assert np.allclose(loaded.nthcomp(big[::2], [2.0, 100, 0.1, 0, 0, 1.0]), 2.0)
+    assert np.allclose(loaded.gaussian(big[::2], [6.5, 0.1, 1.0]), ref)       # C
+    assert np.allclose(loaded.nthcomp(big[::2], [2.0, 100, 0.1, 0, 0, 1.0]), 2.0)  # Fortran
+    # a single edge gives no bins
     with pytest.raises(ValueError, match="ear"):
         loaded.gaussian([1.0], [6.5, 0.1, 1.0])
 
