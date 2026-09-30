@@ -445,15 +445,16 @@ class PolarimetryProduct(nDspecOperator):
             """
             self._require('pol_degree', 'pol_angle')
             
+            plot_layout = Plotting.make_layout(panel_size=(6.5,4.5),
+                                   projections=["polar"])
+            fig, panel = Plotting.make_panels(plot_layout)
+            
             data = Plotting.make_polar_data(model_angle=self.pol_angle,
                                             model_degree=self.pol_degree,
                                             color_values=self.bins,
                                             color_label="Bin",
                                             title="Polarization angle/degree")
             
-            plot_layout = Plotting.make_layout(panel_size=(6.5,4.5),
-                                               projections=["polar"])
-            fig, panel = Plotting.make_panels(plot_layout)
             Plotting.draw_polar_panel(panel,data,cmap=cmap,draw_data=False,
                                       angle_range=angle_range,
                                       degree_range=degree_range,
