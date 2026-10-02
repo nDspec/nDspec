@@ -174,10 +174,6 @@ def _getter(interface, name, restype=ct.c_int):
     f.restype, f.argtypes = restype, []
     return f()
 
-
-# =============================================================================
-# model.dat parsing
-# =============================================================================
 def test_parser(tmp_path):
     """MODEL_DAT has irregular blank lines (none, several, whitespace-only,
     one inside an entry), quoted multi-word units, switch/scale parameters
@@ -209,10 +205,6 @@ def test_parser_bad_input(tmp_path):
     assert list(info["aa"]["parameters"]) == ["q"]
     assert list(info["bb"]["parameters"]) == ["r"]
 
-
-# =============================================================================
-# Libraries
-# =============================================================================
 def test_add_library(lib, mock_paths):
     assert set(lib.libraries) == {"xspec", MOCK}
     assert lib.libraries[MOCK]["pars_path"] == mock_paths[1]
@@ -257,7 +249,7 @@ def test_double_precision_fortran(lib):
     """F_ models use their double-precision Fortran routine, or HEASOFT's C_
     wrapper if that is all the library has."""
     third = 1.0 / 3.0
-    assert np.all(lib.add_model("prec8")(EAR, [third]) == third)               # prec8_ only
+    assert np.all(lib.add_model("prec8")(EAR, [third]) == third)
     assert np.all(lib.add_model("ismabs", library=MOCK)(EAR, [third]) == third)
 
 
@@ -344,9 +336,6 @@ def test_input_types_and_layouts(loaded):
         loaded.gaussian([1.0], [6.5, 0.1, 1.0])
 
 
-# =============================================================================
-# Parameter checks
-# =============================================================================
 @pytest.mark.parametrize("params, bad", [
     ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),        # first parameter
     ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),  # a later one (old code only checked the first)
@@ -369,9 +358,6 @@ def test_valid_edge_parameters(loaded):
         loaded.nthcomp(EAR, [10.0, 100, 0.1, 0, 10.0, 1.0])
 
 
-# =============================================================================
-# Real gfortran ABI (optional)
-# =============================================================================
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="gfortran not available")
 def test_real_fortran_subroutine(tmp_path):
     path = tmp_path / ("libndspec_f" + LIBEXT)
@@ -385,9 +371,6 @@ def test_real_fortran_subroutine(tmp_path):
     assert np.allclose(interface.nthcomp(EAR, [2.0, 1.0]), 2.0)
 
 
-# =============================================================================
-# The real Xspec library (from xspectrampoline, or $HEADAS if set)
-# =============================================================================
 _HEADER = re.compile(r"^(\S+)\s+(\d+)\s+\S+\s+\S+\s+(\S+)\s+(add|mul|con|mix|acn|amx)\b")
 
 
