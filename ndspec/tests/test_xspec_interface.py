@@ -1,27 +1,5 @@
-"""Tests for ndspec.XspecInterface.
-
-Most of these tests do not need HEASOFT. A mock model library is compiled on
-the fly from C source with whatever C compiler is available. It exports one
-routine per Xspec calling convention, written with the exact ABI Xspec uses:
-
-* single/double precision Fortran (``name_``, every argument by reference),
-* the C-style double precision interface (``name`` and ``C_name``),
-* ``FNINIT``,
-
-plus a few getters so the tests can check what each routine actually received
-(number of bins, spectrum number, init string, call count). A C function with
-Fortran-style arguments is ABI-identical to a gfortran subroutine, so no
-Fortran compiler is needed; when gfortran is available, one extra test also
-checks a real Fortran subroutine.
-
-Tests at the bottom run against a real Xspec library: a HEASOFT installation
-(if $HEADAS is set) and/or the xspectrampoline package (if installed and
-$HEADAS is not set). Each is skipped when unavailable.
-"""
 import ctypes as ct
-import importlib.util
 import os
-import types
 import re
 import shutil
 import subprocess
@@ -34,8 +12,8 @@ import pytest
 import ndspec.XspecInterface as X
 
 LIBEXT = ".dylib" if sys.platform == "darwin" else ".so"
+MOCK = "mock"
 
-# Mock model file and library
 MODEL_DAT = """\
 nthComp        5  0.         1.e20          donthcomp  add  0
 Gamma      " "    1.7   1.001   1.005   5.     10.     0.01
@@ -80,7 +58,7 @@ a " " 0.9 -1 -1 1 1 0.01
 MOCK_SRC = r"""
 #include <string.h>
 
-static int fninit_calls = 0, calls = 0, last_ne = -1, last_spec = -1;
+static int calls = 0, last_ne = -1, last_spec = -1;
 static char last_init[64] = "unset";
 
 #define CSIG const double* e, int n, const double* p, int s, \
@@ -89,8 +67,6 @@ static char last_init[64] = "unset";
                   strncpy(last_init, init ? init : "(null)", 63);
 #define RECORD_F  calls++; last_ne = *n; last_spec = *ifl;
 
-void FNINIT(void) { fninit_calls++; }
-int mock_fninit_calls(void) { return fninit_calls; }
 int mock_calls(void)        { return calls; }
 int mock_last_ne(void)      { return last_ne; }
 int mock_last_spec(void)    { return last_spec; }
@@ -101,7 +77,8 @@ void donthcomp_(const float* e, const int* n, const float* p, const int* ifl,
                 float* f, float* fe)
 { RECORD_F for (int i = 0; i < *n; i++) f[i] = p[0] * (e[i+1] - e[i]); }
 
-/* Fortran, double precision: flux = H */
+/* Fortran, double precision, with HEASOFT-style C_ wrapper: flux = H */
+void C_ismabs(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = p[0]; }
 void ismabs_(const double* e, const int* n, const double* p, const int* ifl,
              double* f, double* fe)
 { RECORD_F for (int i = 0; i < *n; i++) f[i] = p[0]; }
@@ -118,8 +95,8 @@ void C_precc(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = p[0]; }
 /* C++-style (C_ wrapper): flux = LineE * bin width */
 void C_gaussianLine(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = p[0] * (e[i+1] - e[i]); }
 
-/* multiplicative model that only works after FNINIT */
-void C_tbabs(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = fninit_calls ? p[0] : -1.0; }
+/* multiplicative: flux = nH */
+void C_tbabs(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = p[0]; }
 
 /* C-style (c_ prefix, symbol without prefix): flux = M * bin width */
 void beckerwolff(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] = p[1] * (e[i+1] - e[i]); }
@@ -130,13 +107,6 @@ void C_cfall(CSIG)  { RECORD_C for (int i = 0; i < n; i++) f[i] = 7.0; }
 
 /* convolution: scales the input spectrum in place */
 void C_gsmooth(CSIG) { RECORD_C for (int i = 0; i < n; i++) f[i] *= p[0]; }
-"""
-
-LOCAL_SRC = r"""
-/* a 'local model package': no FNINIT, one C-style model */
-void C_gaussianLine(const double* e, int n, const double* p, int s,
-                    double* f, double* fe, const char* init)
-{ for (int i = 0; i < n; i++) f[i] = 2.0 * (e[i+1] - e[i]); }
 """
 
 F90_SRC = """\
@@ -166,21 +136,15 @@ def _c_compiler():
     return None
 
 
-def _build(src, path, compiler=None, suffix=".c"):
+def _build(source, path, compiler=None, suffix=".c"):
     compiler = compiler or _c_compiler()
     if compiler is None:
         pytest.skip("no C compiler available to build the mock model library")
     srcfile = str(path) + suffix
     with open(srcfile, "w") as fh:
-        fh.write(src)
+        fh.write(source)
     subprocess.check_call([compiler, "-shared", "-fPIC", "-O0", "-o", str(path), srcfile])
     return str(path)
-
-
-def _stub(name, con=False):
-    f = (lambda ear, params, seed: None) if con else (lambda ear, params: None)
-    f.__name__ = name
-    return f
 
 
 def _write(tmp_path, text, name="model.dat"):
@@ -192,56 +156,28 @@ def _write(tmp_path, text, name="model.dat"):
 @pytest.fixture(scope="module")
 def mock_paths(tmp_path_factory):
     d = tmp_path_factory.mktemp("xsmock")
-    # Never give a mock the name of a real HEASOFT library: on macOS, dlopen()
-    # looks up the file name in $DYLD_LIBRARY_PATH *before* the path it was
-    # given, so with HEASOFT initialised a mock called libXSFunctions.dylib
-    # would silently load the real library instead.
+    # Never name a mock after a real HEASOFT library: on macOS, dlopen() looks
+    # up the file name in $DYLD_LIBRARY_PATH before the path it was given.
     lib = _build(MOCK_SRC, d / ("libndspec_xsmock" + LIBEXT))
-    dat = d / "model.dat"
-    dat.write_text(MODEL_DAT)
-    return lib, str(dat)
+    return lib, _write(d, MODEL_DAT, "lmodel.dat")
 
 
 @pytest.fixture(scope="module")
 def lib(mock_paths):
-    return X.CInterface(*mock_paths)
-
-
-@pytest.fixture
-def fresh_lib(mock_paths, tmp_path):
-    """A private build of the mock library, so FNINIT/counter state is fresh.
-
-    The library is rebuilt rather than copied: a copied dylib keeps the
-    install name of the original, and macOS dlopen() hands back an
-    already-loaded image whose install name matches the requested path, so
-    a later load of the original would silently return the copy.
-    """
-    lib = _build(MOCK_SRC, tmp_path / ("libndspec_xsfresh" + LIBEXT))
-    return lib, mock_paths[1]
+    interface = X.ModelInterface()
+    interface.add_library(*mock_paths, name=MOCK)
+    return interface
 
 
 def _getter(interface, name, restype=ct.c_int):
-    f = getattr(interface.lib, name)
-    f.restype = restype
-    f.argtypes = []
+    f = getattr(interface._libs[MOCK], name)
+    f.restype, f.argtypes = restype, []
     return f()
 
 
-
-@pytest.mark.parametrize("func_call, expected", [
-    # no prefix: single-precision Fortran, lower-case symbol; C_ wrapper fallback
-    ("doNthComp", [("donthcomp_", X.F77_SINGLE), ("C_doNthComp", X.C_DOUBLE)]),
-    ("F_ismabs", [("ismabs_", X.F77_DOUBLE), ("C_ismabs", X.C_DOUBLE)]),
-    ("c_beckerwolff", [("beckerwolff", X.C_DOUBLE), ("C_beckerwolff", X.C_DOUBLE),
-                       ("c_beckerwolff", X.C_DOUBLE)]),
-    ("C_gaussianLine", [("C_gaussianLine", X.C_DOUBLE)]),
-    # the prefix is removed as a prefix (the old code used .strip('c_'))
-    ("c_simpc", [("simpc", X.C_DOUBLE), ("C_simpc", X.C_DOUBLE), ("c_simpc", X.C_DOUBLE)]),
-])
-def test_resolve_symbols(func_call, expected):
-    assert X.resolve_symbols(func_call) == expected
-
-
+# =============================================================================
+# model.dat parsing
+# =============================================================================
 def test_parser(tmp_path):
     """MODEL_DAT has irregular blank lines (none, several, whitespace-only,
     one inside an entry), quoted multi-word units, switch/scale parameters
@@ -249,7 +185,6 @@ def test_parser(tmp_path):
     info = X.parse_model_file(_write(tmp_path, MODEL_DAT))
     assert len(info) == 13
     assert info["nthcomp"]["func_call"] == "donthcomp"      # names lower-cased
-    assert info["gaussian"]["func_call"] == "C_gaussianLine"
     nth = info["nthcomp"]["parameters"]
     assert list(nth) == ["Gamma", "kT_e", "kT_bb", "inp_type", "Redshift", "norm"]
     assert nth["Gamma"] == {"value": 1.7, "min": 1.001, "max": 10.0, "unit": "n/a"}
@@ -275,191 +210,89 @@ def test_parser_bad_input(tmp_path):
     assert list(info["bb"]["parameters"]) == ["r"]
 
 
-def _touch(path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("")
-    return path
+# =============================================================================
+# Libraries
+# =============================================================================
+def test_add_library(lib, mock_paths):
+    assert set(lib.libraries) == {"xspec", MOCK}
+    assert lib.libraries[MOCK]["pars_path"] == mock_paths[1]
+    # names shared with Xspec are listed under both libraries
+    assert lib.available_models()["gaussian"] == ["xspec", MOCK]
+    assert lib.available_models(MOCK)["prec4"] == [MOCK]
+    with pytest.raises(ValueError, match="already loaded"):
+        lib.add_library(*mock_paths, name=MOCK)
 
 
-@pytest.fixture
-def heasoft_tree(tmp_path):
-    root = tmp_path / "heasoft-6.36"
-    headas = root / "aarch64-apple-darwin25.3.0"
-    headas.mkdir(parents=True)
-    libname = "libXSFunctions" + (".dylib" if X.platform == "darwin" else ".so")
-    return {
-        "headas": headas,
-        "install": (headas / "lib" / libname, root / "spectral" / "manager" / "model.dat"),
-        "source": (root / "Xspec" / headas.name / "lib" / libname,
-                   root / "Xspec" / "src" / "manager" / "model.dat"),
-    }
+def test_default_library_name(mock_paths):
+    interface = X.ModelInterface()
+    assert interface.add_library(*mock_paths) == "ndspec_xsmock"
 
 
-@pytest.mark.parametrize("layouts, expected", [
-    (["install"], "install"),
-    (["source"], "source"),
-    (["install", "source"], "install"),
-])
-def test_find_heasoft(heasoft_tree, monkeypatch, layouts, expected):
-    for layout in layouts:
-        for f in heasoft_tree[layout]:
-            _touch(f)
-    # a trailing slash on HEADAS used to break the source-layout path
-    monkeypatch.setenv("HEADAS", str(heasoft_tree["headas"]) + "/")
-    assert X.find_heasoft() == tuple(os.path.normpath(str(f)) for f in heasoft_tree[expected])
-
-
-def test_find_heasoft_errors(heasoft_tree, monkeypatch):
-    monkeypatch.delenv("HEADAS", raising=False)
-    with pytest.raises(EnvironmentError, match="HEADAS"):
-        X.find_heasoft()
-    lib, dat = heasoft_tree["install"]
-    _touch(lib)
-    with pytest.raises(FileNotFoundError, match="model.dat"):
-        X.find_heasoft(str(heasoft_tree["headas"]))
-
-
-def test_fninit_once_per_library(fresh_lib):
-    a = X.CInterface(*fresh_lib, initialize=False)
-    assert _getter(a, "mock_fninit_calls") == 0
-    a.add_model(_stub("tbabs"))
-    assert np.all(a.tbabs([1.0, 2.0], [0.5]) == -1.0)      # not initialised yet
-    X.CInterface(*fresh_lib)                                 # auto-detects FNINIT
-    X.FortranInterface(*fresh_lib)
-    a.initialize_heasoft()
-    assert _getter(a, "mock_fninit_calls") == 1
-    assert np.allclose(a.tbabs([1.0, 2.0], [0.5]), 0.5)
-
-
-def test_library_without_fninit(tmp_path):
-    """Local model packages do not export FNINIT."""
-    local = _build(LOCAL_SRC, tmp_path / ("liblocal" + LIBEXT))
-    dat = _write(tmp_path, "gaussian 2 0. 1e20 C_gaussianLine add 0\n"
-                           "LineE keV 6.5 0 0 1e6 1e6 0.05\n"
-                           "Sigma keV 0.1 0 0 10 20 0.05\n")
-    lib = X.CInterface(local, dat)
-    lib.add_model(_stub("gaussian"))
-    assert np.allclose(lib.gaussian([1.0, 2.0], [6.5, 0.1, 1.0]), 2.0)
-    with pytest.raises(AttributeError, match="FNINIT"):
-        X.CInterface(local, dat, initialize=True)
-
-
-def test_fortran_interface_defaults(mock_paths, monkeypatch):
-    """FortranInterface() takes its paths from find_xspec (not loaded from a
-    fake $HEADAS tree: the file would have to be called libXSFunctions, which
-    macOS resolves through $DYLD_LIBRARY_PATH first)."""
-    calls = []
-    monkeypatch.setattr(X, "find_xspec", lambda backend: calls.append(backend) or mock_paths)
-    lib = X.FortranInterface(backend="xspectrampoline")
-    assert (lib.lib_path, lib.pars_path) == mock_paths
-    assert calls == ["xspectrampoline"]
-
-
-@pytest.fixture
-def fake_xspectrampoline(monkeypatch):
-    """Replace find_heasoft with a recorder and xspectrampoline with a stub."""
-    calls = []
-    monkeypatch.setattr(X, "find_heasoft",
-                        lambda headas=None: calls.append(headas) or ("/x/lib.so", "/x/model.dat"))
-    stub = types.ModuleType("xspectrampoline")
-    stub.get_HEADAS = lambda: "/bundle/LibXSPEC"
-    monkeypatch.setitem(sys.modules, "xspectrampoline", stub)
-    return calls
-
-
-def test_find_xspec_backends(fake_xspectrampoline, monkeypatch):
-    calls = fake_xspectrampoline
-    monkeypatch.setenv("HEADAS", "/my/heasoft")
-    X.find_xspec("auto")                      # HEADAS set -> HEASOFT
-    X.find_xspec("heasoft")
-    assert calls == [None, None]
-    monkeypatch.delenv("HEADAS")
-    X.find_xspec("auto")                      # no HEADAS -> xspectrampoline's library
-    X.find_xspec("xspectrampoline")
-    assert calls[2:] == ["/bundle/LibXSPEC"] * 2
-    # FNINIT already ran when xspectrampoline was imported
-    assert os.path.realpath("/x/lib.so") in X._INITIALISED_LIBS
-    with pytest.raises(ValueError, match="backend"):
-        X.find_xspec("pyxspec")
-
-
-def test_find_xspec_without_xspectrampoline(fake_xspectrampoline, monkeypatch, tmp_path):
-    monkeypatch.delenv("HEADAS", raising=False)
-    monkeypatch.setitem(sys.modules, "xspectrampoline", None)     # not installed
-    with pytest.raises(EnvironmentError, match="pip install xspectrampoline"):
-        X.find_xspec("auto")
-    with pytest.raises(ImportError, match="not installed"):
-        X.find_xspec("xspectrampoline")
-    # installed, but its import fails (it raises NoLibXSPEC if it cannot load
-    # its libraries, and AttributeError on Python 3.8)
-    _touch(tmp_path / "xspectrampoline" / "__init__.py").write_text(
-        "raise RuntimeError('NoLibXSPEC')\n")
-    monkeypatch.delitem(sys.modules, "xspectrampoline")
-    monkeypatch.syspath_prepend(str(tmp_path))
-    with pytest.raises(ImportError, match="could not load.*NoLibXSPEC"):
-        X.find_xspec("xspectrampoline")
-
-
-def test_dyld_shadowing(tmp_path, monkeypatch):
-    wanted = _touch(tmp_path / "mine" / "libfoo.dylib")
-    other = _touch(tmp_path / "heasoft" / "lib" / "libfoo.dylib")
-    monkeypatch.setenv("DYLD_LIBRARY_PATH", str(other.parent))
-    monkeypatch.setattr(X, "platform", "darwin")
-    assert X._dyld_shadowing(str(wanted)) == str(other)
-    monkeypatch.setattr(X, "platform", "linux")   # Linux has no such lookup
-    assert X._dyld_shadowing(str(wanted)) is None
-
-@pytest.mark.parametrize("model, symbol, abi", [
-    ("nthcomp", "donthcomp_", X.F77_SINGLE),
-    ("ismabs", "ismabs_", X.F77_DOUBLE),
-    ("gaussian", "C_gaussianLine", X.C_DOUBLE),
-    ("bwcycl", "beckerwolff", X.C_DOUBLE),
-    ("blbd_like", "C_xsblbd", X.C_DOUBLE),   # Fortran symbol missing -> C_ fallback
-    ("cfall", "C_cfall", X.C_DOUBLE),        # c_ base symbol missing -> C_ fallback
-])
-def test_binding(lib, model, symbol, abi):
-    lib.add_model(_stub(model))
-    assert (lib.models_info[model]["symbol"], lib.models_info[model]["abi"]) == (symbol, abi)
-    assert "symbol" not in lib._all_info[model]    # the shared table is not mutated
+def test_name_clash_requires_library(lib):
+    with pytest.raises(ValueError, match="several libraries.*library="):
+        lib.add_model("gaussian")
+    lib.add_model("gaussian", library=MOCK)
+    assert lib.models_info["gaussian"]["library"] == MOCK
+    lib.add_model("gaussian", library="xspec")
+    assert lib.models_info["gaussian"]["library"] == "xspec"
+    lib.add_model("prec4")                       # only defined once: no library needed
+    assert lib.models_info["prec4"]["library"] == MOCK
 
 
 def test_add_model_errors(lib):
     with pytest.raises(KeyError, match="notamodel"):
-        lib.add_model(_stub("notamodel"))
+        lib.add_model("notamodel")
+    with pytest.raises(KeyError, match="No library"):
+        lib.add_model("tbabs", library="nope")
     with pytest.raises(NotImplementedError, match="mix"):
-        lib.add_model(_stub("mixmod"))
-    with pytest.raises(AttributeError, match='(?s)C_relxcpp.*extern "C"'):
-        lib.add_model(_stub("relxcpp"))
+        lib.add_model("mixmod", library=MOCK)
+    with pytest.raises(AttributeError, match="C_relxcpp"):
+        lib.add_model("relxcpp", library=MOCK)
     assert not hasattr(lib, "relxcpp")
-    assert sorted(lib.check_symbols()[1]) == ["mixmod", "relxcpp"]
+    # blbd_like and cfall only have a C_ wrapper, which is not used as a fallback
+    assert lib.check_models() == {MOCK: ["blbd_like", "cfall", "relxcpp"]}
 
 
-def test_symbol_and_language_override(lib):
-    lib.add_model(_stub("prec4"), symbol="prec8_", language=X.F77_DOUBLE)
-    assert lib.prec4([1.0, 2.0], [1.0 / 3.0])[0] == 1.0 / 3.0
-    lib.add_model(_stub("blbd_like"), language=X.C_DOUBLE)
-    assert lib.models_info["blbd_like"]["symbol"] == "C_xsblbd"
-    with pytest.raises(AttributeError):
-        lib.add_model(_stub("gaussian"), language=X.F77_DOUBLE)
+def test_double_precision_fortran(lib):
+    """F_ models use their double-precision Fortran routine, or HEASOFT's C_
+    wrapper if that is all the library has."""
+    third = 1.0 / 3.0
+    assert np.all(lib.add_model("prec8")(EAR, [third]) == third)               # prec8_ only
+    assert np.all(lib.add_model("ismabs", library=MOCK)(EAR, [third]) == third)
+
+
+def test_deprecated_names(mock_paths):
+    """FortranInterface/CInterface still work, including the old dummy-function
+    add_model, and look in the library they were created with."""
+    def gaussian(ear, params):
+        pass
+
+    with pytest.warns(DeprecationWarning):
+        old = X.CInterface(*mock_paths)
+    old.load_models({"gaussian": gaussian})
+    assert old.models_info["gaussian"]["library"] == "ndspec_xsmock"
+    with pytest.warns(DeprecationWarning):
+        old = X.FortranInterface()
+    old.add_model(gaussian)
+    assert old.models_info["gaussian"]["library"] == "xspec"
 
 EAR = np.array([1.0, 1.5, 2.5, 4.0, 8.0])   # non-uniform bins
 
 
 @pytest.fixture
 def loaded(lib):
-    for m in ["nthcomp", "gaussian", "tbabs", "ismabs", "bwcycl", "prec4", "prec8", "precc"]:
-        lib.add_model(_stub(m))
-    lib.add_model(_stub("gsmooth", con=True))
+    lib.load_models(["nthcomp", "gaussian", "tbabs", "bwcycl", "prec4", "precc", "gsmooth"],
+                    library=MOCK)
     return lib
 
 
 @pytest.mark.parametrize("model, params, k", [
-    ("nthcomp", [2.0, 100, 0.1, 0, 0], 2.0),    # f77 single
+    ("nthcomp", [2.0, 100, 0.1, 0, 0], 2.0),    # Fortran, single precision
     ("gaussian", [6.5, 0.1], 6.5),              # C_ wrapper
     ("bwcycl", [10, 1.4], 1.4),                 # c_ style
 ])
 def test_additive(loaded, model, params, k):
-    """Mocks return flux = k * bin width per bin; ndspec returns flux per keV
+    """Mocks return flux = k * bin width per bin; nDspec returns flux per keV
     times the norm, which it applies itself."""
     for norm in (0.0, 2.5):
         out = getattr(loaded, model)(EAR, params + [norm])
@@ -469,7 +302,6 @@ def test_additive(loaded, model, params, k):
 
 def test_multiplicative(loaded):
     assert np.allclose(loaded.tbabs(EAR, [0.25]), 0.25)   # no width division, no norm
-    assert np.allclose(loaded.ismabs(EAR, [0.3]), 0.3)
 
 
 def test_convolution(loaded):
@@ -481,16 +313,14 @@ def test_convolution(loaded):
         loaded.gsmooth(EAR, [2.0, 0.0], np.ones(EAR.size))
 
 
-@pytest.mark.parametrize("model, dtype", [("prec4", np.float32),
-                                          ("prec8", np.float64),
-                                          ("precc", np.float64)])
+@pytest.mark.parametrize("model, dtype", [("prec4", np.float32), ("precc", np.float64)])
 def test_precision(loaded, model, dtype):
     third = 1.0 / 3.0
     assert np.all(getattr(loaded, model)(EAR, [third]) == np.float64(dtype(third)))
 
 
-@pytest.mark.parametrize("model, params", [("gaussian", [6.5, 0.1, 1.0]),        # C ABI
-                                           ("nthcomp", [2.0, 100, 0.1, 0, 0, 1.0])])  # f77
+@pytest.mark.parametrize("model, params", [("gaussian", [6.5, 0.1, 1.0]),        # C
+                                           ("nthcomp", [2.0, 100, 0.1, 0, 0, 1.0])])  # Fortran
 def test_arguments_received(loaded, model, params):
     getattr(loaded, model)(EAR, params)
     assert _getter(loaded, "mock_last_ne") == EAR.size - 1
@@ -507,16 +337,19 @@ def test_input_types_and_layouts(loaded):
     # non-contiguous slice: without a copy the library would read the -99 fillers
     big = np.full(2 * EAR.size, -99.0)
     big[::2] = EAR
-    assert np.allclose(loaded.gaussian(big[::2], [6.5, 0.1, 1.0]), ref)       # C
+    assert np.allclose(loaded.gaussian(big[::2], [6.5, 0.1, 1.0]), ref)            # C
     assert np.allclose(loaded.nthcomp(big[::2], [2.0, 100, 0.1, 0, 0, 1.0]), 2.0)  # Fortran
     # a single edge gives no bins
     with pytest.raises(ValueError, match="ear"):
         loaded.gaussian([1.0], [6.5, 0.1, 1.0])
 
 
+# =============================================================================
+# Parameter checks
+# =============================================================================
 @pytest.mark.parametrize("params, bad", [
-    ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),
-    ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),
+    ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),        # first parameter
+    ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),  # a later one (old code only checked the first)
     ([2.0, 100, 0.1, 0, 0], "Wrong parameter number"),
 ])
 def test_invalid_parameters_return_nan(loaded, params, bad):
@@ -536,62 +369,53 @@ def test_valid_edge_parameters(loaded):
         loaded.nthcomp(EAR, [10.0, 100, 0.1, 0, 10.0, 1.0])
 
 
+# =============================================================================
+# Real gfortran ABI (optional)
+# =============================================================================
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="gfortran not available")
-def test_real_fortran_subroutines(tmp_path):
+def test_real_fortran_subroutine(tmp_path):
     path = tmp_path / ("libndspec_f" + LIBEXT)
     _build(F90_SRC, path, compiler=shutil.which("gfortran"), suffix=".f90")
     dat = _write(tmp_path, "nthComp 1 0. 1e20 donthcomp add 0\n"
-                           "Gamma \" \" 1.7 1.001 1.005 5. 10. 0.01\n"
-                           "ismabs 1 0. 1e20 F_ismabs mul 0\n"
-                           "H 10^22 0.1 0 0 1e5 1e6 1e-3\n")
-    lib = X.CInterface(str(path), dat)
-    lib.load_models({"nthcomp": _stub("nthcomp"), "ismabs": _stub("ismabs")})
-    # the subroutines add (ifl - 1) and ne, so both must arrive by reference intact
-    assert np.allclose(lib.nthcomp(EAR, [2.0, 1.0]), 2.0)
-    assert np.allclose(lib.ismabs(EAR, [0.25]), 0.25 + (EAR.size - 1))
+                           "Gamma \" \" 1.7 1.001 1.005 5. 10. 0.01\n")
+    interface = X.ModelInterface()
+    interface.add_library(str(path), dat, name="f90")
+    interface.add_model("nthcomp", library="f90")
+    # the subroutine adds (ifl - 1): ne and ifl must arrive by reference intact
+    assert np.allclose(interface.nthcomp(EAR, [2.0, 1.0]), 2.0)
 
 
-_USER_HEADAS = os.environ.get("HEADAS")
-_HAVE_XSPECTRAMPOLINE = (sys.version_info >= (3, 9)
-                         and importlib.util.find_spec("xspectrampoline") is not None)
-
-
-@pytest.fixture(scope="module", params=["heasoft", "xspectrampoline"])
-def real_lib(request):
-    if request.param == "heasoft":
-        if not _USER_HEADAS:
-            pytest.skip("HEADAS not set: no HEASOFT installation to test")
-        return X.FortranInterface(*X.find_heasoft(_USER_HEADAS))
-    if not _HAVE_XSPECTRAMPOLINE:
-        pytest.skip("xspectrampoline not installed")
-    if _USER_HEADAS:
-        # xspectrampoline would use that HEASOFT instead of its bundled copy
-        pytest.skip("HEADAS is set, so xspectrampoline would not use its own library")
-    return X.FortranInterface(backend="xspectrampoline")
-
-
+# =============================================================================
+# The real Xspec library (from xspectrampoline, or $HEADAS if set)
+# =============================================================================
 _HEADER = re.compile(r"^(\S+)\s+(\d+)\s+\S+\s+\S+\s+(\S+)\s+(add|mul|con|mix|acn|amx)\b")
 
 
-def test_real_model_dat_and_symbols(real_lib):
+@pytest.fixture(scope="module")
+def xspec():
+    return X.ModelInterface()
+
+
+def test_xspec_model_dat_and_symbols(xspec):
     """Every model in the real model.dat parses with the declared number of
-    parameters and resolves to a symbol in the real library."""
+    parameters and can be found in the real library."""
     expected = {}
-    with open(real_lib.pars_path) as fh:
+    with open(xspec.libraries["xspec"]["pars_path"]) as fh:
         for line in fh:
             m = _HEADER.match(line)
             if m:
                 expected[m.group(1).lower()] = int(m.group(2)) + (m.group(4) == "add")
-    assert {k: len(v["parameters"]) for k, v in real_lib._all_info.items()} == expected
-    assert real_lib.check_symbols()[1] == []
+    models = xspec.libraries["xspec"]["models"]
+    assert {k: len(v["parameters"]) for k, v in models.items()} == expected
+    assert xspec.check_models() == {}
 
 
-def test_real_models_evaluate(real_lib):
+def test_xspec_models_evaluate(xspec):
     # Only models that need no data files: xspectrampoline does not ship
     # spectral/modelData, and some models (e.g. kerrbb) exit the process
     # when a data file is missing.
     for model in ["powerlaw", "tbabs", "nthcomp", "gaussian", "diskbb"]:
-        real_lib.add_model(_stub(model))
-        pars = [v["value"] for v in real_lib._all_info[model]["parameters"].values()]
-        out = getattr(real_lib, model)(np.logspace(-1, 2, 200), pars)
+        xspec.add_model(model)
+        pars = [v["value"] for v in xspec.models_info[model]["parameters"].values()]
+        out = getattr(xspec, model)(np.logspace(-1, 2, 200), pars)
         assert np.all(np.isfinite(out)) and np.any(out != 0), model
