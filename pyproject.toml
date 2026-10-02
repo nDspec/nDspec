@@ -14,13 +14,12 @@ authors = [
 maintainers = [
     { name = "nDspec Developers", email = "m.lucchini@uva.nl" },
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -40,6 +39,7 @@ dependencies = [
     "stingray",
     "pyfftw",
     "tqdm",
+    "xspectrampoline"
 ]
  
 [project.optional-dependencies]
@@ -55,8 +55,6 @@ tests = [
     "pytest",
     "pytest-cov",
 ]
-# Xspec model library without a HEASOFT installation (Linux x86_64, macOS)
-xspec = ["xspectrampoline>=0.1.5; python_version >= '3.9'"]
 notebooks = ["ipykernel", "nbconvert", "jupyter"]
  
 [project.urls]
