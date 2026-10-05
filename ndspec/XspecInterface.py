@@ -148,7 +148,9 @@ class ModelInterface():
 
     def add_library(self, lib_path, pars_path, name=None):
         """
-        Add an Xspec-compatible local model library and its lmodel.dat.
+        Add an Xspec-compatible local model library and its lmodel.dat. Models 
+        whose names also exist in another library are not added automatically: 
+        add_model asks for the library explicitly.
 
         Parameters:
         -----------
@@ -162,9 +164,6 @@ class ModelInterface():
             Name to refer to the library by, e.g. in add_model(...,
             library=name). Defaults to the file name without "lib" and the
             extension, e.g. "relxill" for librelxill.so.
-
-        Models whose names also exist in another library are not added
-        automatically: add_model asks for the library explicitly.
         """
         if name is None:
             name = os.path.splitext(os.path.basename(str(lib_path)))[0]
@@ -190,6 +189,9 @@ class ModelInterface():
         return out
 
     def _find(self, model_name, library):
+        """
+        Searches for the library defining a given model.
+        """
         if library is not None:
             if library not in self.libraries:
                 raise KeyError(f"No library named '{library}'; loaded: {list(self.libraries)}")
@@ -206,11 +208,11 @@ class ModelInterface():
                              f"({', '.join(found)}); choose one with library=...")
         return found[0]
 
-    def add_model(self, model_name, library=None):
+    def _add_model(self, model_name, library=None):
         """
         Make a model available as a method of this object:
 
-            lib.add_model("powerlaw")
+            lib._add_model("powerlaw")
             flux = lib.powerlaw(ear, [gamma, norm])
 
         Parameters:
@@ -278,10 +280,10 @@ class ModelInterface():
         setattr(self, model_name, wrapper)
         return wrapper
 
-    def load_models(self, models, library=None):
-        """Add several models at once: load_models(["tbabs", "diskbb"])."""
-        for model_name in models:
-            self.add_model(model_name, library=library)
+    def add_models(self, *models, library=None):
+        """Add several models at once: add_models("tbabs", "diskbb")."""
+        for model in models:
+            self._add_model(model, library=library)
 
     def check_models(self):
         """
