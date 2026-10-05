@@ -222,35 +222,36 @@ def test_default_library_name(mock_paths):
 
 def test_name_clash_requires_library(lib):
     with pytest.raises(ValueError, match="several libraries.*library="):
-        lib.add_model("gaussian")
-    lib.add_model("gaussian", library=MOCK)
+        lib.add_models("gaussian")
+    lib.add_models("gaussian", library=MOCK)
     assert lib.models_info["gaussian"]["library"] == MOCK
-    lib.add_model("gaussian", library="xspec")
+    lib.add_models("gaussian", library="xspec")
     assert lib.models_info["gaussian"]["library"] == "xspec"
-    lib.add_model("prec4")                       # only defined once: no library needed
+    lib.add_models("prec4")                       # only defined once: no library needed
     assert lib.models_info["prec4"]["library"] == MOCK
 
 
 def test_add_model_errors(lib):
     with pytest.raises(KeyError, match="notamodel"):
-        lib.add_model("notamodel")
+        lib.add_models("notamodel")
     with pytest.raises(KeyError, match="No library"):
-        lib.add_model("tbabs", library="nope")
+        lib.add_models("tbabs", library="nope")
     with pytest.raises(NotImplementedError, match="mix"):
-        lib.add_model("mixmod", library=MOCK)
+        lib.add_models("mixmod", library=MOCK)
     with pytest.raises(AttributeError, match="C_relxcpp"):
-        lib.add_model("relxcpp", library=MOCK)
+        lib.add_models("relxcpp", library=MOCK)
     assert not hasattr(lib, "relxcpp")
     # blbd_like and cfall only have a C_ wrapper, which is not used as a fallback
     assert lib.check_models() == {MOCK: ["blbd_like", "cfall", "relxcpp"]}
 
 
 def test_double_precision_fortran(lib):
-    """F_ models use their double-precision Fortran routine, or HEASOFT's C_
-    wrapper if that is all the library has."""
+    """F_ models are called through their double-precision Fortran routine."""
     third = 1.0 / 3.0
-    assert np.all(lib.add_model("prec8")(EAR, [third]) == third)
-    assert np.all(lib.add_model("ismabs", library=MOCK)(EAR, [third]) == third)
+    lib.add_models("prec8")                       # prec8_ only
+    lib.add_models("ismabs", library=MOCK)
+    assert np.all(lib.prec8(EAR, [third]) == third)
+    assert np.all(lib.ismabs(EAR, [third]) == third)
 
 
 def test_deprecated_names(mock_paths):
@@ -273,8 +274,8 @@ EAR = np.array([1.0, 1.5, 2.5, 4.0, 8.0])   # non-uniform bins
 
 @pytest.fixture
 def loaded(lib):
-    lib.load_models(["nthcomp", "gaussian", "tbabs", "bwcycl", "prec4", "precc", "gsmooth"],
-                    library=MOCK)
+    lib.add_models("nthcomp", "gaussian", "tbabs", "bwcycl", "prec4", "precc", "gsmooth",
+                   library=MOCK)
     return lib
 
 
@@ -366,7 +367,7 @@ def test_real_fortran_subroutine(tmp_path):
                            "Gamma \" \" 1.7 1.001 1.005 5. 10. 0.01\n")
     interface = X.ModelInterface()
     interface.add_library(str(path), dat, name="f90")
-    interface.add_model("nthcomp", library="f90")
+    interface.add_models("nthcomp", library="f90")
     # the subroutine adds (ifl - 1): ne and ifl must arrive by reference intact
     assert np.allclose(interface.nthcomp(EAR, [2.0, 1.0]), 2.0)
 
@@ -398,7 +399,7 @@ def test_xspec_models_evaluate(xspec):
     # spectral/modelData, and some models (e.g. kerrbb) exit the process
     # when a data file is missing.
     for model in ["powerlaw", "tbabs", "nthcomp", "gaussian", "diskbb"]:
-        xspec.add_model(model)
+        xspec.add_models(model)
         pars = [v["value"] for v in xspec.models_info[model]["parameters"].values()]
         out = getattr(xspec, model)(np.logspace(-1, 2, 200), pars)
         assert np.all(np.isfinite(out)) and np.any(out != 0), model

@@ -344,7 +344,7 @@ class _LegacyInterface(ModelInterface):
         # the old API took a dummy function named after the model, and only
         # looked in the library the object was created with
         name = model if isinstance(model, str) else model.__name__.rstrip("_")
-        return super().add_model(name, library=library or self._default_library)
+        return super()._add_model(name, library=library or self._default_library)
 
     def load_models(self, models, library=None):
         for model in (models.values() if isinstance(models, dict) else models):
