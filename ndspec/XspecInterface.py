@@ -6,7 +6,7 @@ import warnings
 import numpy as np
 import xspectrampoline
 
-__all__ = ["ModelInterface", "FortranInterface", "CInterface"]
+__all__ = ["ModelInterface", "ParameterException", "FortranInterface", "CInterface"]
 
 _XS = xspectrampoline.get_libraries()
 
@@ -108,6 +108,11 @@ def _xspec_call(func_call, lib):
         "":   (base.lower() + "_", None, np.float32),  # Fortran, single precision
     }[prefix]
     return _XS.get_model(symbol, interface=interface, lib=lib), dtype
+
+
+class ParameterException(ValueError):
+    """Raised when a model is evaluated with the wrong number of parameters,
+    or with a value outside its hard limits in model.dat."""
 
 
 class ModelInterface():
@@ -239,35 +244,29 @@ class ModelInterface():
         def prepare(ear, params):
             # check bounds before any cast to float32, so that values at a
             # limit are not pushed across it by rounding
-            in_bounds = self.check_param_values(model_name, np.asarray(params, dtype=np.float64))
+            self.check_param_values(model_name, np.asarray(params, dtype=np.float64))
             ear = np.ascontiguousarray(ear, dtype=dtype)
             params = np.ascontiguousarray(params, dtype=dtype)
             if ear.ndim != 1 or ear.size < 2:
                 raise ValueError("ear must be a 1D array of at least 2 bin edges")
-            return in_bounds, ear, params
+            return ear, params
 
         if model_type == "add":
             def wrapper(ear, params):
-                in_bounds, ear, params = prepare(ear, params)
-                if not in_bounds:
-                    return np.full(len(ear) - 1, np.nan)
+                ear, params = prepare(ear, params)
                 # the normalisation is applied here, not passed to the model
                 flux = np.zeros(len(ear) - 1, dtype=dtype)
                 lib_func(ear, np.ascontiguousarray(params[:-1]), flux, np.zeros_like(flux))
                 return (flux / np.diff(ear)).astype(np.float64) * float(params[-1])
         elif model_type == "mul":
             def wrapper(ear, params):
-                in_bounds, ear, params = prepare(ear, params)
-                if not in_bounds:
-                    return np.full(len(ear) - 1, np.nan)
+                ear, params = prepare(ear, params)
                 flux = np.zeros(len(ear) - 1, dtype=dtype)
                 lib_func(ear, params, flux, np.zeros_like(flux))
                 return flux.astype(np.float64)
         else:   # con: the input spectrum is modified in place
             def wrapper(ear, params, seed):
-                in_bounds, ear, params = prepare(ear, params)
-                if not in_bounds:
-                    return np.full(len(ear) - 1, np.nan)
+                ear, params = prepare(ear, params)
                 flux = np.array(seed, dtype=dtype, copy=True)
                 if flux.shape != (len(ear) - 1,):
                     raise ValueError("seed must have len(ear)-1 elements")
@@ -320,21 +319,17 @@ class ModelInterface():
     def check_param_values(self, model_name, params):
         """
         Check that the number of parameters is right and each value is within
-        its hard limits; returns False (with a warning) otherwise, in which
-        case the model evaluation returns NaN.
+        its hard limits; raises ParameterException otherwise.
         """
         par_data = self.models_info[model_name]['parameters']
         if len(par_data) != len(params):
-            warnings.warn(f"Wrong parameter number {len(par_data)} required but "
-                          f"{len(params)} passed", UserWarning)
-            return False
+            raise ParameterException(f"{model_name}: {len(par_data)} parameters required "
+                                     f"({', '.join(par_data)}), but {len(params)} passed")
         for value, (key, info) in zip(params, par_data.items()):
             lo, hi = info['min'], info['max']
             if (lo is not None and value < lo) or (hi is not None and value > hi):
-                warnings.warn(f"Model parameter {key} value {value} out of bounds, "
-                              f"{info}", UserWarning)
-                return False
-        return True
+                raise ParameterException(f"{model_name}: parameter {key} = {value} is outside "
+                                         f"its limits [{lo}, {hi}]")
 
 
 class _LegacyInterface(ModelInterface):

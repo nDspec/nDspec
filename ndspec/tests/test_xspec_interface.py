@@ -4,7 +4,6 @@ import re
 import shutil
 import subprocess
 import sys
-import warnings
 
 import numpy as np
 import pytest
@@ -340,23 +339,20 @@ def test_input_types_and_layouts(loaded):
 @pytest.mark.parametrize("params, bad", [
     ([0.5, 100, 0.1, 0, 0, 1.0], "Gamma"),        # first parameter
     ([2.0, 100, 0.1, 0, 20.0, 1.0], "Redshift"),  # a later one (old code only checked the first)
-    ([2.0, 100, 0.1, 0, 0], "Wrong parameter number"),
+    ([2.0, 100, 0.1, 0, 0], "6 parameters required"),
 ])
-def test_invalid_parameters_return_nan(loaded, params, bad):
+def test_invalid_parameters_raise(loaded, params, bad):
     before = _getter(loaded, "mock_calls")
-    with pytest.warns(UserWarning, match=bad):
-        out = loaded.nthcomp(EAR, params)
-    assert out.shape == (EAR.size - 1,) and np.all(np.isnan(out))
+    with pytest.raises(X.ParameterException, match=bad):
+        loaded.nthcomp(EAR, params)
     assert _getter(loaded, "mock_calls") == before      # model not called
 
 
 def test_valid_edge_parameters(loaded):
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        # values exactly at the hard limits are allowed, even for float32
-        # models (1.001 rounds below 1.001 in float32); switches have no bounds
-        loaded.nthcomp(EAR, [1.001, 100, 0.1, 12345.0, -0.999, 1.0])
-        loaded.nthcomp(EAR, [10.0, 100, 0.1, 0, 10.0, 1.0])
+    # values exactly at the hard limits are allowed, even for float32 models
+    # (1.001 rounds below 1.001 in float32); switches have no bounds
+    loaded.nthcomp(EAR, [1.001, 100, 0.1, 12345.0, -0.999, 1.0])
+    loaded.nthcomp(EAR, [10.0, 100, 0.1, 0, 10.0, 1.0])
 
 
 @pytest.mark.skipif(shutil.which("gfortran") is None, reason="gfortran not available")
