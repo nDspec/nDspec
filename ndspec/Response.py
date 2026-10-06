@@ -13,6 +13,49 @@ colorscale = pl.cm.PuRd(np.linspace(0.,1.,5))
 from .Operator import nDspecOperator
 from .Timing import CrossSpectrum
 
+def _rebin_matrix(resp_matrix, old_bounds_lo, old_bounds_hi, new_bounds_lo, new_bounds_hi, renorm=False):
+    n_start, n_chans = resp_matrix.shape
+
+    # Find the original-bin index at which each new bin starts:
+    starts = np.searchsorted(
+        old_bounds_lo,
+        new_bounds_lo,
+        side="left",
+    )
+
+    # The final output bin ends at the end of the original grid:
+    stops = np.concatenate(
+        (starts[1:], [n_start])
+    )
+
+    counts = stops - starts
+
+    # Construct the sparse `inclusion_matrix`
+    #
+    # If an output bin contains original rows 2, 3, and 4, its row in this
+    # matrix contains ones in columns 2, 3, and 4.
+    row_indices = np.repeat(
+        np.arange(len(new_bounds_lo)),
+        counts,
+    )
+    col_indices = np.arange(n_start)
+
+    inclusion_matrix = scipy.sparse.csr_array(
+        (
+            np.ones(n_start, dtype=resp_matrix.dtype),
+            (row_indices, col_indices),
+        ),
+        shape=(len(new_bounds_lo), n_start),
+    )
+
+    # Match the previous renormalized implementation.
+    if renorm:
+        inclusion_matrix = scipy.sparse.diags(1.0 / counts) @ inclusion_matrix
+
+    # Rebin all channels simultaneously.
+    return inclusion_matrix @ resp_matrix
+
+
 class ResponseMatrix(nDspecOperator):
     """
     This class handles folding an energy-dependent, multi-dimensional product,
@@ -358,13 +401,17 @@ class ResponseMatrix(nDspecOperator):
         #shift the new bounds to coincide match with the existing channel bounds
         new_bounds_lo = self._align_grid(self.emin,new_bounds_lo)
         new_bounds_hi = self._align_grid(self.emax,new_bounds_hi)
-        rebinned_response = np.zeros((self.n_energs,len(new_bounds_lo)))
 
-        #rebin by summing over all energy bins
-        for j in range(self.n_energs):
-            rebinned_response[j,:] = self._rebin_sum(self.resp_matrix[j,:],
-                                                     (self.emin,self.emax),
-                                             (new_bounds_lo,new_bounds_hi))
+        # `rebin_matrix` doesn't know about rows or columns, so to rebin in
+        # channels do a (free) transpose and then transpose back after the
+        # rebinning.
+        rebinned_response = _rebin_matrix(
+                self.resp_matrix.T, 
+                self.emin, 
+                self.emax, 
+                new_bounds_lo, 
+                new_bounds_hi
+        ).T
         
         bin_resp = copy.copy(self)
         bin_resp.emin = new_bounds_lo
@@ -411,17 +458,20 @@ class ResponseMatrix(nDspecOperator):
         new_bounds_lo = self._integer_slice(self.energ_lo,factor)
         new_bounds_hi = np.append(new_bounds_lo[1:],self.energ_hi[-1])
         
-        rebinned_response = np.zeros((len(new_bounds_lo),self.n_chans))
-        
-        for j in range(self.n_chans):
-            rebinned_response[:,j] = self._rebin_int(self.resp_matrix[:,j],
-                                             (self.energ_lo,self.energ_hi),
-                                             (new_bounds_lo,new_bounds_hi),
-                                                               renorm=True)
+        rebinned_response = _rebin_matrix(
+                self.resp_matrix,
+                self.energ_lo,
+                self.energ_hi,
+                new_bounds_lo,
+                new_bounds_hi,
+                renorm=True
+        )
         
         bin_resp = copy.copy(self)
-        bin_resp.energ_lo = new_bounds_lo
-        bin_resp.energ_hi = new_bounds_hi
+        # Use `setattr` as it's for whatever reason not guarunteed that
+        # `energ_lo` actually exists?
+        setattr(bin_resp, "energ_lo", new_bounds_lo)
+        setattr(bin_resp, "energ_hi", new_bounds_hi)
         bin_resp.n_energs = len(new_bounds_lo)
         bin_resp.resp_matrix = rebinned_response
         return bin_resp
