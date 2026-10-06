@@ -11,6 +11,8 @@ from matplotlib.ticker import MaxNLocator
 
 from lmfit.model import ModelResult as LM_result
 
+import scipy.sparse
+
 import sys 
 sys.path.append('/home/matteo/Software/nDspec/src/')
 
@@ -442,8 +444,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         #the modulation factor multiplies the effective area, so it is applied
         #to every channel of a given photon energy bin identically
         response_pol = copy.copy(response)
-        response_pol.resp_matrix = response.resp_matrix* \
-                                   mod_factor[:,np.newaxis]
+        response_pol.resp_matrix = (response.resp_matrix.T * scipy.sparse.diags(mod_factor)).T
         if response.has_arf is True:
             response_pol.specresp = response.specresp*mod_factor
         self.mod_factor = mod_factor
