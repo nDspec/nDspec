@@ -195,7 +195,14 @@ class ResponseMatrix(nDspecOperator):
         n_chan = np.array(data.field("N_CHAN"))
         matrix = np.array(data.field("MATRIX"))
 
-        self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix,n_cols=self.n_chans)
+        # Need to know if the indices start at 0 or some other value, which is
+        # in the `TLMIN#` keyword in the rheader record for F_CHAN:
+        # Add 1, as FITS column counts start at 1 but Python indices at 0
+        f_chan_column_index = data.names.index("F_CHAN") + 1
+        first_channel = hdr.get(f"TLMIN{f_chan_column_index}", 0)
+
+        self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix,
+            n_cols=self.n_chans,first_channel=first_channel)
         return
 
     def _read_matrix(self,n_grp,f_chan,n_chan,matrix,first_channel=0,n_cols=0):
