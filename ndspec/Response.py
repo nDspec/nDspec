@@ -499,8 +499,7 @@ class ResponseMatrix(nDspecOperator):
             An identity matrix of size (num x num).   
         """
     
-        diag_resp = np.diag(np.ones(num))
-        return diag_resp 
+        return scipy.sparse.diags(np.ones(num))
 
     def set_exposure_time(self,time):
         """
