@@ -11,8 +11,6 @@ from matplotlib.ticker import MaxNLocator
 
 from lmfit.model import ModelResult as LM_result
 
-import sys 
-sys.path.append('/home/matteo/Software/nDspec/src/')
 
 from ndspec.Response import ResponseMatrix
 from ndspec.Polarimetry import PolarimetryProduct
