@@ -906,9 +906,9 @@ def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_auto
             print("Autocorrelation lengths: ",tau)
     
     #print trace plots
+    ndim = sampler.ndim
     if labels is not None and len(labels) != ndim:
         raise ValueError("Size of labels does not match the number of parameters")
-    ndim = sampler.ndim
     size = math.ceil(14/9*ndim)
     fig, axes = plt.subplots(ndim, figsize=(9, size), sharex=True)
     samples = sampler.get_chain(discard=discard, thin=thin)    

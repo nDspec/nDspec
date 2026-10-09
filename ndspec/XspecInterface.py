@@ -1,526 +1,365 @@
 import ctypes as ct
-import numpy as np
-from functools import wraps
 import os
+import shlex
 import warnings
-from sys import platform
+
+import numpy as np
+import xspectrampoline
+
+__all__ = ["ModelInterface", "ParameterException", "FortranInterface", "CInterface"]
+
+_XS = xspectrampoline.get_libraries()
+
+_SUPPORTED_TYPES = ("add", "mul", "con")
+
+def _find_model_dat():
+    """model.dat of the Xspec installation xspectrampoline loaded."""
+    headas = os.path.normpath(str(xspectrampoline.get_HEADAS()))
+    candidates = [
+        os.path.join(headas, "spectral", "manager", "model.dat"),            # xspectrampoline
+        os.path.join(headas, "..", "spectral", "manager", "model.dat"),      # HEASOFT install
+        os.path.join(headas, "..", "Xspec", "src", "manager", "model.dat"),  # source build
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            return os.path.normpath(path)
+    raise FileNotFoundError("Could not find model.dat; looked in:\n  " + "\n  ".join(candidates))
+
+
+def _parse_parameter(line):
+    parts = shlex.split(line)
+    name = parts[0]
+    if name[0] in "$*":
+        # switch ($) or scale (*) parameter: "name value" or "name unit value ...",
+        # with no fit bounds
+        value = float(parts[1] if len(parts) == 2 else parts[2])
+        return name.strip("$*"), {"value": value, "min": None, "max": None, "unit": "n/a"}
+    # regular: name unit value hardmin softmin softmax hardmax delta [P]
+    rest = parts[1:-1] if parts[-1].upper() == "P" else parts[1:]   # periodic flag
+    nums = [float(t) for t in rest[-6:]]
+    unit = " ".join(rest[:-6]).strip() or "n/a"
+    return name, {"value": nums[0], "min": nums[1], "max": nums[4], "unit": unit}
+
+
+def parse_model_file(input_file):
+    """
+    Parse an Xspec model.dat/lmodel.dat file. Entries are read the same way
+    Xspec reads them: a header line followed by exactly <npars> parameter
+    lines, so irregular blank lines or whitespace do not merge models.
+
+    Output:
+    -------
+    models_info: dict
+        {model name: {"func_call", "type", "parameters"}}; "parameters" maps
+        each parameter name to its value, min, max and unit. Additive models
+        get an extra "norm" parameter, which nDspec applies itself.
+    """
+    with open(input_file, "r") as fh:
+        lines = [ln.rstrip("\n") for ln in fh]
+
+    models_info = {}
+    i, n = 0, len(lines)
+    while i < n:
+        parts = lines[i].split()
+        i += 1
+        if len(parts) < 6 or parts[0].startswith("#"):
+            continue
+        try:
+            npars = int(parts[1])
+        except ValueError:
+            continue
+        model_name, func_call, model_type = parts[0].lower(), parts[4], parts[5]
+
+        parameters = {}
+        read = 0
+        while read < npars and i < n:
+            line = lines[i]
+            i += 1
+            if not line.strip():
+                continue
+            read += 1
+            try:
+                par_name, par_info = _parse_parameter(line)
+            except (ValueError, IndexError) as exc:
+                warnings.warn(f"{model_name}: {exc}", UserWarning)
+                continue
+            parameters[par_name] = par_info
+
+        if model_type == "add":
+            parameters["norm"] = {"value": 1.0, "min": 0.0, "max": 1e20, "unit": "n/a"}
+        models_info[model_name] = {"func_call": func_call,
+                                   "type": model_type,
+                                   "parameters": parameters}
+    return models_info
+
+
+def _xspec_call(func_call, lib):
+    """
+    xspectrampoline callable ``f(ear, params, flux, err)`` and its array dtype
+    for a model.dat function field, looked up in the ctypes library `lib`.
+    The prefix gives the routine's language (Xspec manual, "Writing a new
+    model function"); a missing routine raises AttributeError.
+    """
+    prefix, base = (func_call[:2], func_call[2:]) if func_call[:2] in ("C_", "c_", "F_") else ("", func_call)
+    symbol, interface, dtype = {
+        "C_": (func_call, "c", np.float64),            # C++, through its extern "C" wrapper
+        "c_": (base, "c", np.float64),                 # C
+        "F_": (base.lower() + "_", None, np.float64),  # Fortran, double precision
+        "":   (base.lower() + "_", None, np.float32),  # Fortran, single precision
+    }[prefix]
+    return _XS.get_model(symbol, interface=interface, lib=lib), dtype
+
+
+class ParameterException(ValueError):
+    """Raised when a model is evaluated with the wrong number of parameters,
+    or with a value outside its hard limits in model.dat."""
+
 
 class ModelInterface():
     """
-    This class allows users to load a library file containing Xspec-compatible 
-    models (including the entire library that comes with a typical HEASOFT 
-    installation), initialize them into the class objects as class methods, and 
-    evaluate them in their own Python code. ModelInterface serves as the parent 
-    for two more classes which can interface with models in Fortran (including
-    the default Xspec library) or C respectively.
-    
+    Evaluate Xspec models, and models from Xspec-compatible local libraries
+    (e.g. Relxill), as Python methods.
+
+    The Xspec models are always available. Local model libraries can be added
+    at any time with add_library. Models are then made available by name with
+    add_model, and evaluated as ``lib.<name>(ear, params)`` (``lib.<name>(ear,
+    params, spectrum)`` for convolution models), where ``ear`` holds the
+    energy bin edges in keV. Additive models return photons/cm^2/s/keV,
+    including the normalisation (the last parameter); multiplicative and
+    convolution models return what the Xspec model computes.
+
     Attributes:
     -----------
-    models_info: dict 
-        A dictionary to store model information. The keywords store the
-        initialized model names (models_info['nthcomp']), the model type and 
-        parameters (e.g. models_info[['nthcomp']['type']), and the names, 
-        minimum and maximum parameter values, and units of each (e.g. 
-        models_info[['nthcomp']['parameters']['kTe']['unit'] = "keV").
-        
-    lib:  DLL ctype 
-        The compiled .so (if using a Linux system) or .dylib (if using MacOS) 
-        library file loaded. By default, the code looks for the Xspec models 
-        at path_to_heasoft/Xspec/platform_name/lib/libXSFunctions.so (or dylib)
-        file produced by an Xspec installation, and it contains (among other 
-        functions) the entire library of Xspec spectral models.
-        
-    _all_info: dict 
-        A dictionary containing the information of every model in the loaded 
-        library,  regardless of whether the user has initialized it for use or 
-        not. The structure is identical to models_info.         
-    """    
-    def __init__(self, lib_path, pars_path):
-        self._all_info = self.parse_models(pars_path)
-        self.models_info = {}
-    
-        # Load the library
-        self.lib = ct.cdll.LoadLibrary(lib_path)
+    libraries: dict
+        {library name: {"path", "pars_path", "models"}} for the Xspec library
+        (name "xspec") and every library added with add_library; "models" is
+        the parsed model file.
 
-    def parse_models(self,input_file):
+    models_info: dict
+        Information on the models added with add_model: type, library, and
+        the value, minimum, maximum and unit of each parameter, e.g.
+        models_info['nthcomp']['parameters']['kT_e']['unit'] == "keV".
+    """
+    def __init__(self):
+        self.libraries = {}
+        self._libs = {}          # library name -> ctypes.CDLL
+        self.models_info = {}
+        self._register("xspec", _XS.lib_xs_functions, _find_model_dat())
+
+    def _register(self, name, cdll, pars_path):
+        self._libs[name] = cdll
+        self.libraries[name] = {"path": cdll._name, "pars_path": str(pars_path),
+                                "models": parse_model_file(pars_path)}
+
+    def add_library(self, lib_path, pars_path, name=None):
         """
-        This method parses the Xspec file with the model name, type, parameters
-        values and units, etc, and stores the necessary information in the 
-        _all_info dictionary. 
-        
+        Add an Xspec-compatible local model library and its lmodel.dat. Models 
+        whose names also exist in another library are not added automatically: 
+        add_model asks for the library explicitly.
+
         Parameters:
         -----------
-        input_file: str 
-            A path to the model file to be parsed. By default, the method looks 
-            for the Xspec model list in path_to_heasoft/Xspec/src/manager/. 
-            
-        Output:
-        -------
-        models_info: dict 
-            A dictionary containing model names and types, parameter values,
-            minimum nad maximum bounds, and parameter units for all models in 
-            the library. 
-        """
+        lib_path: str
+            The compiled model library (.so on Linux, .dylib on MacOS).
 
-        with open(input_file, 'r') as file:
-            file_content = file.read()
-       
-        # Split the content by empty lines to separate different models
-        model_sections = file_content.strip().split('\n\n')        
-        models_info = {}
-        
-        for section in model_sections:           
-            lines = section.strip().split('\n')        
-            if not lines:
-                continue
-        
-            first_line_parts = lines[0].split()
-            model_name = first_line_parts[0].lower()
-            model_type = first_line_parts[5] 
-            func_call = first_line_parts[4]
-            #print("test name:", model_name, " function call:", )
-        
-            parameters = {}   
-            #Parse each parameter line, ignoring the first one (since it contains the model definition)
-            for line in lines[1:]:
-                parts = line.split()
-                #All the exception catches are to deal with non-standard formatting like empty lines, 
-                #switch parameters without bounds, weird formatting in the units, etc
-                try: 
-                    param_name = parts[0]
-                    unit = parts[1]
-                except IndexError:
-                    continue            
-                if param_name[0] == "$" or param_name[0] == "*":
-                    param_name = param_name.strip('$*')
-                    unit = "n/a"
+        pars_path: str
+            Its model description file (lmodel.dat).
+
+        name: str, optional
+            Name to refer to the library by, e.g. in add_model(...,
+            library=name). Defaults to the file name without "lib" and the
+            extension, e.g. "relxill" for librelxill.so.
+        """
+        if name is None:
+            name = os.path.splitext(os.path.basename(str(lib_path)))[0]
+            if name.startswith("lib") and len(name) > 3:
+                name = name[3:]
+        if name in self.libraries:
+            raise ValueError(f"A library named '{name}' is already loaded; pass name=...")
+        # Loaded after xspectrampoline, so the Xspec utility functions a local
+        # library calls resolve to the ones xspectrampoline loaded.
+        self._register(name, ct.CDLL(str(lib_path), mode=ct.RTLD_GLOBAL), pars_path)
+        return name
+
+    def available_models(self, library=None):
+        """
+        {model name: [libraries defining it]} for every model that can be
+        added, optionally restricted to one library.
+        """
+        out = {}
+        for libname, entry in self.libraries.items():
+            if library is None or libname == library:
+                for model in entry["models"]:
+                    out.setdefault(model, []).append(libname)
+        return out
+
+    def _find(self, model_name, library):
+        """
+        Searches for the library defining a given model.
+        """
+        if library is not None:
+            if library not in self.libraries:
+                raise KeyError(f"No library named '{library}'; loaded: {list(self.libraries)}")
+            if model_name not in self.libraries[library]["models"]:
+                raise KeyError(f"Model '{model_name}' is not defined in "
+                               f"{self.libraries[library]['pars_path']}")
+            return library
+        found = self.available_models().get(model_name, [])
+        if not found:
+            raise KeyError(f"Model '{model_name}' is not defined in any loaded library "
+                           f"({', '.join(self.libraries)})")
+        if len(found) > 1:
+            raise ValueError(f"Model '{model_name}' is defined in several libraries "
+                             f"({', '.join(found)}); choose one with library=...")
+        return found[0]
+
+    def _add_model(self, model_name, library=None):
+        """
+        Make a model available as a method of this object:
+
+            lib._add_model("powerlaw")
+            flux = lib.powerlaw(ear, [gamma, norm])
+
+        Parameters:
+        -----------
+        model_name: str
+            The model name, as in model.dat or lmodel.dat (case-insensitive).
+
+        library: str, optional
+            The library to take the model from. Only needed when more than one
+            loaded library defines a model with this name.
+        """
+        model_name = model_name.lower()
+        library = self._find(model_name, library)
+        info = dict(self.libraries[library]["models"][model_name])
+        info["library"] = library
+        model_type = info["type"]
+        if model_type not in _SUPPORTED_TYPES:
+            raise NotImplementedError(
+                f"Model type '{model_type}' ({model_name}) is not supported.")
+
+        lib_func, dtype = _xspec_call(info["func_call"], self._libs[library])
+        self.models_info[model_name] = info
+
+        def prepare(ear, params):
+            # check bounds before any cast to float32, so that values at a
+            # limit are not pushed across it by rounding
+            self.check_param_values(model_name, np.asarray(params, dtype=np.float64))
+            ear = np.ascontiguousarray(ear, dtype=dtype)
+            params = np.ascontiguousarray(params, dtype=dtype)
+            if ear.ndim != 1 or ear.size < 2:
+                raise ValueError("ear must be a 1D array of at least 2 bin edges")
+            return ear, params
+
+        if model_type == "add":
+            def wrapper(ear, params):
+                ear, params = prepare(ear, params)
+                # the normalisation is applied here, not passed to the model
+                flux = np.zeros(len(ear) - 1, dtype=dtype)
+                lib_func(ear, np.ascontiguousarray(params[:-1]), flux, np.zeros_like(flux))
+                return (flux / np.diff(ear)).astype(np.float64) * float(params[-1])
+        elif model_type == "mul":
+            def wrapper(ear, params):
+                ear, params = prepare(ear, params)
+                flux = np.zeros(len(ear) - 1, dtype=dtype)
+                lib_func(ear, params, flux, np.zeros_like(flux))
+                return flux.astype(np.float64)
+        else:   # con: the input spectrum is modified in place
+            def wrapper(ear, params, seed):
+                ear, params = prepare(ear, params)
+                flux = np.array(seed, dtype=dtype, copy=True)
+                if flux.shape != (len(ear) - 1,):
+                    raise ValueError("seed must have len(ear)-1 elements")
+                lib_func(ear, params, flux, np.zeros_like(flux))
+                return flux.astype(np.float64)
+
+        wrapper.__name__ = model_name
+        wrapper.__doc__ = (f"Xspec {model_type} model '{model_name}' ({library}); "
+                           f"parameters: {', '.join(info['parameters'])}.")
+        setattr(self, model_name, wrapper)
+        return wrapper
+
+    def add_models(self, *models, library=None):
+        """Add several models at once: add_models("tbabs", "diskbb")."""
+        for model in models:
+            self._add_model(model, library=library)
+
+    def check_models(self):
+        """
+        {library: [models]} for models listed in a model file whose routine
+        cannot be found in the library (without calling anything).
+        """
+        missing = {}
+        for libname, entry in self.libraries.items():
+            for model, info in entry["models"].items():
+                if info["type"] in _SUPPORTED_TYPES:
                     try:
-                        value = float(parts[1])
-                        min_val = None
-                        max_val = None
-                    except ValueError:
-                        try:
-                            value = float(parts[2])
-                            min_val = None
-                            max_val = None
-                        except ValueError:
-                            value = float(parts[3])
-                            min_val = None
-                            max_val = None
-                elif unit == '"':    
-                    unit = "n/a"
-                    value = float(parts[3])
-                    min_val = float(parts[4])
-                    max_val = float(parts[7])
-                else:
-                    try:
-                        value = float(parts[2])
-                        min_val = float(parts[3])
-                        max_val = float(parts[6])
-                    except ValueError:
-                        unit = parts[1]+parts[2]
-                        value = float(parts[3])
-                        min_val = float(parts[4])
-                        max_val = float(parts[7])                
-                unit = unit.strip('"')
-                parameters[param_name] = {
-                    'value': value,
-                    'min': min_val,
-                    'max': max_val,
-                    'unit': unit
-                }       
-            if model_type == 'add':
-                parameters['norm'] = {
-                    'value': 1,
-                    'min': 0,
-                    'max': 1e20,
-                    'unit': "n/a"
-                }                     
-            models_info[model_name] = {
-                'func_call': func_call,
-                'type': model_type,
-                'parameters': parameters
-            }
-            
-        return models_info    
+                        _xspec_call(info["func_call"], self._libs[libname])
+                    except AttributeError:
+                        missing.setdefault(libname, []).append(model)
+        return missing
 
     def print_model_info(self):
         """
-        This method prints to terminal a list of all the models that are 
-        currently initialized and ready for use, as well as their model type, 
-        parameter names, as well as default/min/max values and units.
+        Print the models added with add_model, with their type, library and
+        parameter names, default/min/max values and units.
         """
-    
         print()
         print("Initialized Xspec models:")
         for component, details in self.models_info.items():
             print(f"{component}:")
             print(f"  type: {details['type']}")
-            print(f"  function called: {details['func_call']}")
+            print(f"  library: {details['library']}")
             print("  parameters:")
             for param, values in details['parameters'].items():
                 value_str = ', '.join(f"{key}: {value}" for key, value in values.items())
                 print(f"    {param}: {value_str}")
             print()
 
-    def check_param_values(self,model_name,params):
+    def check_param_values(self, model_name, params):
         """
-        This method ensures that the input parameters for a given model 
-        evaluation do not exceed its allowed bounds, by comparing the input 
-        values with the minimum and maximum stored in the models_info dictionary
-        
-        Parameters:
-        -----------
-        model_name: str 
-            A string containing the name of the model being computed 
-            
-        params: np.array, dtype=float32 
-            An array of parameter values stored as float32 being used in the 
-            model computation 
-            
-        Output:
-        -------
-        test_pars: bool 
-            A boolean which returns false if one of the number of parameters 
-            being passed is incorrect, or if one of the values is out of bounds. 
-            In the latter case, the model evaluation returns NaN. 
-            If none of the above happen, the method evalutes to True.
-        """    
-        #check that we're within bounds. This takes a microsecond to loop over ~15 parameters so we just call it every time
-        test_pars = True 
-        
+        Check that the number of parameters is right and each value is within
+        its hard limits; raises ParameterException otherwise.
+        """
         par_data = self.models_info[model_name]['parameters']
         if len(par_data) != len(params):
-            warnings.warn(f"Wrong parameter number {len(par_data)} required but {len(params)} passed"
-                           ,UserWarning)
-            test_pars = False 
-            return test_pars 
-        for i, key in enumerate(par_data):
-            if (params[i] < par_data[key]['min']):
-                warnings.warn(f"Model parameter {key} value {params[i]} out of bounds, {par_data[key]}"
-                               ,UserWarning) 
-                test_pars = False 
-                return test_pars 
-            elif (params[i] > par_data[key]['max']):
-                warnings.warn(f"Model parameter {key} value {params[i]} out of bounds, {par_data[key]}"
-                               ,UserWarning) 
-                test_pars = False 
-                return test_pars 
-            else:
-                return test_pars
+            raise ParameterException(f"{model_name}: {len(par_data)} parameters required "
+                                     f"({', '.join(par_data)}), but {len(params)} passed")
+        for value, (key, info) in zip(params, par_data.items()):
+            lo, hi = info['min'], info['max']
+            if (lo is not None and value < lo) or (hi is not None and value > hi):
+                raise ParameterException(f"{model_name}: parameter {key} = {value} is outside "
+                                         f"its limits [{lo}, {hi}]")
 
-    def load_models(self, models):
-        """
-        This method allows users to initialized multiple models simultaneously 
-        by passing a dictionary with model names and calling functions. 
-        
-        Parameters:
-        -----------
-        models: dict 
-            A dictionary whose keys are identical to the function names users 
-            want to intialize in the class. 
-        """
-    
-        for model_name, model_func in models.items():
-            # Apply the decorator to each model function
-            self.add_model(model_func)
 
-class FortranInterface(ModelInterface):
-    """
-    This class implements the methods inherited from ModelInterface to import 
-    and execute Xspec-compatible Fortran models. Users can use it either for 
-    their own code, or to load the entire Xspec library that is included in a 
-    typical HEASOFT installation. 
-    """    
-    def __init__(self, lib_path=None, pars_path=None):
-        default_xspec = False
-        if lib_path is None:
-            headas_path = os.environ.get("HEADAS")
-            input_file =  headas_path + f"/../Xspec/src/manager/model.dat"       
-            if headas_path:
-                if platform == "linux" or platform == "linux2":
-                    lib_path = headas_path + f"/../Xspec/{os.path.basename(headas_path)}/lib/libXSFunctions.so"
-                elif platform == "darwin":
-                    lib_path = headas_path + f"/../Xspec/{os.path.basename(headas_path)}/lib/libXSFunctions.dylib"
-                else:
-                    raise OSError("Your platform is not supported.")
-                default_xspec = True
-            else:
-                raise EnvironmentError("HEADAS environment variable not set.")
-        if pars_path is None:
-            headas_path = os.environ.get("HEADAS")
-            pars_path =  headas_path + f"/../Xspec/src/manager/model.dat"     
-        
-        ModelInterface.__init__(self,lib_path,pars_path)
-        
-        if default_xspec is True:
-            self.initialize_heasoft()
-        pass
+class _LegacyInterface(ModelInterface):
+    _default_library = None
 
-    def add_model(self, func, symbol=None):
-        """
-        This method initializes a given model by adding it to the library object
-        as one of its methods - for example:
-        
-        def powerlaw(ear, params):
-            pass
-        
-        lib.add_model(powerlaw)
-        model = lib.powerlaw(arguments)
-        
-        Parameters:
-        -----------
-        func: function 
-            An empty function with the same name and input parameters as the 
-            model to be added to the library object. 
+    def add_model(self, model, library=None, **ignored):
+        # the old API took a dummy function named after the model, and only
+        # looked in the library the object was created with
+        name = model if isinstance(model, str) else model.__name__.rstrip("_")
+        return super()._add_model(name, library=library or self._default_library)
 
-        symbol: str, optional
-            A string containing the name of the function in the library to be
-            called. If not provided, it defaults to the function name. Generally, 
-            a user does not need to provide this argument, as the function name 
-            is usually sufficient to identify the model in the library. However, 
-            if a user wants to use a different name for the function they are 
-            calling via ndspec, they can provide the original function name here.
-        """
-        func_name = func.__name__.rstrip('_')
+    def load_models(self, models, library=None):
+        for model in (models.values() if isinstance(models, dict) else models):
+            self.add_model(model, library=library)
 
-        if symbol is None:
-            symbol = func_name + "_"
 
-        #sort out model parameters
-        self.models_info[func_name] = self._all_info[func_name] 
-    
-        #prepare the model call for the given model name
-        lib_func = getattr(self.lib, f"{symbol}")
-        lib_func.argtypes = [
-            ct.POINTER(ct.c_float),
-            ct.POINTER(ct.c_int),
-            ct.POINTER(ct.c_float),
-            ct.POINTER(ct.c_int),
-            ct.POINTER(ct.c_float),
-            ct.POINTER(ct.c_float)
-        ]
-        lib_func.restype = None
+class FortranInterface(_LegacyInterface):
+    """Deprecated: use ModelInterface()."""
+    def __init__(self, lib_path=None, pars_path=None, **ignored):
+        warnings.warn("FortranInterface is deprecated; use ModelInterface() "
+                      "(and add_library for local models).", DeprecationWarning, stacklevel=2)
+        super().__init__()
+        if lib_path is not None:
+            self._default_library = self.add_library(lib_path, pars_path)
 
-        #specify the exact model call depending on whether the model is additive
-        #multiplicative or convolutional.
-        if self.models_info[func_name]['type'] == "add":        
-            @wraps(func)
-            def wrapper(ear, params):
-                ear = np.asarray(ear, dtype=np.float32)
-                params = np.asarray(params, dtype=np.float32)
-                ne = len(ear) - 1
-                photar = np.zeros(ne, dtype=np.float32)
-                photer = np.zeros(ne, dtype=np.float32)
 
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        ct.byref(ct.c_int(ne)),
-                        params.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        ct.byref(ct.c_int(1)),
-                        photar.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        photer.ctypes.data_as(ct.POINTER(ct.c_float))
-                    )
-                    photar = photar/np.diff(ear)
-                return photar*params[-1]
-        elif self.models_info[func_name]['type'] == "mul":        
-            @wraps(func)
-            def wrapper(ear, params):
-                ear = np.asarray(ear, dtype=np.float32)
-                params = np.asarray(params, dtype=np.float32)
-                ne = len(ear) - 1
-                photar = np.zeros(ne, dtype=np.float32)
-                photer = np.zeros(ne, dtype=np.float32)
-                
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:        
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        ct.byref(ct.c_int(ne)),
-                        params.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        ct.byref(ct.c_int(1)),
-                        photar.ctypes.data_as(ct.POINTER(ct.c_float)),
-                        photer.ctypes.data_as(ct.POINTER(ct.c_float))
-                    )
-                return photar
-        elif self.models_info[func_name]['type'] == "con":  
-            @wraps(func)
-            def wrapper(ear, params, seed):
-                ear = np.asarray(ear, dtype=np.float32)
-                params = np.asarray(params, dtype=np.float32)
-                ne = len(ear) - 1
-                seed = np.array(seed,dtype = np.float32)
-                photer = np.zeros(ne, dtype = np.float32)
-                
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_float)),
-                         ct.byref(ct.c_int(ne)),
-                         params.ctypes.data_as(ct.POINTER(ct.c_float)),
-                         ct.byref(ct.c_int(1)),
-                         seed.ctypes.data_as(ct.POINTER(ct.c_float)),
-                         photer.ctypes.data_as(ct.POINTER(ct.c_float))
-                    )
-                return seed
-                
-        # Attach the wrapper to the class 
-        setattr(self, func_name, wrapper)        
-        return func
-
-    def initialize_heasoft(self):
-        """
-        This method calls the fninit HEASOFT function, which initializes cross 
-        sections and abundances and is required to correctly evaluate Xspec 
-        models outside of the Xspec command interface. 
-        """    
-        
-        try:
-            init_call = self.lib.fninit_
-            init_call()
-        except AttributeError:
-            init_call = self.lib.FNINIT 
-            init_call()           
-        
-        return
-
-class CInterface(ModelInterface):
-    """
-    This class implements the methods inherited from ModelInterface to import 
-    and execute Xspec-compatible C models. It is meant to be used with custom 
-    models not immediately available with Xspec installations, such as 
-    Relxill and its various flavours.
-    """   
-    def __init__(self, lib_path,pars_path):
-        ModelInterface.__init__(self,lib_path,pars_path)    
-        pass
-
-    #try to let users pass any name they want
-    def add_model(self, func):
-        """
-        This method initializes a given model by adding it to the library object
-        as one of its methods - for example:
-        
-        def powerlaw(ear, params):
-            pass
-        
-        lib.add_model(powerlaw)
-        model = lib.powerlaw(arguments)
-        
-        Parameters:
-        -----------
-        func: function 
-            An empty function with the same name and input parameters as the 
-            model to be added to the library object. 
-        """
-        func_name = func.__name__.rstrip('_')
-        
-        #sort out model parameters
-        self.models_info[func_name] = self._all_info[func_name]
-        func_call = self.models_info[func_name]['func_call'].strip('c_')
-        #prepare the model call for the given model name
-        lib_func = getattr(self.lib, f"{func_call}")
-        lib_func.argtypes = [
-            ct.POINTER(ct.c_double),  
-            ct.c_int,                     
-            ct.POINTER(ct.c_double),  
-            ct.c_int,                     
-            ct.POINTER(ct.c_double),  
-            ct.POINTER(ct.c_double), 
-            ct.c_char_p    
-        ]
-        lib_func.restype = None
-
-        #specify the exact model call depending on whether the model is additive
-        #multiplicative or convolutional.      
-        if self.models_info[func_name]['type'] == "add":        
-            @wraps(func)
-            def wrapper(ear, params):
-                ear = np.asarray(ear, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                ne = len(ear) - 1
-                photar = np.zeros(ne, dtype=np.float64)
-                photer = np.zeros(ne, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                init_string = "1"
-                spectrum = 1
-
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(ne),
-                        params.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(spectrum),
-                        photar.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        photer.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        init_string.encode('utf-8')
-                    )
-                photar = photar/np.diff(ear)
-                return photar*params[-1]
-        elif self.models_info[func_name]['type'] == "mul":        
-            @wraps(func)
-            def wrapper(ear, params):
-                ear = np.asarray(ear, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                ne = len(ear) - 1
-                photar = np.zeros(ne, dtype=np.float64)
-                photer = np.zeros(ne, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                init_string = "1"
-                spectrum = 1
-
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(ne),
-                        params.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(spectrum),
-                        photar.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        photer.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        init_string.encode('utf-8')
-                    )
-                return photar
-        elif self.models_info[func_name]['type'] == "con":  
-            @wraps(func)
-            def wrapper(ear, params, seed):
-                ear = np.asarray(ear, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                ne = len(ear) - 1
-                seed = np.zeros(ne, dtype=np.float64)
-                photer = np.zeros(ne, dtype=np.float64)
-                params = np.asarray(params, dtype=np.float64)
-                init_string = "1"                
-                spectrum = 1                
-                
-                par_test = self.check_param_values(func_name,params)
-                if par_test is False:
-                    photar = np.nan
-                else:
-                    lib_func(
-                        ear.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(ne),
-                        params.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        ct.c_int(spectrum),
-                        seed.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        photer.ctypes.data_as(ct.POINTER(ct.c_double)),
-                        init_string.encode('utf-8')
-                    )
-                return seed
-
-        # Attach the wrapper to the class 
-        setattr(self, func_name, wrapper)        
-        return func
+class CInterface(_LegacyInterface):
+    """Deprecated: use ModelInterface().add_library(lib_path, pars_path)."""
+    def __init__(self, lib_path, pars_path, **ignored):
+        warnings.warn("CInterface is deprecated; use ModelInterface() and "
+                      "add_library(lib_path, pars_path).", DeprecationWarning, stacklevel=2)
+        super().__init__()
+        self._default_library = self.add_library(lib_path, pars_path)

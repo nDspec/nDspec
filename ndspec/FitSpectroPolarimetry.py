@@ -13,9 +13,6 @@ from lmfit.model import ModelResult as LM_result
 
 import scipy.sparse
 
-import sys 
-sys.path.append('/home/matteo/Software/nDspec/src/')
-
 from ndspec.Response import ResponseMatrix
 from ndspec.Polarimetry import PolarimetryProduct
 from ndspec.SimpleFit import SimpleFit, EnergyDependentFit, \
