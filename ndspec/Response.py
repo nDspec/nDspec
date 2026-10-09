@@ -199,7 +199,7 @@ class ResponseMatrix(nDspecOperator):
         # in the `TLMIN#` keyword in the rheader record for F_CHAN:
         # Add 1, as FITS column counts start at 1 but Python indices at 0
         f_chan_column_index = data.names.index("F_CHAN") + 1
-        first_channel = hdr.get(f"TLMIN{f_chan_column_index}", 0)
+        first_channel = int(hdr.get(f"TLMIN{f_chan_column_index}", 0))
 
         self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix,
             n_cols=self.n_chans,first_channel=first_channel)
@@ -274,7 +274,7 @@ class ResponseMatrix(nDspecOperator):
                 if n == 0:
                     # Advance row
                     break
-
+                               
                 first = (f - first_channel)
 
                 # Append all of the indices
