@@ -803,18 +803,11 @@ class ResponseMatrix(nDspecOperator):
             array = array.reshape(self.n_chans,1)         
         #reshaping the energy and channel arrays is necessary to get the right 
         #dimensions when unfolding 2d arrays 
+        #the extra factors weights/chan_scale come from assuming that the model 
+        #is a powerlaw in energy with gamma=-2
         energy_widths = self.energ_hi - self.energ_lo 
-        #these weights for each channel come in because we have to make some 
-        #assumption about the shape of the spectrum, and like isis we assume 
-        #it's a powerlaw with photon index -2. When that is the case, integrating 
-        #N(E) =E^-2 over a bin from elo to ehi gives exactly (ehi-elo)/ehi*elo
         weights = energy_widths/(self.energ_lo*self.energ_hi)
-        #and this factors back the factor ehi*elo, to keep the units consistent 
-        #before and after folding+unfolding, otherwise they would differ by 
-        #~energy squared  
         chan_scale = 1.0/(self.emin*self.emax)
-        #these convert our weights array into a sparse matrix, multiplies by the 
-        #stored response, and then ravel() flattens it in to a normal 1d array 
         unfold_matrix = scipy.sparse.diags(weights) @ self.resp_matrix
         unfold_array = np.asarray(unfold_matrix.sum(axis=0)).ravel()
         #fix the warning when unfolding 
