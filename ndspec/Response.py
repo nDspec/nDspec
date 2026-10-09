@@ -199,7 +199,7 @@ class ResponseMatrix(nDspecOperator):
         # in the `TLMIN#` keyword in the rheader record for F_CHAN:
         # Add 1, as FITS column counts start at 1 but Python indices at 0
         f_chan_column_index = data.names.index("F_CHAN") + 1
-        first_channel = hdr.get(f"TLMIN{f_chan_column_index}", 0)
+        first_channel = int(hdr.get(f"TLMIN{f_chan_column_index}", 0))
 
         self.resp_matrix = self._read_matrix(n_grp,f_chan,n_chan,matrix,
             n_cols=self.n_chans,first_channel=first_channel)
@@ -274,7 +274,7 @@ class ResponseMatrix(nDspecOperator):
                 if n == 0:
                     # Advance row
                     break
-
+                               
                 first = (f - first_channel)
 
                 # Append all of the indices
@@ -764,13 +764,16 @@ class ResponseMatrix(nDspecOperator):
         Unfolds an array through the instrument response. Note that plotting 
         data in this fashion can be EXTREMELY misleading and should be done 
         with care. In nDspec we define an unfolded model as:
-        unfolded(H) = counts(H)/exposure*sum(rmf*arf),
+        unfolded(H) = counts(H)/exposure*sum(rmf*arf)*f(H),
         where H is a given bounds in energy channels, exposure is the exposure 
         time of the observation, rmf*arf is the instrument response, and the sum 
-        is carried out every the energy bins of the response. Users also need to 
-        specify whether the input array is in units of counts/s/keV or 
-        counts/s/channel; if they do so correctly, the output of this method is 
-        in photon density - counts/s/keV/cm^2. Assuming 0 background, this 
+        is carried out every the energy bins of the response, and f(H) is a 
+        factor which carries some assumption must make about the form of the 
+        source model. In nDspec, like in ISIS, we assume this is a powerlaw 
+        with photon index -2, which is fairly standard for X-ray sources.Users 
+        also need to specify whether the input array is in units of counts/s/keV 
+        or counts/s/channel; if they do so correctly, the output of this method  
+        is in photon density - counts/s/keV/cm^2. Assuming 0 background, this 
         definition of unfolding is identical to Isis, regardless of model 
         choice, and Xspec, as long as the model is a constant in each energy 
         bin. Converting to flux units - ie, energy/s/area, then requires 
@@ -800,17 +803,23 @@ class ResponseMatrix(nDspecOperator):
             array = array.reshape(self.n_chans,1)         
         #reshaping the energy and channel arrays is necessary to get the right 
         #dimensions when unfolding 2d arrays 
+        #the extra factors weights/chan_scale come from assuming that the model 
+        #is a powerlaw in energy with gamma=-2
         energy_widths = self.energ_hi - self.energ_lo 
-        unfold_matrix = energy_widths.reshape(self.n_energs,1)*self.resp_matrix
-        unfold_array = np.sum(unfold_matrix,axis=0).reshape(self.n_chans,1) 
+        weights = energy_widths/(self.energ_lo*self.energ_hi)
+        chan_scale = 1.0/(self.emin*self.emax)
+        unfold_matrix = scipy.sparse.diags(weights) @ self.resp_matrix
+        unfold_array = np.asarray(unfold_matrix.sum(axis=0)).ravel()
         #fix the warning when unfolding 
         unfold_array[unfold_array==0] = 1e-50       
+        unfold_array = unfold_array.reshape(self.n_chans,1)
+        chan_scale = chan_scale.reshape(self.n_chans,1)
 
         if units_in == "channel":
-            unfold_model = array/unfold_array
+            unfold_model = array*chan_scale/unfold_array
         elif units_in == "kev":
             channel_widths = (self.emax - self.emin).reshape(self.n_chans,1)
-            unfold_model = array/unfold_array*channel_widths 
+            unfold_model = array*channel_widths*chan_scale/unfold_array
         else:
             raise ValueError("Specify whether the input array is normalized per channel or per keV")
         
