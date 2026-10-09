@@ -11,6 +11,7 @@ from matplotlib.ticker import MaxNLocator
 
 from lmfit.model import ModelResult as LM_result
 
+import scipy.sparse
 
 from ndspec.Response import ResponseMatrix
 from ndspec.Polarimetry import PolarimetryProduct
