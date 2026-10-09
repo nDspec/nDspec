@@ -282,7 +282,7 @@ class TestResponse(object):
         current_resp_grid = self.response.resp_matrix
         self.response.set_exposure_time(10*current_exposure)
         assert np.allclose(self.response.exposure,10*current_exposure) == True
-        assert np.allclose(self.response.resp_matrix,10*current_resp_grid) == True
+        assert np.allclose(self.response.resp_matrix.toarray(),10*current_resp_grid.toarray()) == True
         
         with pytest.raises(TypeError):
             self.response.set_exposure_time("str")       
