@@ -537,8 +537,8 @@ class TestFitSpectroPolarimetry(object):
                           self.stokes_U_file,mod_factor=self.mod_factor)
         test_mrf = self.polar_setup(ignore=False)
         r_tol = 1e-5
-        assert(np.allclose(test_mod.response_pol.resp_matrix,
-                           test_mrf.response_pol.resp_matrix,rtol=r_tol))
+        assert(np.allclose(test_mod.response_pol.resp_matrix.toarray(),
+                           test_mrf.response_pol.resp_matrix.toarray(),rtol=r_tol))
         assert(np.allclose(test_mod.data,test_mrf.data))
         #the modulation factor is only stored when the response is built from it
         assert(test_mrf.mod_factor is None)

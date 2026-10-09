@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.sparse
 from scipy.interpolate import interp1d
 
 try:
