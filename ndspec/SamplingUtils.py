@@ -389,11 +389,11 @@ class priorNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
         The expectation of the distribution. 
+
+    sigma: float 
+        The standard deviation of the distribution.        
     """    
     
     def __init__(self,mu,sigma):
@@ -451,11 +451,11 @@ class priorLogNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
-        The expectation of the distribution. 
+        The expectation of the distribution.     
+    
+    sigma: float 
+        The standard deviation of the distribution.       
     """    
     
     def __init__(self,mu,sigma):
