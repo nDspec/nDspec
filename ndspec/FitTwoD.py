@@ -639,27 +639,50 @@ class FitTwoD(SimpleFit):
         
         Parameters:
         -----------
-        residuals: str, default="chisq"
-            The units to be used in the residuals. 
-            
+        plot_data: bool, default=True
+            If true, both model and data are plotted; if false, just the model. 
+
         params: lmfit.parameters, default=None 
             The parameters to be used to evaluate the model. If False, the set 
-            of parameters stored in the class is used. 
+            of parameters stored in the class is used 
         
+        residuals: str, default="chisq"
+            The units to be used in the residuals. 
+                    
         x_name: str, default="None"
             The units to use to label the X axis.
             
         y_name: str, default="None"
             The units to use to label the Y axis.
+
+        z_name: str, default="None"
+            The units to use to label the Y axis.
+            
+        cmap: str, default='plasma'
+            The colormap to use for the panel. 
+
+        log_xaxis, log_yaxis: bool, default=False 
+            Booleans to choose whether each axis of the mesh uses a logarithmic 
+            scale.
+
+        log_zaxis: bool, default=False 
+            A boolean to choose whether the the z axis of the mesh uses a 
+            logarithmic scale.
         
         return_plot: bool, default=False
             A boolean to decide whether to return the figure object containing 
             the plot or not.
+
+        mesh_kwargs: dict, default=None 
+            Keyword arguments for the 2d colormesh.
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
-            The plot object produced by the method.        
+            The plot object produced by the method.
+
+        panels: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.        
         """
         
         if params is None:
@@ -710,7 +733,7 @@ class FitTwoD(SimpleFit):
                 residuals = self.likelihood
             res,_ = self.get_residuals(residuals,model=self._filter_2d_by_mask(model))
             noticed = self._filter_2d_by_mask(np.arange(self._data_unmasked.size))
-            #this jank is necessary to support ignored bins in the 2d plot
+            #this jank below is necessary to support ignored bins in the 2d plot
             resid = np.full(self._data_unmasked.size,np.nan)
             resid[noticed] = res
             meshes["residuals"] = self._plot_format(resid)

@@ -157,7 +157,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         data and model are defined, including bins that are ignored in the fit. 
         
         If instead the data depends on energy, it contains both noticed and 
-        ignored frequency intervals over which to  produce spectral-timing 
+        ignored frequency intervals over which to produce spectral-timing 
         products. For example, a user might input a set of 7 ranges of 
         frequencies to calculate lag energy spectra, but only want to consider 
         the first and last 3, and ignore the middle one.
@@ -441,6 +441,8 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         else:
             raise AttributeError("Data dependency not found! Set frequency or energy")    
         
+        #coarse frequency grids can be problematic for some numerical methods, 
+        #especially cumulative sinc functions and energy dependent products
         if len(self.freqs) < 50:
             warnings.warn(f"Model frequency grid contains only {len(self.freqs)} bins,"\
                            "model computations might be inaccurate! Suggest you use "\
@@ -1499,7 +1501,7 @@ class FitCrossSpectrum(SimpleFit,EnergyDependentFit,FrequencyDependentFit):
         data, data_err = None, None 
         data = self._plot_format(self._data_unmasked)
         data_err = self._plot_format(self._data_err_unmasked)
-        #this horrible jank here is necessary to avoid raising annoying 
+        #this horrible jank below is necessary to avoid raising annoying 
         #warnings about bins that are not being noticed, while still
         #supporting having gaps in the noticed bins 
         res, err = self.get_residuals(residuals,

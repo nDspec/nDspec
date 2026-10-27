@@ -1220,7 +1220,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             
             data = self._plot_format(self._data_unmasked)
             data_err = self._plot_format(self._data_err_unmasked)
-            #this horrible jank here is necessary to avoid raising annoying 
+            #this horrible jank below is necessary to avoid raising annoying 
             #warnings about bins that are not being noticed, while still
             #supporting having gaps in the noticed bins 
             res, err = self.get_residuals(residuals,
@@ -1271,7 +1271,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             
             res, err = self.get_polarization_residuals(residuals,params=params)
             resid, reserr = [], []
-            #this horrible jank here is necessary to avoid raising annoying 
+            #this horrible jank below is necessary to avoid raising annoying 
             #warnings about bins that are not being noticed, while still
             #supporting having gaps in the noticed bins 
             for k in range(2):

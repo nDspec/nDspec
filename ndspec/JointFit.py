@@ -625,7 +625,7 @@ class JointFit():
          
         Parameters:
         -----------
-        method_name: str 
+        method_name: str
             The name of the method to be called, either "plot_data" or 
             "plot_model".
             
@@ -728,7 +728,7 @@ class JointFit():
     def plot_data(self,groups=None,plot_kwargs=None,return_plot=False,**kwargs):
         """
         This method calls plot_data for all the specified fitter objects. The 
-        fitters to be called can be divided into gropus, in which case each 
+        fitters to be called can be divided into groups, in which case each 
         group will share a single plot (e.g. to make multiple time-averaged
         spectra share a single plot). If one-d methods are not available, the 
         method defaults to calling plot_data_2d.

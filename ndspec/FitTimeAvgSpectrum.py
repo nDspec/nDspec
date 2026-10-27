@@ -394,7 +394,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             For instance, units="eeunfold" plots units of kev^2 counts/s/keV/cm^2,
             i.e. units of nuFnu. 
             
-        plot_bkg; bool, default="False:
+        plot_bkg; bool, default=False:
             A boolean to choose whether you want to plot the background
         
         panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
@@ -580,7 +580,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
                 raise ValueError("Residual format not supported")
             data = self._to_plot_units(self._data_unmasked,units)
             data_err = self._to_plot_units(self._data_err_unmasked,units)            
-            #this horrible jank here is necessary to avoid raising annoying 
+            #this horrible jank below is necessary to avoid raising annoying 
             #warnings about channels that are not being noticed, while still
             #supporting having gaps in the noticed channels 
             res, err = self.get_residuals(residuals,

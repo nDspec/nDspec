@@ -255,7 +255,7 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
 
         freqs = self._freqs_unmasked
         x_bars = 0.5*np.append(np.diff(freqs),freqs[-1]-freqs[-2])
-        #nan jank to correctly lay out gaps throughout the library 
+        #nan jank below to correctly lay out gaps throughout the library 
         y_points = np.where(self.freqs_mask,self._data_unmasked,np.nan)*scale
         y_bars = np.where(self.freqs_mask,self._data_err_unmasked,np.nan)*scale
         
