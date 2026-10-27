@@ -7,7 +7,7 @@ on:
  
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }}
+    name: Test (Python ${{ matrix.python-version }})
     strategy:
       fail-fast: false
       matrix:
