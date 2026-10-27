@@ -389,11 +389,11 @@ class priorNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
         The expectation of the distribution. 
+
+    sigma: float 
+        The standard deviation of the distribution.        
     """    
     
     def __init__(self,mu,sigma):
@@ -451,11 +451,11 @@ class priorLogNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
-        The expectation of the distribution. 
+        The expectation of the distribution.     
+    
+    sigma: float 
+        The standard deviation of the distribution.       
     """    
     
     def __init__(self,mu,sigma):
@@ -907,6 +907,7 @@ def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_auto
     
     ndim = sampler.ndim
     #print trace plots
+    ndim = sampler.ndim
     if labels is not None and len(labels) != ndim:
         raise ValueError("Size of labels does not match the number of parameters")
     size = math.ceil(14/9*ndim)

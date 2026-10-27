@@ -11,11 +11,14 @@ Multi-dimensional X-ray data modelling in Python
 nDspec is a software package designed to model (primarly) X-ray astronomical data; in particular, it is meant to enable users to fit spectral, timing and (in the future) polarimetric data natively. 
 Currently, nDspec provides the following features:
 
-- a class to handle folding an energy-dependent model through a given X-ray instrument response matrix. We currently support existing and legacy missions (Swift/XRT, RXTE, NuSTAR, Nicer, XMM-Newton); next-generation missions like XRISM and Athena are not supported yet.
+- a class to handle folding an energy-dependent model through a given X-ray instrument response matrix. We currently support any mission which provides OGIP-compatible data and responses.
 - Classes to handle the standard spectral-timing data products (power spectra, two-dimensional cross spectra, as well as their one-dimensional projections like lag-frequency spectra). Models need to be defined by the user either in the time domain (ie, an impulse response function) or in the Fourier domain (ie, a transfer functions). Additive models can be combined by the users before computing a given Fourier product.
-- a small library of phenomenological spectral-timing models, currently including a one dimensional power-law, black body and gaussian, as well as example impulse response and/or transfer functions that parametrize the time dependence of these components.
+- Classes to handle standard spectro-polarimetric analysis. Models need to be defined by the user in units of Stokes I, Q and U parameters. 
+- A class to handle arbitrary two-dimensional data consisting of real numbers. The data may or may not be energy dependent.
+- A small library of phenomenological spectral-timing-polarimetric models, currently including a one dimensional power-law, black body and gaussian, as well as example impulse response and/or transfer functions that parametrize the time dependence of these components.
+- A complementary library, xspectrampoline (<https://github.com/nDspec/xspectrampoline>`_), which exposes the full library of compiled Xspec models without requiring a HEASOFT installation.
 
-The goal of the software is to provide users with an Xspec-like package, but to move beyond simple one-dimensional spectral fitting, which typically has relied on each group utilizing their own custom software. Being an open-source modular package, unlike legacy software nDspec allows users to interface with data science libraries for model handling or fitting. 
+The goal of the software is to provide users with a modular package that can move the community beyond simple one-dimensional spectral fitting. Being an open-source modular package, unlike legacy software nDspec allows users to interface with data science libraries for model handling or fitting. 
 
 Documentation
 -------------

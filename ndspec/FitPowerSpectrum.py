@@ -1,12 +1,9 @@
 import numpy as np
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-
-from lmfit.model import ModelResult as LM_result
-
 from .SimpleFit import SimpleFit, FrequencyDependentFit
 from .Likelihoods import chisq, ratio
+from .Utils import model_expand
+from . import Plotting
 
 class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
     """
@@ -147,15 +144,15 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             The parameter values to use in evaluating the model. If none are 
             provided, the model_params attribute is used.
             
-        freq: np.array(float), default None
+        freq: np.array(float), default self._freqs_unmasked
             The the Fourier frequencies over which to evaluted the model. If 
             none are provided, the same frequencies over which the data is 
             defined are used. 
             
         mask: bool, default True
             A boolean switch to choose whether to mask the model output to only 
-            include the noticed energy channels, or to also return the ones 
-            that have been ignored by the users. 
+            include the noticed frequency bins, or to also return the ones that
+            have been ignored by the users. 
             
         Returns:
         --------
@@ -165,12 +162,15 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         """
         
         if freq is None:
-            freq = self.freqs
+            freq = self._freqs_unmasked
+        elif mask is True:
+            raise ValueError(("mask=True requires freq=None to evaluate the model "
+                              "on the stored frequency grid."))
         
         if params is None:
-            model = self.model.eval(self.model_params,freq=freq)
-        else:
-            model = self.model.eval(params,freq=freq)            
+            params = self.model_params
+        
+        model = self.model.eval(params,freq=freq)          
         
         if mask is True:
             model = np.extract(self.freqs_mask,model)
@@ -207,7 +207,8 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             
         return residuals
     
-    def plot_data(self,units="fpower",return_plot=False):
+    def plot_data(self,units="fpower",panels=None,return_plot=False,
+                  data_kwargs=None):
         """
         This method plots the powerspectrum loaded by the user as a function of 
         Fourier frequency. It is possible to plot both units of power, and power 
@@ -223,42 +224,69 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             the data in units of power*frequency. units="power" instead plots 
             the data in units of power. 
             
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            An existing panel to draw into, e.g as returned by calling plot_data 
+            from a second fitter. If None, a new figure is created.
+            
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
+
+        data_kwargs: dict, default=None 
+            Keyword arguments for the data points in the plot.
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
         
-        fig, ((ax1)) = plt.subplots(1,1,figsize=(6.,4.5))   
-        
-        if units == 'power':
-            ax1.errorbar(self.freqs,self.data,yerr=self.data_err,
-                         linestyle='',marker='o')
-            ax1.set_ylabel("Power")
+        if units == "power":
+            scale = np.ones(len(self._data_unmasked))
+            y_label = "Power"
         elif units == "fpower":
-            ax1.errorbar(self.freqs,self.data*self.freqs,yerr=self.data_err*self.freqs,
-                         linestyle='',marker='o')
-            ax1.set_ylabel("Power$\\times$frequency")
+            scale = self._freqs_unmasked
+            y_label = "Power$\\times$frequency"
         else:
             raise ValueError("Y axis units not recognized")
+
+        freqs = self._freqs_unmasked
+        x_bars = 0.5*np.append(np.diff(freqs),freqs[-1]-freqs[-2])
+        #nan jank to correctly lay out gaps throughout the library 
+        y_points = np.where(self.freqs_mask,self._data_unmasked,np.nan)*scale
+        y_bars = np.where(self.freqs_mask,self._data_err_unmasked,np.nan)*scale
         
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
-        ax1.set_xlabel("Frequency (Hz)")  
+        panel_data = Plotting.make_panel_data(x_points=freqs,
+                                              x_bars=x_bars,
+                                              y_points=y_points,
+                                              y_bars=y_bars,
+                                              x_label="Frequency (Hz)",
+                                              y_label=y_label)
+
+        if panels is None:
+            plot_layout = Plotting.make_layout(figsize=(6.5,4.5))
+            fig, panel = Plotting.make_panels(plot_layout)
+        else:
+            #this fitter only ever works on a single panel, other fitters will
+            #have more complex layouts 
+            panel = panels
+            fig = panel.get_figure()   
         
-        plt.tight_layout()      
+        Plotting.draw_main_panel(panel,panel_data,draw_data=True,draw_model=False,
+                                 data_kwargs=data_kwargs)
         
         if return_plot is True:
-            return fig 
+            return fig, panel
         else:
-            return           
+            return         
         
     def plot_model(self,plot_data=True,plot_components=False,params=None,
-                   units="fpower",residuals="chisq",return_plot=False):
+                   units="fpower",residuals=None,panels=None,return_plot=False,
+                   data_kwargs=None,model_kwargs=None,component_kwargs=None,
+                   resid_kwargs=None):
         """
         This method plots the model defined by the user as a function of 
         Fourier frequency, as well as (optionally) its components, and the data
@@ -273,13 +301,14 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
         plot_data: bool, default=True
             If true, both model and data are plotted; if false, just the model. 
             
-        plot_components: bool, default=False 
-            If true, the model components are overplotted; if false, they are 
-            not. Only additive model components will display their values 
-            correctly. 
+        plot_components: bool or str, default=False 
+            If True, the additive model components are overplotted, with 
+            multiplicative and convolution factors applied to each. If 
+            "additive", the additive components are plotted without being 
+            affected by  any multiplicative or convolution factors. 
             
         params: lmfit.parameters, default=None 
-            The parameters to be used to evaluate the model. If False, the set 
+            The parameters to be used to evaluate the model. If None, the set 
             of parameters stored in the class is used 
         
         units: str, default="fpower"
@@ -287,100 +316,127 @@ class FitPowerSpectrum(SimpleFit,FrequencyDependentFit):
             the data in units of power*frequency. units="power" instead plots 
             the data in units of power. 
             
-        residuals: str, default="chisq"
+        residuals: str, default=None
             The units to use for the residuals. If residuals="chisq", the plot 
             shows the residuals in units of data-model/error; if residuals="ratio",
             the plot instead uses units of data/model. If a custom likelihood 
-            is defined, then the residuals are computed from that likelihood.
+            is defined, then the residuals are computed from that likelihood. If
+            residual units are not specified, they are computed from the  
+            likelihood set by the user. 
+
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            Existing panels to draw into, e.g as returned by calling plot_model 
+            from a second fitter. If None, a new figure is created.
             
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
             
+        data_kwargs, model_kwargs, component_kwargs, resid_kwargs: dict, default=None 
+            Keyword arguments for each element of the plot.
+
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+
+        panels: matplotlib.axes or numpy.ndarray(matplotlib.axes), optional 
+            The panel(s) containing the plot produced by the method.
         """
         
         if params is None:
-            model = self.eval_model(params=self.model_params,mask=False)
-        else:
-            model = self.eval_model(params=params,mask=False)
-
-        if plot_data is True:
-            model_res, res_errors = self.get_residuals(res_type=residuals,model=model)
-
+            params = self.model_params
+        if residuals is None:
+            residuals = self.likelihood
         if residuals == "chisq":
-            reslabel = "$\\Delta\\chi$"
+            res_label = "$\\Delta\\chi$"
         elif residuals == "ratio":
-            reslabel = "Data/model"
-        elif self.likelihood == "custom":
-            reslabel = "Residuals"
+            res_label = "Data/model"
+        elif residuals == "custom":
+            res_label = "Residuals"
         else:
             raise ValueError("Residual format not supported")
-            
-        #this is a crappy hack to get Fourier frequency bin widths 
-        xerror = np.zeros(self.n_freqs)
-        #xerror[0:-1] = 0.5*np.diff(self.freqs)
-        #xerror[-1] = xerror[-2] 
+        
         if units == "power":
-            data = self.data
-            yerror = self.data_err
-            ylabel = "Power"
+            scale = np.ones(len(self._data_unmasked))
+            y_label = "Power"
         elif units == "fpower":
-            data = self.data*self.freqs
-            yerror = self.data_err*self.freqs
-            model = model*self.freqs
-            ylabel= "Power$\\times$frequency"
+            scale = self._freqs_unmasked
+            y_label = "Power$\\times$frequency"
         else:
             raise ValueError("Y axis units not supported")
-            
-        if plot_data is False:
-            fig, (ax1) = plt.subplots(1,1,figsize=(6.,4.5))   
-        else:
-            fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,
-                                          gridspec_kw={'height_ratios': [2, 1]})
 
-        if plot_data is True:
-            ax1.errorbar(self.freqs,data,yerr=yerror,xerr=xerror,
-                         linestyle='',marker='o')       
-       
-        ax1.plot(self.freqs,model,lw=3,zorder=3)
-
-        if plot_components is True:
-            #we need to allocate a ModelResult object in order to retrieve the components
-            comps = LM_result(model=self.model,params=self.model_params)
-            comps = comps.eval_components(freq=self.freqs)
-            for key in comps.keys():
-                if units == "power":                
-                    ax1.plot(self.freqs,comps[key],label=key,lw=2)
-                elif units == "fpower":
-                    ax1.plot(self.freqs,comps[key]*self.freqs,label=key,lw=2)
-            ax1.legend(loc='best')
+        freqs = self._freqs_unmasked
+        x_bars = 0.5*np.append(np.diff(freqs),freqs[-1]-freqs[-2])        
         
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
-        if plot_data is False:
-            ax1.set_xlabel("Frequency (Hz)")
-        ax1.set_ylabel(ylabel)
-        ax1.set_ylim([0.3*np.min(model),3.*np.max(model)])
+        #horrible nan jank to handle data with gaps across the library  
+        model = self.eval_model(params=params,mask=False)
+        model_vals = np.where(self.freqs_mask,model*scale,np.nan)
+        
+        data = np.where(self.freqs_mask,self._data_unmasked*scale,np.nan)
+        data_err = np.where(self.freqs_mask,self._data_err_unmasked*scale,np.nan)
 
+        components = None
+        if plot_components is not False:
+            components = model_expand(self.model,params,freq=freqs,
+                                      distribute=(plot_components != "additive"))
+            for key in components.keys():
+                components[key] = np.where(self.freqs_mask,
+                                           components[key]*scale,np.nan)
+
+        res, err = self.get_residuals(res_type=residuals,
+                                      model=np.extract(self.freqs_mask,model))
+        #same nan jank as above
+        resid = np.full(len(freqs),np.nan)
+        reserr = np.full(len(freqs),np.nan)
+        resid[self.freqs_mask] = res
+        reserr[self.freqs_mask] = err
+
+        panel_data = Plotting.make_panel_data(x_points=freqs,
+                                              x_bars=x_bars,
+                                              y_points=data,
+                                              y_bars=data_err,
+                                              model_points=freqs,
+                                              model_vals=model_vals,
+                                              component_vals=components,
+                                              resid=resid,
+                                              reserr=reserr,
+                                              x_label="Frequency (Hz)",
+                                              y_label=y_label,
+                                              res_label=res_label)
+
+        layout_kwargs = dict(figsize=(6.5,4.5))
         if plot_data is True:
-            ax2.errorbar(self.freqs,model_res,yerr=res_errors,xerr=xerror,
-                         linestyle='',marker='o')
-            if residuals == "chisq":
-                ax2.plot(self.freqs,np.zeros(len(self.freqs)),
-                         ls=":",lw=2,color='black')
-            elif residuals == "ratio":
-                ax2.plot(self.freqs,np.ones(len(self.freqs)),
-                         ls=":",lw=2,color='black')                
-            ax2.set_xlabel("Frequency (Hz)")
-            ax2.set_ylabel(reslabel)
-
-        plt.tight_layout()      
+            #include residual panel if plotting data
+            layout_kwargs = dict(nrows=2,height_ratios=[2,1],sharex=True,
+                                 figsize=(6.5,6.))
+        
+        if panels is None:
+            plot_layout = Plotting.make_layout(**layout_kwargs)
+            fig, panels = Plotting.make_panels(plot_layout,squeeze=False)
+        else:
+            #This fitter only ever draws one column, but more complex polarimety 
+            #or spectral timing stuff draws more and the functions need generic 
+            #formatting to work in JointFit
+            panels = np.reshape(np.asarray(panels,dtype=object),
+                                (layout_kwargs.get("nrows",1),1))
+            fig = panels[0,0].get_figure()
+        
+        Plotting.draw_main_panel(panels[0,0],panel_data,draw_data=plot_data,
+                                 draw_components=(plot_components is not False),
+                                 data_kwargs=data_kwargs,
+                                 model_kwargs=model_kwargs,
+                                 component_kwargs=component_kwargs)
+        if plot_data is True:
+            panels[0,0].set_xlabel("")
+            Plotting.draw_residual_panel(panels[1,0],panel_data,residuals,
+                                         resid_kwargs=resid_kwargs)
+        
+        panels = panels[:,0]
+        if plot_data is False:
+            panels = panels[0]
         
         if return_plot is True:
-            return fig 
+            return fig, panels
         else:
-            return   
+            return
