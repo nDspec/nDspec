@@ -77,9 +77,8 @@ def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
     w = w[w>0]
 
     #simulate
-    #evaluate the model directly, so that the power spectrum stored in psd_obj
-    #(defined on its own frequency grid) is left untouched
-    power_spectrum = psd_obj.model.eval(params,freq=w)
+    psd_obj.compute_psd(params=params,freq=w)
+    power_spectrum = psd_obj.power_spec
 
     if rms is None:
         # Calculate the rms from the power spectrum, integrating from 0

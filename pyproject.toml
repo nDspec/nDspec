@@ -14,12 +14,13 @@ authors = [
 maintainers = [
     { name = "nDspec Developers", email = "m.lucchini@uva.nl" },
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
     "Natural Language :: English",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -39,7 +40,6 @@ dependencies = [
     "stingray",
     "pyfftw",
     "tqdm",
-    "xspectrampoline"
 ]
  
 [project.optional-dependencies]
@@ -119,8 +119,5 @@ markers = [
     "xspec: requires PyXspec/HEASoft, skipped when unavailable",
 ]
  
-[tool.coverage.run]
-omit = ["ndspec/tests/*"]
-
 [tool.black]
 line-length = 100

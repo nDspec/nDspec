@@ -537,8 +537,8 @@ class TestFitSpectroPolarimetry(object):
                           self.stokes_U_file,mod_factor=self.mod_factor)
         test_mrf = self.polar_setup(ignore=False)
         r_tol = 1e-5
-        assert(np.allclose(test_mod.response_pol.resp_matrix.toarray(),
-                           test_mrf.response_pol.resp_matrix.toarray(),rtol=r_tol))
+        assert(np.allclose(test_mod.response_pol.resp_matrix,
+                           test_mrf.response_pol.resp_matrix,rtol=r_tol))
         assert(np.allclose(test_mod.data,test_mrf.data))
         #the modulation factor is only stored when the response is built from it
         assert(test_mrf.mod_factor is None)
@@ -1029,13 +1029,13 @@ class TestJointFit(object):
         joint = JointFit()
         joint.add_fitobj(self.psd_fit,"psd")
         with pytest.raises(ValueError):
-            joint.plot_data(units="wrong")
+            joint.joint_plot(units="wrong")
         with pytest.raises(AttributeError):
-            joint.plot_data(units="fpower",groups=["not_loaded"])
+            joint.joint_plot(units="fpower",names=["not_loaded"])
         joint = JointFit()
         joint.add_fitobj(self.twod_fit,"twod")
         with pytest.raises(TypeError):
-            joint.plot_data(units="eeunfold")
+            joint.joint_plot(units="eeunfold")
 
 class TestSimpleFit(object):
  

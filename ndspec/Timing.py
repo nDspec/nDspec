@@ -248,7 +248,7 @@ class FourierProduct(nDspecOperator):
             minbin = 0            
         
         if self.n_times % 2 == 0:
-            return slice(minbin, self.n_times // 2)
+            return slice(minbin, self.n_times // 2 + 1)                        
         return slice(minbin, (self.n_times + 1) // 2)
 
     def _sinc_decomp(self):
@@ -543,7 +543,7 @@ class PowerSpectrum(FourierProduct):
             The panel containing the plot produced by the method.
         """
         
-        plot_layout = Plotting.make_layout(figsize=(6.5,4.5))
+        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
         fig, panel = Plotting.make_panels(plot_layout) 
         
         if units == 'Power':
@@ -1573,7 +1573,7 @@ class CrossSpectrum(FourierProduct):
             raise ValueError("Plot format not supported")
         
         plot_layout = Plotting.make_layout(ncols=len(quantities),
-                                           figsize=(6.5*len(quantities),4.5))
+                                           panel_size=(6.5,4.5))
         fig, panels = Plotting.make_panels(plot_layout)
         panels = np.atleast_1d(panels)
         
@@ -1677,7 +1677,7 @@ class CrossSpectrum(FourierProduct):
             raise ValueError("Plot format not supported")
         
         plot_layout = Plotting.make_layout(ncols=len(quantities),colorbars=True,
-                                           figsize=(6.5*len(quantities),4.5))
+                                           panel_size=(6.5,4.5))
         fig, panels = Plotting.make_panels(plot_layout)
         panels = np.atleast_1d(panels)
         

@@ -220,8 +220,8 @@ class SimpleFit():
             twod_mask = self.ebounds_mask.reshape((self._all_chans,1))* \
                         self.freqs_mask.reshape((1,self._all_freqs))  
         elif self.dependence == "generic":
-            twod_mask = self.column_mask.reshape((self._all_columns,1))* \
-                        self.row_mask.reshape((1,self._all_rows))
+            twod_mask = self.row_mask.reshape((self._all_rows,1))* \
+                        self.column_mask.reshape((1,self._all_columns))
         else:
             raise AttributeError("Data dependence not specified")
         twod_mask = np.array(twod_mask).flatten()
@@ -392,19 +392,19 @@ class SimpleFit():
             residuals, bars = ratio(data,error,model,summed=False)
         elif res_type == "chisq":
             residuals = chisq(data,error,model,summed=False)
-            bars = np.ones(len(residuals))
+            bars = np.ones(len(self.data))
         elif res_type == "cstat":
             exp = self.exposure 
             bins = self.ewidths
             residuals = cstat(data,model,exp,bins,noise=noise,summed=False)
-            bars = np.ones(len(residuals))
+            bars = np.ones(len(self.data))
         elif res_type == "custom":
             custom_args = [model,data]
             if self.custom_args is not None:
                 for arg in self.custom_args:
                     custom_args.append(arg)
             residuals = self.custom_likelihood(*custom_args)
-            bars = np.ones(len(residuals))
+            bars = np.ones(len(self.data))
         else:
             raise ValueError("The supported residual types are ratio, chisq, and cstat")    
         return residuals, bars
@@ -583,13 +583,6 @@ class SimpleFit():
                           UserWarning)
             self.gain_params = None
             self._gain_keys = None
-        if isinstance(self,EnergyDependentFit) and self.renorm_params is not None:
-            warnings.warn(("WARNING: changing the model has reset the cross "
-                           "calibration correction, call set_renorm again to "
-                           "re-apply it"),
-                          UserWarning)
-            self.renorm_params = None
-            self._renorm_key = None
         
         return 
 
@@ -621,22 +614,19 @@ class EnergyDependentFit():
                
     ebounds: np.array(float) 
         The array of energy channel bin centers for the instrument energy
-        channels, as stored in the instrument response provided. Only contains 
+        channels,  as stored in the instrument response provided. Only contains 
         the channels that are noticed during the fit.
 
     ewidths: np.array(float) 
         The array of energy channel bin widths for the instrument energy
-        channels, as stored in the instrument response provided. Only contains 
+        channels,  as stored in the instrument response provided. Only contains 
         the channels that are noticed during the fit.
-    
-    emin, emax: np.array(float)
-        The array of lower and upper bounds of the noticed energy channels.
         
     ebounds_mask: np.array(bool)
         The array of instrument energy channels that are either ignored or 
         noticed during the fit. A given channel i is noticed if ebounds_mask[i]
         is True, and ignored if it is false. 
-               
+        
     n_chans: int 
         The number of channels that are to be noticed during the fit.
         
@@ -661,22 +651,13 @@ class EnergyDependentFit():
         
     gain_params: lmfit.Parameters, default None 
         A lmfit Parameters object, which contains the parameters for the gain  
-        correction model components if it is enabled. 
+        correction model components if it is enabled. Defaults to None.
         
     _gain_keys: list, default None 
         A list of keys we use to keep track of the names of the gain parameters. 
         Necessary during joint fits with multiple instruments/detectors, if more 
         than one detector requires gain fitting (e.g., fitting 3 IXPE DUs, each 
         with its set of gain parameters).      
-        
-    renorm_params: lmfit.Parameters, default None 
-        A lmfit Parameters object, which contains the parameters for the  
-        renormalisation model component (e.g for instrument cross calibration) 
-        if it is enabled.  
-
-    _renorm_key: str, default None 
-        The keys to use to keep track of the name of the renormalisation 
-        parameter.        
     """
     def __init__(self):   
         self.energs = 0.5*(self.response.energ_hi+self.response.energ_lo)
@@ -684,13 +665,9 @@ class EnergyDependentFit():
         self.ear = np.append(self.response.energ_lo,self.response.energ_hi[-1])        
         self.ebounds = 0.5*(self.response.emax+self.response.emin)
         self.ewidths = self.response.emax - self.response.emin
-        self.emin = self.response.emin
-        self.emax = self.response.emax
         self.ebounds_mask = np.full((self.response.n_chans), True)
         self.gain_params = None
         self._gain_keys = None
-        self.renorm_params = None
-        self._renorm_key = None
         pass
        
     def ignore_energies(self,bound_lo,bound_hi):
@@ -759,7 +736,7 @@ class EnergyDependentFit():
         return
 
     def set_gain(self,slope=1.0,offset=0.0,vary=True,
-                 slope_bounds=(0.95,1.05),offset_bounds=(-0.1,0.1),
+                 slope_bounds=(0.9,1.1),offset_bounds=(-0.3,0.3),
                  label=None):
         """
         This method sets a gain correction to the instrument channel to energy
@@ -916,44 +893,12 @@ class EnergyDependentFit():
         self._check_gain_grid(self.ebounds_mask,self._emin_unmasked,
                               self._emax_unmasked,slope_bounds,offset_bounds)
         return
-
-    def set_renorm(self,value=1.0,vary=True,bounds=(0.5,1.5),label=None):
-        """
-        This method adds a multiplicative renormalisation constant component to  
-        the stored model, e.g. to account for cross-calibration between 
-        instruments in a joint fit.
-        
-        Parameters:
-        -----------
-        value: float, default 1
-            The starting value of the renormalisation constant 
-            
-        vary: bool, default True
-            Whether the cross calibration is allowed to vary during the fit 
-            
-        bounds: (float, float), default (0.5,1.5)
-            The bounds over which the renormalisation is allowed to vary 
-            
-        label: str 
-            A string to add to the name of the renormalisation constant. By 
-            default, the parameter is called simply "renorm".
-        """
-        self._renorm_key = "renorm"
-        if label is not None:
-          self._renorm_key = "renorm_"+str(label)
-        self.renorm_params = LM_Parameters()
-        self.renorm_params.add(self._renorm_key,value=value,vary=vary,
-                             min=bounds[0],max=bounds[1])
-        self.model_params.update(self.renorm_params)
-        return
     
-    def _apply_calibration(self,model,params,response=None):
+    def _apply_gain(self,model,params,response=None):
         """
-        This method applies the gain correction and cross-calibration constant 
-        set by the user to a model which has already been folded through the 
-        instrument response, and returns it unchanged if neither was set. 
-        
-        In order to compute the gain correctly, the model must be defined over 
+        This method applies the gain correction set by the user to a model which
+        has already been folded through the instrument response, and returns it
+        unchanged if no gain correction was set. The model must be defined over 
         every channel in the response, rather than over just the noticed ones, 
         because the channels which are ignored during the fit might supply some 
         counts after shifting.
@@ -978,8 +923,6 @@ class EnergyDependentFit():
             The folded model, shifted by the gain correction.
         """
 
-        if self.renorm_params is not None:
-            model = model*params[self._renorm_key].value        
         if self.gain_params is None:
             return model
         if response is None:
@@ -1004,7 +947,7 @@ class FrequencyDependentFit():
         power spectrum), this is the array of Fourier frequency over which all 
         data and model are defined, including bins that are ignored in the fit. 
         
-        If instead the data depends from some other quantity (e.g. energy), it 
+        If instead the data depends from some other energy (e.g. energy), it 
         contains both noticed and ignored frequency intervals over which to 
         produce spectral-timing products. For example, a user might input a set 
         of 7 ranges of frequencies to calculate lag energy spectra, but only 
@@ -1013,12 +956,7 @@ class FrequencyDependentFit():
     freqs_mask np.array(bool)
         The array of Fourier frequencies that are either ignored or noticed 
         during the fit. A given channel i is noticed if freqs_mask[i] is True,
-        and ignored if it is false. 
-        
-    fmin, fmax: np.array(float)
-        Only defined if the data depends on Fourier frequency implicitely (e.g. 
-        lag-energy spectra). They contain the lower and upper bounds of the 
-        noticed Fourier frequency bins.     
+        and ignored if it is false.      
     
     n_freqs: int 
         The number of Fourier frequency bins that are noticed in the fit. 
@@ -1041,8 +979,6 @@ class FrequencyDependentFit():
             self._all_freqs = self._freqs_unmasked.size
         else:
             self._all_freqs = self._freqs_unmasked.size-1
-            self.fmin = self._freqs_unmasked[:-1]
-            self.fmax = self._freqs_unmasked[1:]
         self.n_freqs = self._all_freqs
         self.freqs_mask = np.full((self._all_freqs), True)
         pass
@@ -1071,15 +1007,14 @@ class FrequencyDependentFit():
             self.freqs = np.extract(self.freqs_mask,self._freqs_unmasked)
             self.n_freqs = self.freqs_mask[self.freqs_mask==True].size
         else:
-            #this is for products that do not depend on frequency explicitely, but 
+            #this is for products that do not depend on energy explicitely, but 
             #only implicitely - for example, lag-energy data.
             fmin = self._freqs_unmasked[:-1]
             fmax = self._freqs_unmasked[1:]
             self.freqs_mask = ((fmin<bound_lo)|
                                (fmax>bound_hi))&self.freqs_mask
-            self.fmin = np.extract(self.freqs_mask,fmin)
-            self.fmax = np.extract(self.freqs_mask,fmax)
-            self.n_freqs = self.freqs_mask[self.freqs_mask==True].size 
+            self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
+            self.n_freqs = self.freqs_mask[self.freqs_mask==True].size#-1 
 
         #filter and re-flatten the data using the same mask 
         self._reflatten_data()   
@@ -1088,14 +1023,14 @@ class FrequencyDependentFit():
     def notice_frequencies(self,bound_lo,bound_hi):
         """
         This method adjusts the arrays stored such that they (and the fit) 
-        notice selected frequencies based on user-supplied bounds bounds.
+        ignore selected frequencies based on user-supplied bounds bounds.
 
         Parameters:
         -----------
         bound_lo : float
-            Lower bound of noticed frequency interval.
+            Lower bound of ignored frequency interval.
         bound_hi : float
-            Higher bound of noticed frequency interval.    
+            Higher bound of ignored frequency interval.    
         """
         
         if ((isinstance(bound_lo, (np.floating, float, int)) != True)|
@@ -1114,9 +1049,8 @@ class FrequencyDependentFit():
             self.freqs_mask = self.freqs_mask|np.logical_not(
                               (fmin<bound_lo)|
                               (fmax>bound_hi))
-            self.fmin = np.extract(self.freqs_mask,fmin)
-            self.fmax = np.extract(self.freqs_mask,fmax)
-            self.n_freqs = self.freqs_mask[self.freqs_mask==True].size
+            self.freq_bounds = np.extract(self.freqs_mask,self._freqs_unmasked)
+            self.n_freqs = self.freqs_mask[self.freqs_mask==True].size-1 
 
         #filter and re-flatten the data using the same mask 
         self._reflatten_data()  
