@@ -1,13 +1,10 @@
 import numpy as np
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-
-from lmfit.model import ModelResult as LM_result
-
 from .Response import ResponseMatrix
+from . import Plotting
 from .SimpleFit import SimpleFit, EnergyDependentFit, load_pha
 from .Likelihoods import cstat, chisq, ratio
+from .Utils import model_expand
 
 class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
     """
@@ -239,7 +236,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             provided, the model_params attribute is used.
 
         ear: np.array(float), default None
-            The array of photon energy channel edges over which to evaluate the 
+            The array of photon energy bin edges over which to evaluate the 
             model.  If none are provided, the same grid contained in the 
             instrument response is used. 
             
@@ -276,7 +273,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
 
         if fold is True:
             model = self.response.convolve_response(model) 
-            model = self._apply_gain(model,params)
+            model = self._apply_calibration(model,params)
         elif mask is True:
             raise ValueError(("mask=True requires fold=True: the ignore/"
                               "notice mask is defined in channel space, and "
@@ -325,11 +322,52 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             raise AttributeError("Chosen likelihood not supported")
         return residuals
 
-    def plot_data(self,units="data",plot_bkg=False,return_plot=False):
+    def _to_plot_units(self,array,units):
+        """
+        This method converts an unmasked channel-space array (data, model, 
+        background...) to the requested plotting units, returning only the 
+        array bins in the noticed channels 
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The array whose units are going to be converted.  
+            
+        units: str
+            The units to be included in the plot. Options are "data", for a 
+            count spectrum in counts/s/keV, and "unfold", for unfolding the 
+            response. Unfolded arrays can be multiplied by factors of energy 
+            identically to the Xspec convention, e.g. "units=unfold" returns 
+            units of counts/s/kev/cm^2, "units=eeunfold" returns keV/s/cm^2.
+            
+        Returns: 
+        --------
+        converted_array: np.array(float)
+            The input array, converted to the units requested. 
+        """
+        if len(array) != self._all_chans:
+            raise ValueError(f"The input array should have length {self._all_chans}")
+
+        #the ignored channels become NaN to show gaps when plotting with 
+        #ax.stairs         
+        array = np.where(self.ebounds_mask,array,np.nan)
+        if units == "data":
+            converted_array = array
+        elif units.count("unfold"):
+            power = units.count("e")
+            converted_array = self.response.unfold_response(array)* \
+                              self._ebounds_unmasked**power
+        else: 
+            raise ValueError("Plot units not recognized")
+        
+        return converted_array        
+
+    def plot_data(self,units="data",plot_bkg=False,panels=None,return_plot=False,
+                  data_kwargs=None,bkg_kwargs=None):
         """
         This method plots the spectrum loaded by the user as a function of 
         energy. It is possible to plot both in detector and "unfolded" space, 
-        with the caveat that unfolding data is EXTREMELY dangerous and should
+        with the caveat that unfolding data is fairly dangerous and should
         be interpreted with care (or not at all). 
         
         The definition of unfolded data is subjective; nDspec adopts the same 
@@ -348,7 +386,7 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         Parameters:
         -----------
         units: str, default="data"
-            The units to use for the y axis. units="data", the detector, plots 
+            The units to use for the y axis. units="data", the default, plots 
             the data in detector space in units of counts/s/keV. units="unfold" 
             instead plots unfolded data and follows the Xspec convention for the 
             y axis - the y axis is in units of counts/s/keV/cm^2, times one 
@@ -356,74 +394,78 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             For instance, units="eeunfold" plots units of kev^2 counts/s/keV/cm^2,
             i.e. units of nuFnu. 
             
-        plot_bkg; str, default="False:
+        plot_bkg; bool, default=False:
             A boolean to choose whether you want to plot the background
         
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            An existing panel to draw into, e.g as returned by calling plot_data 
+            from a second fitter. If None, a new figure is created.
+            
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
+            
+        data_kwargs: dict, default=None 
+            Keyword arguments for the data points in the plot.
             
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
-    
-        energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)   
         
         if units == "data":
-            data = self.data
-            yerror = self.data_err
-            ylabel = "Folded counts/s/keV"
-            if plot_bkg is True:
-                bkg = self.noise
+            y_label =  "Counts/s/keV"
         elif units.count("unfold"):
-            power = units.count("e")            
-            data = self.response.unfold_response(self._data_unmasked)* \
-                   self._ebounds_unmasked**power
-            error = self.response.unfold_response(self._data_err_unmasked)* \
-                    self._ebounds_unmasked**power  
-            data = np.extract(self.ebounds_mask,data)
-            yerror = np.extract(self.ebounds_mask,error)
-            if plot_bkg is True:
-                bkg = self.response.unfold_response(self._noise_unmasked)* \
-                      self._ebounds_unmasked**power
-                bkg = np.extract(self.ebounds_mask,bkg)       
-            if power == 0:
-                ylabel = "Counts/s/keV/cm$^{2}$"
-            elif power == 1:
-                ylabel = "Flux density (Counts/s/cm$^{2}$)"
-            elif power == 2:
-                ylabel = "Flux (keV/s/cm$^{2}$)"
-            #with weird units, use a generic label
-            else:
-                ylabel == "keV^{}/s/keV/cm$^{2}$".format(str(power))
+            power = units.count("e")
+            labels = {0: "Counts/s/keV/cm$^{2}$",
+                      1: "Flux density (Counts/s/cm$^{2}$)",
+                      2: "Flux (keV/s/cm$^{2}$)"}
+            y_label =  labels.get(power,"keV$^{"+str(power)+"}$/s/keV/cm$^{2}$")    
+        else: 
+            raise ValueError("Plot units not recognized")   
+        
+        bkg = None
+        if plot_bkg is True:
+            if self.noise is None:
+                raise AttributeError("No background loaded")
+            bkg = self._to_plot_units(self._noise_unmasked,units)
+            
+        data = self._to_plot_units(self._data_unmasked,units)
+        data_err = self._to_plot_units(self._data_err_unmasked,units)
+        
+        panel_data = Plotting.make_panel_data(x_points=self._ebounds_unmasked,
+                                              y_points=data,
+                                              x_bars=0.5*self._ewidths_unmasked,
+                                              y_bars=data_err,
+                                              bkg_vals=bkg,
+                                              x_label="Energy (keV)",
+                                              y_label=y_label)
+        
+        if panels is None:
+            plot_layout = Plotting.make_layout(figsize=(6.5,4.5))
+            fig, panel = Plotting.make_panels(plot_layout)
         else:
-            raise ValueError("Y axis units not supported")
-        
-        fig, ((ax1)) = plt.subplots(1,1,figsize=(6.,4.5))   
-        
-        ax1.errorbar(energies,data,yerr=yerror,xerr=xerror,
-                     linestyle='',marker='o')
-        if plot_bkg is True: 
-            ax1.errorbar(energies,bkg,xerr=xerror,
-                         linestyle='',marker='o')    
-                     
-        ax1.set_ylabel(ylabel)
-        ax1.set_xlabel("Energy (keV)")          
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
-        
-        plt.tight_layout()      
+            #this fitter only ever works on a single panel, other fitters will
+            #have more complex layouts 
+            panel = panels
+            fig = panel.get_figure()   
+            
+        Plotting.draw_main_panel(panel,panel_data,draw_model=False,draw_bkg=plot_bkg,
+                                 data_kwargs=data_kwargs,bkg_kwargs=bkg_kwargs)
         
         if return_plot is True:
-            return fig 
+            return fig, panel
         else:
-            return 
+            return
 
     def plot_model(self,plot_data=True,plot_components=False,plot_bkg=False,
-                   params=None,units="data",residuals=None,return_plot=False):
+                   params=None,units="data",residuals=None,panels=None,
+                   return_plot=False,data_kwargs=None,model_kwargs=None,
+                   component_kwargs=None,resid_kwargs=None):
         """
         This method plots the model defined by the user as a function of 
         energy, as well as (optionally) its components, and the data plus model
@@ -451,10 +493,11 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
         plot_data: bool, default=True
             If true, both model and data are plotted; if false, just the model. 
             
-        plot_components: bool, default=False 
-            If true, the model components are overplotted; if false, they are 
-            not. Only additive model components will display their values 
-            correctly. 
+        plot_components: bool or str, default=False 
+            If True, the additive model components are overplotted, with 
+            multiplicative and convolution factors applied to each. If 
+            "additive", the additive components are returned without being 
+            affected by  any multiplicative or convolution factors.
             
         plot_bkg; str, default=False:
             A boolean to choose whether you want to plot the background
@@ -479,169 +522,137 @@ class FitTimeAvgSpectrum(SimpleFit,EnergyDependentFit):
             plot shows the contribution of each bin to the Cash statistic. If
             residual units are not specified, they are computed from the  
             likelihood set by the user. 
+
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            An existing panel to draw into, e.g as returned by calling plot_data 
+            from a second fitter. If None, a new figure is created.
             
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
             
+        data_kwargs, model_kwargs, component_kwargs, resid_kwargs: dict, default=None 
+            Keyword arguments for each element of the plot.
+
         Returns: 
         --------
         fig: matplotlib.figure, optional 
             The plot object produced by the method.
+
+        panels: matplotlib.axes or numpy.ndarray(matplotlib.axes), optional 
+            The panel(s) containing the plot produced by the method.
         """        
+
+        if units == "data":
+            y_label =  "Counts/s/keV"
+        elif units.count("unfold"):
+            power = units.count("e")
+            labels = {0: "Counts/s/keV/cm$^{2}$",
+                      1: "Flux density (Counts/s/cm$^{2}$)",
+                      2: "Flux (keV/s/cm$^{2}$)"}
+            y_label =  labels.get(power,"keV$^{"+str(power)+"}$/s/keV/cm$^{2}$")    
+        else: 
+            raise ValueError("Plot units not recognized")   
         
         if residuals is None:
             residuals = self.likelihood              
         
         if params is None:
-            params = self.model_params   
-        
-        #set up data arrays
-        energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked) 
-        
-        #set up arrays for model histogram plot 
-        hist_vals = self.ebounds
-        min_notice = np.extract(self.ebounds_mask,self.response.emin)
-        max_notice = np.extract(self.ebounds_mask,self.response.emax)
-        hist_errors = np.append(min_notice,max_notice[-1])
-        #artificially make the last/first bin wider so it goes out of the plot 
-        #bounds. this is a gross hack because matplotlib's histogram sucks 
-        hist_errors[0] = 0.8*hist_errors[0]
-        hist_errors[-1] = 1.2*hist_errors[-1]
-        #energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-        #xerror = np.extract(self.ebounds_mask,self._ewidths_unmasked)
-        #artificially make the last/first bin wider so it goes out of the plot 
-        #bounds. this is a gross hack because matplotlib's histogram sucks 
-        #xerror[0] = 0.8*xerror[0]
-        #xerror[-1] = 1.2*xerror[-1]
-        
-        #first; get the model in the correct units
+            params = self.model_params  
         model_fold = self.eval_model(params=params,mask=False)
-        if units == "data":   
-            model = np.extract(self.ebounds_mask,model_fold)   
-            ylabel = "Folded counts/s/keV"
-        elif units.count("unfold"):
-            power = units.count("e") 
-            model = self.response.unfold_response(model_fold)
-            if power == 0:
-                ylabel = "Counts/s/keV/cm$^{2}$"
-            elif power == 1:
-                ylabel = "Flux density (Counts/s/cm$^{2}$)"
-            elif power == 2:
-                ylabel = "Flux (keV/s/cm$^{2}$)"
-            #with weird units, use a generic label
-            else:
-                ylabel == "keV^{}/s/keV/cm$^{2}$".format(str(power))  
-            model = np.extract(self.ebounds_mask,model)
-            model = model*self.ebounds**power
-        else:
-            raise ValueError("Y axis units not supported")
-            
-        #if we're also plotting data, get the data in the same units
-        #as well as the residuals
-        if plot_data is True:
-            model_res,res_errors = self.get_residuals(residuals)
+        model_vals = self._to_plot_units(model_fold,units)
+        model_edges=np.append(self._emin_unmasked,
+                              self._emax_unmasked[-1])
+
+        resid, reserr = None, None
+        data, data_err = None, None 
+        res_label = None 
+        if plot_data is True:            
             if residuals == "chisq":
-                reslabel = "$\\Delta\\chi$"
+                res_label = "$\\Delta\\chi$"
             elif residuals == "ratio":
-                reslabel = "Data/model"
+                res_label = "Data/model"
             elif residuals == "cstat":
-                reslabel = "$\\Delta C$"
+                res_label = "$\\Delta C$"
             elif residuals == "custom":
-                reslabel = "Residuals"
+                res_label = "Residuals"
             else:
-                raise ValueError("Residual format not supported")   
-                            
-            if units == "data":
-                data = self.data
-                yerror = self.data_err
-                ylabel = "Folded counts/s/keV"
-                if plot_bkg is True:
-                    bkg = self.noise
-                elif self.noise is not None:
-                    data = data - self.noise
-            elif units.count("unfold"):        
-                data = self.response.unfold_response(self._data_unmasked)* \
-                       self._ebounds_unmasked**power
-                error = self.response.unfold_response(self._data_err_unmasked)* \
-                        self._ebounds_unmasked**power  
-                data = np.extract(self.ebounds_mask,data)
-                yerror = np.extract(self.ebounds_mask,error)
-                if plot_bkg is True:
-                    bkg = self.response.unfold_response(self._noise_unmasked)* \
-                          self._ebounds_unmasked**power
-                    bkg = np.extract(self.ebounds_mask,bkg) 
-                elif self.noise is not None:
-                    bkg = self.response.unfold_response(self._noise_unmasked)* \
-                          self._ebounds_unmasked**power
-                    bkg = np.extract(self.ebounds_mask,bkg) 
-                    data = data - bkg              
-            
-        if plot_data is False:
-            fig, (ax1) = plt.subplots(1,1,figsize=(6.,4.5))   
+                raise ValueError("Residual format not supported")
+            data = self._to_plot_units(self._data_unmasked,units)
+            data_err = self._to_plot_units(self._data_err_unmasked,units)            
+            #this horrible jank below is necessary to avoid raising annoying 
+            #warnings about channels that are not being noticed, while still
+            #supporting having gaps in the noticed channels 
+            res, err = self.get_residuals(residuals,
+                                          model=np.extract(self.ebounds_mask,model_fold))
+            resid = np.full(len(self.ebounds_mask),np.nan)
+            reserr = np.full(len(self.ebounds_mask),np.nan)
+            resid[self.ebounds_mask] = res
+            reserr[self.ebounds_mask] = err
+        
+        bkg = None
+        if plot_bkg is True:
+            if self.noise is None:
+                raise AttributeError("No background loaded")
+            bkg = self._to_plot_units(self._noise_unmasked,units)
+        
+        components = None
+        if plot_components is not False:
+            components = model_expand(self.model,params,
+                                      distribute=(plot_components != "additive"),
+                                      energ=self.energs,ear=self.ear)
+            for key in components.keys():
+                components[key] = self.response.convolve_response(components[key]*self.energ_bounds)
+                components[key] = self._apply_calibration(components[key],params)
+                components[key] = self._to_plot_units(components[key],units)
+
+        panel_data = Plotting.make_panel_data(x_points=self._ebounds_unmasked,
+                                              y_points=data,
+                                              x_bars=0.5*self._ewidths_unmasked,
+                                              y_bars=data_err,
+                                              bkg_vals = bkg,
+                                              model_edges=model_edges,
+                                              model_vals=model_vals,                                        
+                                              component_vals=components,
+                                              resid=resid,
+                                              reserr=reserr,
+                                              x_label="Energy (keV)",
+                                              y_label=y_label,
+                                              res_label=res_label)
+
+        layout_kwargs = dict(figsize=(6.5,4.5))
+        if plot_data is True:
+            #include residual panel if plotting data
+            layout_kwargs = dict(nrows=2,height_ratios=[2,1],sharex=True,
+                                 figsize=(6.5,6.))
+        
+        if panels is None:
+            plot_layout = Plotting.make_layout(**layout_kwargs)
+            fig, panels = Plotting.make_panels(plot_layout,squeeze=False)
         else:
-            fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),
-                                          sharex=True,
-                                          gridspec_kw={'height_ratios': [2, 1]})
+            #This fitter only ever draws one column, but more complex polarimety 
+            #or spectral timing stuff draws more and the functions need generic 
+            #formatting to work in JointFit
+            panels = np.reshape(np.asarray(panels,dtype=object),
+                                (layout_kwargs.get("nrows",1),1))
+            fig = panels[0,0].get_figure()
 
+        Plotting.draw_main_panel(panels[0,0],panel_data,draw_data=plot_data,
+                                 draw_components = (plot_components is not False),
+                                 data_kwargs=data_kwargs,
+                                 model_kwargs=model_kwargs,
+                                 component_kwargs=component_kwargs) 
+        
         if plot_data is True:
-            ax1.errorbar(energies,data,yerr=yerror,xerr=xerror,
-                         ls="",marker='o')
-            if plot_bkg is True: 
-                ax1.errorbar(energies,bkg,xerr=xerror,
-                             linestyle='',marker='o')        
-
-        ax1.hist(hist_vals,bins=hist_errors,weights=model, 
-                 density=False, histtype='step',linewidth=3,zorder=3) 
+            panels[0,0].set_xlabel("")
+            Plotting.draw_residual_panel(panels[1,0],panel_data,residuals,
+                                         resid_kwargs=resid_kwargs)
         
-        #ax1.plot(energies,model,lw=3,zorder=3)
-
-        if plot_components is True:
-            #we need to allocate a ModelResult object in order to retrieve the components
-            comps = LM_result(model=self.model,params=self.model_params).eval_components(energ=self.energs,ear=self.ear)
-            for key in comps.keys():
-                comp_folded = self.response.convolve_response(comps[key]*self.energ_bounds)
-                #do it better here
-                if units == "data":   
-                    comp = np.extract(self.ebounds_mask,comp_folded)
-                    ax1.plot(energies,comp,label=key,lw=2)
-                elif units.count("unfold"):
-                    comp_unfold = self.response.unfold_response(comp_folded)
-                    comp = np.extract(self.ebounds_mask,comp_unfold)
-                    ax1.plot(energies,comp*energies**power,label=key,lw=2)
-            ax1.legend(loc='best')
-        
-        ax1.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
-                      self.ebounds[-1]+0.5*self.ewidths[-1]])
-        ax2.set_xlim([self.ebounds[0]-0.5*self.ewidths[0],
-                      self.ebounds[-1]+0.5*self.ewidths[-1]])                      
-        ax1.set_xscale("log",base=10)
-        ax1.set_yscale("log",base=10)
+        panels = panels[:,0]
         if plot_data is False:
-            ax1.set_xlabel("Energy (keV)")
-        ax1.set_ylabel(ylabel)
-
-        if plot_data is True:
-            ax1.set_ylim([0.85*np.min(data),1.15*np.max(data)])
-            if residuals != "cstat":
-                ax2.errorbar(energies,model_res,yerr=res_errors,
-                             linestyle='',marker='o')
-            else: 
-                #placeholder, do the histogram thing properly
-                ax2.step(energies,model_res,where='mid')                
-            if residuals == "chisq":
-                ax2.plot(energies,np.zeros(len(energies)),
-                         ls=":",lw=2,color='black')
-            elif residuals == "ratio":
-                ax2.plot(energies,np.ones(len(energies)),
-                         ls=":",lw=2,color='black')                
-            ax2.set_xlabel("Energy (keV)")
-            ax2.set_ylabel(reslabel)
-
-        plt.tight_layout()      
+            panels = panels[0]
         
         if return_plot is True:
-            return fig 
+            return fig, panels
         else:
-            return  
+            return

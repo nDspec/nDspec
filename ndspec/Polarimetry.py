@@ -121,8 +121,8 @@ class PolarimetryProduct(nDspecOperator):
                 f"This object was initialized with input_type={self.input_type!r}; "
                 "set_polarization() is only valid for input_type='polarization'."
             )
-        if np.any(degree < 0.) or np.any(degree > 1.):
-            raise ValueError("The polarization degree must be between 0 and 1")
+        if np.any(np.abs(degree) > 1.):
+            raise ValueError("The polarization degree must be between -1 and 1")
             
         self.stokes_I = self._check_shape(I, self.n_bins, "I")
         self.pol_degree = self._check_shape(degree, self.n_bins, "polarization degree")
@@ -328,7 +328,7 @@ class PolarimetryProduct(nDspecOperator):
         x_axis = self.bins
 
         plot_layout = Plotting.make_layout(ncols=len(arrays),
-                                           panel_size=(6.5,4.5))
+                                           figsize=(6.5*len(arrays),4.5))
         fig, panels = Plotting.make_panels(plot_layout)
 
         model_style = dict(drawstyle="steps-mid")
@@ -383,7 +383,7 @@ class PolarimetryProduct(nDspecOperator):
         x_axis = self.bins
         
         plot_layout = Plotting.make_layout(ncols=len(arrays),
-                                           panel_size=(6.5,4.5))
+                                           figsize=(6.5*len(arrays),4.5))
         fig, panels = Plotting.make_panels(plot_layout)
 
         model_style = dict(drawstyle="steps-mid")
@@ -445,7 +445,7 @@ class PolarimetryProduct(nDspecOperator):
             """
             self._require('pol_degree', 'pol_angle')
             
-            plot_layout = Plotting.make_layout(panel_size=(6.5,4.5),
+            plot_layout = Plotting.make_layout(figsize=(6.5,4.5),
                                    projections=["polar"])
             fig, panel = Plotting.make_panels(plot_layout)
             
@@ -532,7 +532,7 @@ class PolarimetryProduct(nDspecOperator):
         if bin_index is None and curve.shape[0] == 1:
             bin_index = [0]
         
-        plot_layout = Plotting.make_layout(panel_size=(6.5,4.5))
+        plot_layout = Plotting.make_layout(figsize=(6.5,4.5))
         fig, panel = Plotting.make_panels(plot_layout)
         
         if bin_index is None:

@@ -20,3 +20,5 @@ vvv/
 .pytest_cache/
 
 ndspec/_version.py
+
+*.evt

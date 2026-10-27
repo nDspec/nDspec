@@ -107,7 +107,7 @@ def test_make_mesh_data_transposed_shape_raises():
 def test_make_layout_returns_all_keys():
     layout = Plotting.make_layout(nrows=2,ncols=2)
     expected_keys = {"nrows","ncols","height_ratios","width_ratios","sharex",
-                     "projections","colorbars","panel_size","panels"}
+                     "projections","colorbars","figsize","panels"}
     assert set(layout.keys()) == expected_keys
 
 def test_make_layout_mismatched_height_ratios_raises():
