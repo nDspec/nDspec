@@ -730,8 +730,8 @@ class JointFit():
         This method calls plot_data for all the specified fitter objects. The 
         fitters to be called can be divided into gropus, in which case each 
         group will share a single plot (e.g. to make multiple time-averaged
-         spectra share a single plot). If one-d methods are not available, the 
-         method defaults to calling plot_data_2d.
+        spectra share a single plot). If one-d methods are not available, the 
+        method defaults to calling plot_data_2d.
          
         Parameters:
         -----------
@@ -792,8 +792,8 @@ class JointFit():
         This method calls plot_model for all the specified fitter objects. The 
         fitters to be called can be divided into gropus, in which case each 
         group will share a single plot (e.g. to make multiple time-averaged
-         spectra share a single plot). If one-d methods are not available, the 
-         method defaults to calling plot_model_2d.
+        spectra share a single plot). If one-d methods are not available, the 
+        method defaults to calling plot_model_2d.
          
         Parameters:
         -----------
