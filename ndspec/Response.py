@@ -290,6 +290,7 @@ class ResponseMatrix(nDspecOperator):
 
         return scipy.sparse.csr_matrix(
             (data, indices, ptrs),
+            dtype=np.float64,
             shape=(len(f_chan), n_cols),
         )
 
