@@ -1029,13 +1029,13 @@ class TestJointFit(object):
         joint = JointFit()
         joint.add_fitobj(self.psd_fit,"psd")
         with pytest.raises(ValueError):
-            joint.joint_plot(units="wrong")
+            joint.plot_data(units="wrong")
         with pytest.raises(AttributeError):
-            joint.joint_plot(units="fpower",names=["not_loaded"])
+            joint.plot_data(units="fpower",groups=["not_loaded"])
         joint = JointFit()
         joint.add_fitobj(self.twod_fit,"twod")
         with pytest.raises(TypeError):
-            joint.joint_plot(units="eeunfold")
+            joint.plot_data(units="eeunfold")
 
 class TestSimpleFit(object):
  
