@@ -252,7 +252,7 @@ def make_polar_data(angle=None,degree=None,angle_err=None,degree_err=None,
 
 def make_layout(nrows=1,ncols=1,height_ratios=None,width_ratios=None,
                 sharex=False,projections=None,colorbars=False,
-                figsize=(6.,4.5),panels=None):
+                panel_size=(6.,4.5),panels=None):
     """
     This function assembles the dictionary describing the geometry of a panel 
     grid, without creating any plot object. It is used by the get_plot_layout 
@@ -285,8 +285,8 @@ def make_layout(nrows=1,ncols=1,height_ratios=None,width_ratios=None,
         A boolean to choose whether the panels in the grid require space to be 
         reserved for a colorbar. 
         
-    figsize: tuple(float), default=(6.,4.5)
-        The size in inches of the plot. 
+    panel_size: tuple(float), default=(6.,4.5)
+        The size in inches of a single panel of the grid. 
         
     panels: dict, default=None 
         The role of each panel of the grid, keyed by name and containing the 
@@ -326,7 +326,7 @@ def make_layout(nrows=1,ncols=1,height_ratios=None,width_ratios=None,
                   sharex=sharex,
                   projections=projections,
                   colorbars=colorbars,
-                  figsize=figsize,
+                  panel_size=panel_size,
                   panels=panels)
     
     return layout
@@ -372,7 +372,8 @@ def make_panels(layout,fig=None,subplot_spec=None,squeeze=True,hspace=None,wspac
     constrained = (hspace is None and wspace is None)
     
     if fig is None:
-        figsize = layout["figsize"]
+        figsize = (layout["ncols"]*layout["panel_size"][0],
+                   layout["nrows"]*layout["panel_size"][1])
         fig = plt.figure(figsize=figsize,constrained_layout=constrained)
     
     if subplot_spec is None:
@@ -401,8 +402,6 @@ def make_panels(layout,fig=None,subplot_spec=None,squeeze=True,hspace=None,wspac
             axes[row,col] = fig.add_subplot(grid[row,col],
                                             projection=projection,
                                             sharex=shared_axis)
-            if layout["sharex"] is True and row < layout["nrows"]-1:
-                axes[row,col].tick_params(which="both",labelbottom=False)
     
     if squeeze is True:
         if axes.size == 1:
@@ -495,7 +494,7 @@ def draw_main_panel(axes,panel_data,color="C0",draw_data=True,
             raise ValueError("draw_data is True but panel_data does not "
                              "contain both x_points and y_points")
 
-        style = _merge_style(dict(linestyle='',marker='o',alpha=0.75,
+        style = _merge_style(dict(linestyle='',marker='o',alpha=0.35,
                                   color=color),data_kwargs)
         axes.errorbar(panel_data["x_points"],panel_data["y_points"],
                       xerr=panel_data["x_bars"],yerr=panel_data["y_bars"],
@@ -506,7 +505,7 @@ def draw_main_panel(axes,panel_data,color="C0",draw_data=True,
             raise ValueError("draw_bkg is True but panel_data does not "
                              "contain bkg_vals")
 
-        style = _merge_style(dict(linestyle='',marker='s',alpha=0.5,
+        style = _merge_style(dict(linestyle='',marker='s',alpha=0.35,
                                   color=color),bkg_kwargs)
         axes.errorbar(panel_data["x_points"],panel_data["bkg_vals"],
                       xerr=panel_data["x_bars"],**style)
@@ -579,20 +578,18 @@ def draw_model_components(axes,panel_data,color="C0",
     if panel_data.get("model_points") is None and panel_data.get("model_edges") is None:
         raise ValueError("panel_data contains component_vals but neither "
                          "model_points nor model_edges to draw them against")
-   
+
+    style = _merge_style(dict(linestyle='-',linewidth=2.,alpha=0.8),
+                         component_kwargs)
+    
     for key in panel_data["component_vals"].keys():
-        overrides = component_kwargs
-        if component_kwargs is not None and isinstance(component_kwargs.get(key),dict):
-            overrides = component_kwargs[key]
-        style = _merge_style(dict(linestyle='-',linewidth=2.,alpha=1.,label=key),
-                             overrides)
-                
         if panel_data.get("model_edges") is not None:
             axes.stairs(panel_data["component_vals"][key],
-                        panel_data["model_edges"],baseline=None,**style)
+                        panel_data["model_edges"],baseline=None,label=key,
+                        **style)
         else:
             axes.plot(panel_data["model_points"],
-                      panel_data["component_vals"][key],**style)
+                      panel_data["component_vals"][key],label=key,**style)
     
     axes.legend(loc="best")
     
@@ -661,7 +658,6 @@ def draw_residual_panel(axes,panel_data,residuals,color="C0",
         axes.set_xscale("log",base=10)
     if log_yaxis is True:
         axes.set_yscale("log",base=10)
-    axes.yaxis.set_major_locator(MaxNLocator(prune='upper'))
     
     return
 
@@ -911,8 +907,8 @@ def get_diverging_norm(values,n_ticks=5):
         The positions of the colorbar ticks. 
     """
     
-    minimum = np.nanmin(values)
-    maximum = np.nanmax(values)
+    minimum = np.min(values)
+    maximum = np.max(values)
     
     #if the array is only positive or only negative, set an 
     #artificial cap/floor to create the ticks and normalization
@@ -930,7 +926,7 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
                             marginal_y=None,x_label="",y_label="",z_label="",
                             marginal_labels=("",""),cmap="PuRd",
                             diverging=False,log_xaxis=False,log_yaxis=False,
-                            log_zaxis=False,color=None,figsize=(9.0,9.0),
+                            log_zaxis=False,color=None,panel_size=(9.0,9.0),
                             mesh_kwargs=None,bottom_kwargs=None,side_kwargs=None):
     """
     This function displays a two-dimensional array as a colormesh, together 
@@ -978,8 +974,8 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
         The color of the two projections. If it is None, a color is sampled 
         from the colormap of the mesh.
     
-    figsize: tuple(float), default=(9.0,9.0)
-        The size in inches of the figure.
+    panel_size: tuple(float), default=(3.5,3.5)
+        The size in inches of a single panel of the figure.
         
     mesh_kwargs, bottom_kwargs, side_kwargs: dict, default=None 
         Keyword arguments passed to matplotlib for the mesh and for each 
@@ -1021,8 +1017,8 @@ def plot_marginal_colormesh(xaxis,yaxis,values,marginal_x=None,
     panels = {"mesh":(0,0),"bottom":(1,0),"right":(0,1),"unused":(1,1)}
     layout = make_layout(nrows=2,ncols=2,height_ratios=[3,1],
                          width_ratios=[3,1],sharex=False,
-                         figsize=figsize,panels=panels)
-                         
+                         panel_size=(0.5*panel_size[0],0.5*panel_size[1]),
+                         panels=panels)
     fig, axes = make_panels(layout,squeeze=False,hspace=0,wspace=0)
     axes[panels["unused"]].remove()
 

@@ -174,6 +174,8 @@ Model library
 
 .. autofunction:: ndspec.Models.pol_rotation
 
+.. autofunction:: ndspec.Models.plot_2d
+
 Simulator utilities
 ~~~~~~~~~~~~~~~~~~~
 
