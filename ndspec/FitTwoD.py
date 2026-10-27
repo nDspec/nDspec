@@ -1,13 +1,7 @@
 import numpy as np
 import warnings
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-from matplotlib.colors import TwoSlopeNorm
-
-from lmfit import Model as LM_Model
-from lmfit import Parameters as LM_Parameters
-
+from . import Plotting
 from .Response import ResponseMatrix
 from .SimpleFit import SimpleFit
 from .Likelihoods import chisq, ratio
@@ -294,8 +288,8 @@ class FitTwoD(SimpleFit):
         self.data = self._filter_2d_by_mask(self._data_unmasked)
         self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
         if self.noise is not None:
-            self.noise = self._filter_2d_by_mask(self._data_unmasked)
-            self.noise_err = self._filter_2d_by_mask(self._data_err_unmasked)            
+            self.noise = self._filter_2d_by_mask(self._noise_unmasked)
+            self.noise_err = self._filter_2d_by_mask(self._noise_err_unmasked)            
         return
 
     def notice_columns(self,bound_lo,bound_hi):
@@ -328,8 +322,8 @@ class FitTwoD(SimpleFit):
         self.data = self._filter_2d_by_mask(self._data_unmasked)
         self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
         if self.noise is not None:
-            self.noise = self._filter_2d_by_mask(self._data_unmasked)
-            self.noise_err = self._filter_2d_by_mask(self._data_err_unmasked)            
+            self.noise = self._filter_2d_by_mask(self._noise_unmasked)
+            self.noise_err = self._filter_2d_by_mask(self._noise_err_unmasked)            
         return
 
     def ignore_rows(self,bound_lo,bound_hi):
@@ -368,8 +362,8 @@ class FitTwoD(SimpleFit):
         self.data = self._filter_2d_by_mask(self._data_unmasked)
         self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
         if self.noise is not None:
-            self.noise = self._filter_2d_by_mask(self._data_unmasked)
-            self.noise_err = self._filter_2d_by_mask(self._data_err_unmasked)          
+            self.noise = self._filter_2d_by_mask(self._noise_unmasked)
+            self.noise_err = self._filter_2d_by_mask(self._noise_err_unmasked)          
         return
 
     def notice_rows(self,bound_lo,bound_hi):
@@ -410,8 +404,8 @@ class FitTwoD(SimpleFit):
         self.data = self._filter_2d_by_mask(self._data_unmasked)
         self.data_err = self._filter_2d_by_mask(self._data_err_unmasked)
         if self.noise is not None:
-            self.noise = self._filter_2d_by_mask(self._data_unmasked)
-            self.noise_err = self._filter_2d_by_mask(self._data_err_unmasked)    
+            self.noise = self._filter_2d_by_mask(self._noise_unmasked)
+            self.noise_err = self._filter_2d_by_mask(self._noise_err_unmasked)    
         return
 
     def eval_model(self,params=None,column_grid=None,row_grid=None,fold=True,mask=True):
@@ -518,7 +512,30 @@ class FitTwoD(SimpleFit):
             raise AttributeError("Chosen likelihood not supported")
         return residuals
 
-    def plot_data(self,x_name=None,y_name=None,return_plot=False):
+    def _plot_format(self,array):
+        """
+        This method reshapes a flat array defined over every the input data grid
+        (data, errors, model...) for plotting, with ignored bins set to NaN so
+        that they are ignored correctly by all matplotlib functions. 
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The array to reshape, of size (_all_bins).
+            
+        Returns:
+        --------
+        array: np.array(float)
+            The reshaped array, of size (_all_rows,_all_columns).
+        """
+        
+        twod_mask = self.column_mask.reshape((self._all_columns,1))*self.row_mask
+        array = array.reshape((self._all_columns,self._all_rows))
+        return np.transpose(np.where(twod_mask,array,np.nan))
+
+    def plot_data_2d(self,x_name=None,y_name=None,z_name=None,cmap='plasma',
+                     log_xaxis=False,log_yaxis=False,log_zaxis=False,
+                     return_plot=False,mesh_kwargs=None):
         """
         This method creates a 2d plot of the data loaded by the user as a 
         function of whatever units are in used for the rows and columns. 
@@ -533,19 +550,37 @@ class FitTwoD(SimpleFit):
             
         y_name: str, default="None"
             The units to use to label the Y axis.
-        
+            
+        z_name: str, default="None"
+            The units to use to label the Y axis.
+            
+        cmap: str, default='plasma'
+            The colormap to use for the panel. 
+
+        log_xaxis, log_yaxis: bool, default=False 
+            Booleans to choose whether each axis of the mesh uses a logarithmic 
+            scale.
+
+        log_zaxis: bool, default=False 
+            A boolean to choose whether the the z axis of the mesh uses a 
+            logarithmic scale.
+            
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
             
+        mesh_kwargs: dict, default=None 
+            Keyword arguments for the 2d colormesh.
+
         Returns: 
         --------
         fig: matplotlib.figure, optional 
-            The plot object produced by the method.        
+            The plot object produced by the method.
+
+        panels: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.     
         """
     
-        fig, ((ax1)) = plt.subplots(1,1,figsize=(6.,4.5))
-
         if x_name is None:
             x_name = "X axis"
         if y_name is None:
@@ -556,32 +591,43 @@ class FitTwoD(SimpleFit):
             y_axis = self._row_grid_unmasked
         else:
             y_axis = self._ebounds_unmasked
-        
-        twod_mask = self.row_mask.reshape((1,self._all_rows))* \
-                    self.column_mask.reshape((self._all_columns,1))
-        twod_mask = twod_mask.reshape((self._all_columns,self._all_rows))
-        twod_mask = np.logical_not(twod_mask) 
-        
-        plot_data = self._data_unmasked.reshape((self._all_columns,self._all_rows))
-        plot_data = np.transpose(np.ma.masked_where(twod_mask, plot_data))        
-        
-        data_plot = ax1.pcolormesh(x_axis,y_axis,plot_data,cmap="plasma",shading='auto',linewidth=0)
-        fig.colorbar(data_plot, ax=ax1)
-        ax1.set_xlabel(x_name)
-        ax1.set_ylabel(y_name)
+ 
+        ymin, ymax = None, None
         if self.response is not None:
             ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
             ymax = self.ebounds[-1]+0.5*self.ewidths[-1]
-            ax1.set_ylim([ymin,ymax])
         
-        fig.tight_layout()
+        data_vals = self._plot_format(self._data_unmasked)
+        if log_zaxis is True:
+            data_vals = np.log10(np.where(data_vals > 0,data_vals,np.nan))
+            z_name = "log10(" + z_name + ")"    
+
+        plot_layout = Plotting.make_layout(ncols=1,colorbars=True,figsize=(6.5,4.5))
+        fig, panel = Plotting.make_panels(plot_layout)              
+        
+        data = Plotting.make_mesh_data(x_points=x_axis,
+                               y_points=y_axis,
+                               z_values=data_vals,
+                               x_label=x_name,
+                               y_label=y_name,
+                               z_label=z_name)
+                               
+
+        Plotting.draw_colormesh_panel(panel,data,cmap=cmap,
+                                      log_xaxis=log_xaxis,
+                                      log_yaxis=log_yaxis,
+                                      ylim=[ymin,ymax],
+                                      mesh_kwargs=mesh_kwargs)      
+        
         if return_plot is True:
-            return fig
+            return fig, panel
         else:
-            return  
+            return 
             
-    def plot_model(self,residuals="chisq",params=None,
-                   x_name=None,y_name=None,return_plot=False):
+    def plot_model_2d(self,plot_data=True,params=None,residuals=None,x_name=None,
+                      y_name=None,z_name=None,cmaps=None,log_xaxis=False,
+                      log_yaxis=False,log_zaxis=False,return_plot=False,
+                      mesh_kwargs=None):
         """
         This method creates a 2d plot of the data loaded by the user, the 
         model for the given parameters (either passed as an object, or already 
@@ -607,7 +653,7 @@ class FitTwoD(SimpleFit):
             The units to use to label the Y axis.
         
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
             
         Returns: 
@@ -616,71 +662,114 @@ class FitTwoD(SimpleFit):
             The plot object produced by the method.        
         """
         
-        model = self.eval_model(params=params,mask=False)
-        model_res,_ = self.get_residuals(residuals,model=model,mask=False)
+        if params is None:
+            params = self.model_params
         
-        fig, ((ax1),(ax2),(ax3)) = plt.subplots(1, 3, figsize=(15.,5.), sharex=True) 
-
-        if x_name is None:
-            x_name = "X axis"
         if y_name is None:
             y_name = "Y axis"
+
+        if cmaps is None:
+            cmaps = ["plasma","RdYlBu"]
+        elif isinstance(cmaps,str):
+            cmaps = [cmaps,cmaps]
+        else:
+            raise ValueError("cmaps needs to be a string")
 
         x_axis = self._column_grid_unmasked
         if self.response is None:
             y_axis = self._row_grid_unmasked
         else:
             y_axis = self._ebounds_unmasked
-        
-        twod_mask = self.row_mask.reshape((1,self._all_rows))* \
-                    self.column_mask.reshape((self._all_columns,1))
-        twod_mask = twod_mask.reshape((self._all_columns,self._all_rows))
-        twod_mask = np.logical_not(twod_mask) 
-        
-        plot_data = self._data_unmasked.reshape((self._all_columns,self._all_rows))
-        plot_data = np.transpose(np.ma.masked_where(twod_mask, plot_data))    
-
-        plot_model = model.reshape((self._all_columns,self._all_rows))
-        plot_model = np.transpose(np.ma.masked_where(twod_mask, plot_model)) 
-
-        plot_res = model_res.reshape((self._all_columns,self._all_rows))
-        plot_res = np.transpose(np.ma.masked_where(twod_mask, plot_res)) 
-        
-        data_plot = ax1.pcolormesh(x_axis,y_axis,plot_data,cmap="plasma",shading='auto',linewidth=0)
-        fig.colorbar(data_plot, ax=ax1)
-        ax1.set_xlabel(x_name)
-        ax1.set_ylabel(y_name)
-        ax1.set_title("Data") 
+ 
+        ymin, ymax = None, None
         if self.response is not None:
             ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
             ymax = self.ebounds[-1]+0.5*self.ewidths[-1]
-            ax1.set_ylim([ymin,ymax])
 
-        model_plot = ax2.pcolormesh(x_axis,y_axis,plot_model,cmap="plasma",shading='auto',linewidth=0)
-        fig.colorbar(model_plot, ax=ax2)
-        ax2.set_xlabel(x_name)
-        #ax2.set_ylabel(y_name)
-        ax2.set_title("Model") 
-        if self.response is not None:
-            ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
-            ymax = self.ebounds[-1]+0.5*self.ewidths[-1]
-            ax2.set_ylim([ymin,ymax])
+        model = self.eval_model(params=params,mask=False)
+        model_vals = self._plot_format(model)
+        if log_zaxis is True:
+            model_vals = np.log10(np.where(model_vals > 0,model_vals,np.nan))
+            
+        columns = ["model"]
+        meshes = dict(model=model_vals)        
+        if plot_data is True:
+            columns = ["data","model","residuals"]
+            data_vals = self._plot_format(self._data_unmasked)
+            if log_zaxis is True:
+                data_vals = np.log10(np.where(data_vals > 0,data_vals,np.nan))
+            meshes["data"] = data_vals
+            
+            if residuals == "chisq":
+                res_label = "$\\Delta\\chi$"
+            elif residuals == "ratio":
+                res_label = "Data/model"
+            else:
+                res_label = "Residuals"
+            if residuals is None:
+                residuals = self.likelihood
+            res,_ = self.get_residuals(residuals,model=self._filter_2d_by_mask(model))
+            noticed = self._filter_2d_by_mask(np.arange(self._data_unmasked.size))
+            #this jank is necessary to support ignored bins in the 2d plot
+            resid = np.full(self._data_unmasked.size,np.nan)
+            resid[noticed] = res
+            meshes["residuals"] = self._plot_format(resid)
 
-        res_min = np.min([np.min(plot_res),-1])
-        res_max = np.max([np.max(plot_res),1])
-        TwoSlopeNorm(vmin=res_min,vcenter=0,vmax=res_max) 
-        res_plot = ax3.pcolormesh(x_axis,y_axis,plot_res,cmap="RdYlBu",shading='auto',linewidth=0)
-        fig.colorbar(res_plot, ax=ax3)
-        ax3.set_xlabel(x_name)
-        #ax3.set_ylabel(y_name)
-        ax3.set_title("Residuals") 
-        if self.response is not None:
-            ymin = np.max([self.ebounds[0]-0.5*self.ewidths[0],1e-1])
-            ymax = self.ebounds[-1]+0.5*self.ewidths[-1]
-            ax3.set_ylim([ymin,ymax])
+        plot_layout = Plotting.make_layout(ncols=len(columns),colorbars=True,
+                                           figsize=(4.9*len(columns),4.0))
+        fig, panels = Plotting.make_panels(plot_layout,squeeze=False) 
+
+        shared = {} 
+        if plot_data is True:
+            shared["vmin"] = np.nanmin(meshes["data"])
+            shared["vmax"] = np.nanmax(meshes["data"])   
+        else:            
+            shared["vmin"] = np.nanmin(meshes["model"])
+            shared["vmax"] = np.nanmax(meshes["model"])   
         
-        fig.tight_layout()
-        if return_plot is True:
-            return fig
+        for col, name in enumerate(columns):
+            if col == 2:
+                cmap = cmaps[-1]
+                z_label = res_label
+                style = {}
+            else:            
+                cmap = cmaps[0]    
+                z_label = columns[col]
+                style = dict(shared)
+            if mesh_kwargs is not None:
+                style.update(mesh_kwargs)
+            
+            mesh_data = Plotting.make_mesh_data(x_points=x_axis,
+                                                y_points=y_axis,
+                                                z_values=meshes[name],
+                                                x_label=x_name,
+                                                y_label=y_name,
+                                                z_label=z_label)
+            mesh = Plotting.draw_colormesh_panel(panels[0,col],mesh_data,cmap=cmap,
+                                                 diverging=(name == "residuals"),
+                                                 colorbar=(plot_data is False),
+                                                 log_xaxis=log_xaxis,
+                                                 log_yaxis=log_yaxis,
+                                                 ylim=[ymin,ymax],
+                                                 mesh_kwargs=style)
+            panels[0,col].set_title(name.capitalize())
+            if name == "model":
+                mesh_model = mesh
+            if col > 0:
+                panels[0,col].set_ylabel("")
+                panels[0,col].tick_params(labelleft=False)
+            if name == "residuals":
+                _, ticks = Plotting.get_diverging_norm(meshes["residuals"])
+                bar = fig.colorbar(mesh,ax=panels[0,col],pad=0.01,ticks=ticks)
+                bar.set_label(res_label)
+        
+        if plot_data is True:
+            bar = fig.colorbar(mesh_model,ax=[panels[0,0],panels[0,1]],pad=0.01)
+            bar.set_label(z_name)
         else:
-            return  
+            panels = panels[0]              
+        
+        if return_plot is True:
+            return fig, panels
+        else:
+            return

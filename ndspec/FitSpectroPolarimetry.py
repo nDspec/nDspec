@@ -1,24 +1,15 @@
 import numpy as np
 import copy
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-
-from matplotlib import colors as mcolors
-from matplotlib.cm import ScalarMappable
-from matplotlib.patches import Patch
-from matplotlib.ticker import MaxNLocator
-
-from lmfit.model import ModelResult as LM_result
-
-import sys 
-sys.path.append('/home/matteo/Software/nDspec/src/')
-
-from ndspec.Response import ResponseMatrix
-from ndspec.Polarimetry import PolarimetryProduct
-from ndspec.SimpleFit import SimpleFit, EnergyDependentFit, \
+import scipy.sparse
+ 
+from .Response import ResponseMatrix
+from .Polarimetry import PolarimetryProduct
+from .SimpleFit import SimpleFit, EnergyDependentFit, \
                        StokesDependentFit, load_stokes_pha
-from ndspec.Likelihoods import cstat, chisq, ratio
+from .Likelihoods import cstat, chisq, ratio
+from .Utils import model_expand
+from . import Plotting
 
 class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
                             StokesDependentFit):
@@ -442,8 +433,7 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         #the modulation factor multiplies the effective area, so it is applied
         #to every channel of a given photon energy bin identically
         response_pol = copy.copy(response)
-        response_pol.resp_matrix = response.resp_matrix* \
-                                   mod_factor[:,np.newaxis]
+        response_pol.resp_matrix = (response.resp_matrix.T * scipy.sparse.diags(mod_factor)).T
         if response.has_arf is True:
             response_pol.specresp = response.specresp*mod_factor
         self.mod_factor = mod_factor
@@ -719,9 +709,9 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             stokes_I = self.response.convolve_response(stokes_I)
             stokes_Q = self.response_pol.convolve_response(stokes_Q)
             stokes_U = self.response_pol.convolve_response(stokes_U)
-            stokes_I = self._apply_gain(stokes_I,params,self.response)
-            stokes_Q = self._apply_gain(stokes_Q,params,self.response_pol)
-            stokes_U = self._apply_gain(stokes_U,params,self.response_pol)
+            stokes_I = self._apply_calibration(stokes_I,params,self.response)
+            stokes_Q = self._apply_calibration(stokes_Q,params,self.response_pol)
+            stokes_U = self._apply_calibration(stokes_U,params,self.response_pol)
         elif mask is True:
             raise ValueError(("mask=True requires fold=True: the ignore/"
                               "notice mask is defined in channel space, and "
@@ -779,9 +769,9 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         stokes_I = self.response_polgrid.convolve_response(stokes_I)
         stokes_Q = self.response_pol.convolve_response(stokes_Q)
         stokes_U = self.response_pol.convolve_response(stokes_U)
-        stokes_I = self._apply_gain(stokes_I,params,self.response_polgrid)
-        stokes_Q = self._apply_gain(stokes_Q,params,self.response_pol)
-        stokes_U = self._apply_gain(stokes_U,params,self.response_pol)
+        stokes_I = self._apply_calibration(stokes_I,params,self.response_polgrid)
+        stokes_Q = self._apply_calibration(stokes_Q,params,self.response_pol)
+        stokes_U = self._apply_calibration(stokes_U,params,self.response_pol)
  
         model_product = PolarimetryProduct(self._pol_ebounds_unmasked,
                                            input_type='stokes')
@@ -951,6 +941,10 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
         model_degree, model_angle = self.derive_folded_polarization(params=params)
         data_degree, data_angle, degree_err, angle_err = \
             self.get_data_polarization()
+        #get rid of the phase wraps when the difference between data and model 
+        #is more than pi; e.g. if data_angle is -89 and model_angle is 89, then 
+        #taking the difference would return 178, this returns 4.
+        data_angle = model_angle+0.5*np.angle(np.exp(2j*(data_angle-model_angle)))
  
         if res_type == "ratio":
             degree_res, degree_bars = ratio(data_degree,degree_err,
@@ -996,14 +990,37 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             raise AttributeError("Chosen likelihood not supported")
         return residuals
  
-    def plot_data(self,units="stokes",plot_bkg=False,return_plot=False):
+    def _plot_format(self,array):
+        """
+        This method splits a flattened array defined over every channel into its 
+        three Stokes parameters, with ignored channels set to NaN so that they 
+        are left blank in plots. 
+        
+        Parameters:
+        -----------
+        array: np.array(float)
+            The flattened array containing the Stokes I, Q and U values in every 
+            channel, in this order.
+            
+        Returns:
+        --------
+        stokes: list(np.array(float))
+            A list containing the Stokes I, Q and U arrays to be plotted. 
+        """
+        
+        stokes_I, stokes_Q, stokes_U = self.split_stokes(array,mask=False)
+        return [np.where(self.ebounds_mask,stokes_I,np.nan),
+                np.where(self.pol_ebounds_mask,stokes_Q,np.nan),
+                np.where(self.pol_ebounds_mask,stokes_U,np.nan)]
+
+
+    def plot_data(self,units="stokes",plot_bkg=False,panels=None,
+                  return_plot=False,data_kwargs=None,bkg_kwargs=None):
         """
         This method plots the spectro-polarimetric data loaded by the user as a
-        function of energy. It is possible to plot either the three Stokes
-        parameters, or the polarization degree and angle computed from them.
- 
-        It is also possible to return the figure object, for instance in order
-        to save it to file.
+        function of energy, either as the three Stokes parameters or as the 
+        polarization degree and angle computed from them. Ignored channels are 
+        left blank.
  
         Parameters:
         -----------
@@ -1014,760 +1031,395 @@ class FitSpectroPolarimetry(SimpleFit,EnergyDependentFit,
             angle, computed from the data over the Stokes Q/U channel grid.
  
         plot_bkg: bool, default=False
-            A boolean to choose whether you want to overplot the background.
-            Only supported when plotting Stokes parameters.
+            A boolean to choose whether to overplot the background. Only 
+            supported when plotting Stokes parameters.
  
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            Existing panels to draw into, e.g as returned by calling plot_model 
+            from a second fitter. If None, a new figure is created.
+            
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
+            
+        data_kwargs, bkg_kwargs: dict, default=None 
+            Keyword arguments for the data and background points.
  
         Returns:
         --------
         fig: matplotlib.figure, optional
             The plot object produced by the method.
+            
+        panels: numpy.ndarray(matplotlib.axes), optional 
+            The panels containing the plot, one per quantity.
         """
+
+        #bulid the bin centers, their widths, and their edges into arrays
+        #for both stokes I and Q/U (or polarization/degree)
+        grid_I = (self._ebounds_unmasked,0.5*self._ewidths_unmasked,
+                  np.append(self._emin_unmasked,self._emax_unmasked[-1]))
+        grid_pol = (self._pol_ebounds_unmasked,0.5*self._pol_ewidths_unmasked,
+                    np.append(self._pol_emin_unmasked,self._pol_emax_unmasked[-1]))
  
+        bkg = None
         if units == "stokes":
-            fig, axes = plt.subplots(1,3,figsize=(16.5,4.5))
-            data = self.split_stokes(self.data)
-            errors = self.split_stokes(self.data_err)
+            data = self._plot_format(self._data_unmasked)
+            data_err = self._plot_format(self._data_err_unmasked)
             if plot_bkg is True:
                 if self.noise is None:
                     raise AttributeError("No background loaded")
-                noise = self.split_stokes(self.noise)
-            for k, ax in enumerate(axes):
-                energies, xerror = self._plot_grid(k)
-                ax.errorbar(energies,data[k],yerr=errors[k],xerr=xerror,
-                            linestyle='',marker='o')
-                if plot_bkg is True:
-                    ax.errorbar(energies,noise[k],xerr=xerror,
-                                linestyle='',marker='o')
-                ax.set_xscale("log",base=10)
-                ax.set_xlabel("Energy (keV)")
-                ax.set_ylabel(self._stokes_label(k))
-            #only Stokes I is positive definite, so a log scale is only sensible
-            #for the first panel
-            axes[0].set_yscale("log",base=10)
-        #ADD THE ABILITY TO ADD STOKES I 
+                bkg = self._plot_format(self._noise_unmasked)
+            grids = [grid_I,grid_pol,grid_pol]
+            y_labels = ["Stokes I (counts/s/keV)","Stokes Q (counts/s/keV)",
+                        "Stokes U (counts/s/keV)"]
         elif units == "polarization":
-            fig, axes = plt.subplots(1,2,figsize=(11.,4.5))
-            degree, angle, degree_err, angle_err = self.get_data_polarization()
-            energies, xerror = self._plot_grid(1)
-            axes[0].errorbar(energies,degree,yerr=degree_err,xerr=xerror,
-                             linestyle='',marker='o')
-            axes[0].set_ylabel("Polarization degree $\\times\\ \\mu(E)$")
-            axes[1].errorbar(energies,np.degrees(angle),
-                             yerr=np.degrees(angle_err),xerr=xerror,
-                             linestyle='',marker='o')
-            axes[1].set_ylabel("Polarization angle (deg)")
-            for ax in axes:
-                ax.set_xscale("log",base=10)
-                ax.set_xlabel("Energy (keV)")
+            if plot_bkg is True:
+                raise ValueError("The background can only be plotted for "
+                                 "Stokes parameters")
+            degree, angle, degree_err, angle_err = \
+                self.get_data_polarization(mask=False)
+            data = [degree,np.degrees(angle)]
+            data_err = [degree_err,np.degrees(angle_err)]
+            data = [np.where(self.pol_ebounds_mask,v,np.nan) for v in data]
+            data_err = [np.where(self.pol_ebounds_mask,e,np.nan) for e in data_err]
+            grids = [grid_pol,grid_pol]
+            y_labels = ["Polarization degree $\\times\\ \\mu(E)$",
+                        "Polarization angle (deg)"]
         else:
             raise ValueError("Plot units not supported")
+        n_quant = len(data)
+
+        layout_kwargs = dict(ncols=n_quant,figsize=(6.5*n_quant,4.5))
+        if panels is None:
+            plot_layout = Plotting.make_layout(**layout_kwargs)
+            fig, panels = Plotting.make_panels(plot_layout,squeeze=False)
+        else:
+            #The panels need to be sorted to lay out the plot correctly 
+            panels = np.reshape(np.asarray(panels,dtype=object),(1,n_quant))
+            fig = panels[0,0].get_figure()        
+     
+        for k in range(n_quant):
+            x_axis, x_bars, _ = grids[k]
+            #only Stokes I is positive definite
+            log_yaxis = (units == "stokes" and k == 0)
+            if units == "stokes" and k > 0:
+                panels[0,k].axhline(0,color='black',ls=':',zorder=3)
+            panel_data = Plotting.make_panel_data(x_points=x_axis,
+                                                  y_points=data[k],
+                                                  x_bars=x_bars,
+                                                  y_bars=data_err[k],
+                                                  bkg_vals=None if bkg is None else bkg[k],
+                                                  x_label="Energy (keV)",
+                                                  y_label=y_labels[k])
+            Plotting.draw_main_panel(panels[0,k],panel_data,draw_model=False,
+                                     draw_bkg=plot_bkg,log_yaxis=log_yaxis,
+                                     data_kwargs=data_kwargs,
+                                     bkg_kwargs=bkg_kwargs)
  
-        plt.tight_layout()
- 
+        panels = panels[0]
         if return_plot is True:
-            return fig
+            return fig, panels
         else:
             return
- 
+
     def plot_model(self,plot_data=True,plot_components=False,plot_bkg=False,
-                   params=None,units="stokes",residuals=None,return_plot=False):
+                   params=None,units="stokes",residuals=None,panels=None,
+                   return_plot=False,data_kwargs=None,model_kwargs=None,
+                   bkg_kwargs=None,component_kwargs=None,resid_kwargs=None):
         """
-        This method plots the model defined by the user as a function of energy,
-        as well as (optionally) its components, and the data plus model
-        residuals. It is possible to plot either the three Stokes parameters, or
-        the polarization degree and angle computed from them.
+        This method plots the model as a function of energy, optionally with 
+        its additive components, the data, and the residuals, either as the 
+        three Stokes parameters or as the polarization degree and angle. 
+        Ignored channels are left blank.
  
-        Note that when plotting the polarization degree and angle, the residuals
-        shown are computed from the polarization degree and angle themselves,
-        rather than from the Stokes parameters; they are therefore only
-        indicative, and will not add up to the fit statistic reported by the
-        fitter. This is because unlike the Stokes parameters, the polarization
-        degree and angle do not have Gaussian errors.
- 
-        It is also possible to return the figure object, for instance in order
-        to save it to file.
+        When plotting the polarization degree and angle, the residuals are 
+        computed from those quantities directly; they are only indicative, 
+        since unlike the Stokes parameters they do not have Gaussian errors, 
+        and they do not add up to the fit statistic. 
  
         Parameters:
         -----------
         plot_data: bool, default=True
-            If true, both model and data are plotted; if false, just the model.
+            If True, the data and a residual panel are drawn below the model.
  
         plot_components: bool, default=False
-            If true, the components of the model are overplotted in the Stokes I
-            panel; if false, they are not. Only additive model components will
-            display their values correctly.
+            If True, the additive model components are overplotted on each 
+            Stokes parameter, folded through the responses and gain. Only 
+            supported when plotting Stokes parameters, since the polarization 
+            degree and angle are not additive.
  
         plot_bkg: bool, default=False
-            A boolean to choose whether you want to overplot the background.
-            Only supported when plotting Stokes parameters.
+            A boolean to choose whether to overplot the background. Only 
+            supported when plotting Stokes parameters.
  
         params: lmfit.Parameters, default=None
-            The parameters to be used to evaluate the model. If None, the set
-            of parameters stored in the class is used.
+            The parameters used to evaluate the model. If None, model_params 
+            is used.
  
         units: str, default="stokes"
-            The quantities to plot. units="stokes" plots the three Stokes
-            parameters in detector space, in units of counts/s/keV;
-            units="polarization" instead plots the polarization degree and
-            angle over the Stokes Q/U channel grid.
+            The quantities to plot, as in plot_data.
  
         residuals: str, default=None
-            The units to use for the residuals. If residuals="chisq", the plot
-            shows the residuals in units of data-model/error; if
-            residuals="ratio", the plot instead uses units of data/model. If
-            residual units are not specified, they are computed from the
-            likelihood set by the user.
+            The residual units: "chisq" for (data-model)/error, "ratio" for 
+            data/model, or "custom". If None, the fit likelihood is used.
  
+        panels : matplotlib.axes or numpy.ndarray(matplotlib.axes), default=None
+            Existing panels to draw into, e.g as returned by calling plot_model 
+            from a second fitter. If None, a new figure is created.
+            
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing
+            A boolean to decide whether to return the figure object containing 
             the plot or not.
+            
+        data_kwargs, model_kwargs, bkg_kwargs, component_kwargs, resid_kwargs: dict, default=None 
+            Keyword arguments for each element of the plot.
  
         Returns:
         --------
         fig: matplotlib.figure, optional
             The plot object produced by the method.
+            
+        panels: numpy.ndarray(matplotlib.axes), optional 
+            The panels containing the plot: one per quantity if plot_data is 
+            False, otherwise an array of size (2,n_quantities) with the 
+            residuals in the second row.
         """
  
+        if params is None:
+            params = self.model_params
         if residuals is None:
             residuals = self.likelihood
         if residuals == "chisq":
-            reslabel = "$\\Delta\\chi$"
+            res_label = "$\\Delta\\chi$"
         elif residuals == "ratio":
-            reslabel = "Data/model"
-        elif residuals == "custom":
-            reslabel = "Residuals"
+            res_label = "Data/model"
+        elif residuals == "custom" and units == "stokes":
+            res_label = "Residuals"
         else:
             raise ValueError("Residual format not supported")
+        if plot_bkg is True and self.noise is None:
+            raise AttributeError("No background loaded")
+        if units != "stokes" and (plot_components is True or plot_bkg is True):
+            raise ValueError("Components and background can only be plotted "
+                             "for Stokes parameters")
+
+        #bulid the bin centers, their widths, and their edges into arrays
+        #for both stokes I and Q/U (or polarization/degree)
+        grid_I = (self._ebounds_unmasked,0.5*self._ewidths_unmasked,
+                  np.append(self._emin_unmasked,self._emax_unmasked[-1]))
+        grid_pol = (self._pol_ebounds_unmasked,0.5*self._pol_ewidths_unmasked,
+                    np.append(self._pol_emin_unmasked,self._pol_emax_unmasked[-1]))
  
+        bkg, components = None, None
         if units == "stokes":
-            model = self.split_stokes(self.eval_model(params=params))
-            labels = [self._stokes_label(k) for k in range(3)]
-            grids = [self._plot_grid(k) for k in range(3)]
-            hist_edges = [self._plot_hist_edges(k) for k in range(3)]
-            if plot_data is True:
-                data = self.split_stokes(self.data)
-                errors = self.split_stokes(self.data_err)
-                model_res, res_errors = self.get_residuals(residuals)
-                model_res = self.split_stokes(model_res)
-                res_errors = self.split_stokes(res_errors)
-                if plot_bkg is True:
-                    if self.noise is None:
-                        raise AttributeError("No background loaded")
-                    noise = self.split_stokes(self.noise)
+            y_labels = ["Stokes I (counts/s/keV)","Stokes Q (counts/s/keV)",
+                        "Stokes U (counts/s/keV)"]
+            grids = [grid_I,grid_pol,grid_pol]
+            model = self.eval_model(params=params,mask=False)
+            model_vals = self._plot_format(model)            
+            
+            data = self._plot_format(self._data_unmasked)
+            data_err = self._plot_format(self._data_err_unmasked)
+            #this horrible jank here is necessary to avoid raising annoying 
+            #warnings about bins that are not being noticed, while still
+            #supporting having gaps in the noticed bins 
+            res, err = self.get_residuals(residuals,
+                              model=self._filter_stokes_by_mask(model))
+            noticed = self._filter_stokes_by_mask(np.arange(model.size))
+            resid = np.full(model.size,np.nan)
+            reserr = np.full(model.size,np.nan)
+            resid[noticed] = res
+            reserr[noticed] = err
+            resid = self._plot_format(resid)
+            reserr = self._plot_format(reserr)
+            
+            if plot_bkg is True:
+                bkg = self._plot_format(self._noise_unmasked)
+            
+            if plot_components is True:
+                #the Stokes parameters are additive, so each component is folded 
+                #and plotted separately in every Stokes parameter
+                comps = model_expand(self.model,params,energ=self.energs,
+                                     ear=self.ear)
+                folded = {}
+                for key in comps.keys():
+                    comp = comps[key]*self.energ_bounds
+                    comp_I = self._apply_calibration(self.response.convolve_response(comp[0]),
+                                              params,self.response)
+                    comp_Q = self._apply_calibration(self.response_pol.convolve_response(comp[1]),
+                                              params,self.response_pol)
+                    comp_U = self._apply_calibration(self.response_pol.convolve_response(comp[2]),
+                                              params,self.response_pol)
+                    folded[key] = self._plot_format(np.concatenate((comp_I,comp_Q,comp_U)))
+                components = [{key: folded[key][k] for key in folded.keys()} for k in range(3)]
+        
         elif units == "polarization":
-            model_degree, model_angle = self.derive_folded_polarization(params=params)
-            model = [model_degree, np.degrees(model_angle)]
-            labels = ["Polarization degree $\\times\\ \\mu(E)$", 
-                      "Polarization angle (deg)"]
-            grids = [self._plot_grid(1) for k in range(2)]
-            hist_edges = [self._plot_hist_edges(1) for k in range(2)]
-            if plot_data is True:
-                degree, angle, degree_err, angle_err = \
-                    self.get_data_polarization()
-                data = [degree, np.degrees(angle)]
-                errors = [degree_err, np.degrees(angle_err)]
-                model_res, res_errors = self.get_polarization_residuals(
-                                        residuals,params=params)
+            grids = [grid_pol,grid_pol]
+            y_labels = ["Polarization degree $\\times\\ \\mu(E)$",
+                        "Polarization angle (deg)"]
+            model_degree, model_angle = self.derive_folded_polarization(params=params,
+                                                                        mask=False)
+            model_vals = [model_degree,np.degrees(model_angle)]
+            model_vals = [np.where(self.pol_ebounds_mask,v,np.nan) for v in model_vals]
+            
+            degree, angle, degree_err, angle_err = \
+                self.get_data_polarization(mask=False)            
+            data = [degree,np.degrees(angle)]
+            data_err = [degree_err,np.degrees(angle_err)]            
+            data = [np.where(self.pol_ebounds_mask,v,np.nan) for v in data]
+            data_err = [np.where(self.pol_ebounds_mask,v,np.nan) for v in data_err]
+            
+            res, err = self.get_polarization_residuals(residuals,params=params)
+            resid, reserr = [], []
+            #this horrible jank here is necessary to avoid raising annoying 
+            #warnings about bins that are not being noticed, while still
+            #supporting having gaps in the noticed bins 
+            for k in range(2):
+                resid.append(np.full(self._all_pol_chans,np.nan))
+                reserr.append(np.full(self._all_pol_chans,np.nan))
+                resid[k][self.pol_ebounds_mask] = res[k]
+                reserr[k][self.pol_ebounds_mask] = err[k]
         else:
             raise ValueError("Plot units not supported")
-
-        #ADD THE ABILITY TO ADD STOKES I 
-        n_panels = len(model)
-        if plot_data is False:
-            fig, axes = plt.subplots(1,n_panels,
-                                     figsize=(5.5*n_panels,4.5))
-            top_axes = np.atleast_1d(axes)
-        else:
-            fig, axes = plt.subplots(2,n_panels,sharex='col',
-                                     figsize=(5.5*n_panels,6.),
-                                     gridspec_kw={'height_ratios': [2, 1]})
-            top_axes = axes[0,:]
-            bottom_axes = axes[1,:]
- 
-        for k, ax in enumerate(top_axes):
-            energies, xerror = grids[k]
-            if plot_data is True:
-                ax.errorbar(energies,data[k],yerr=errors[k],xerr=xerror,
-                            linestyle='',marker='o')
-                if plot_bkg is True:
-                    ax.errorbar(energies,noise[k],xerr=xerror,
-                                linestyle='',marker='o')
-            #ax.plot(energies,model[k],lw=3,zorder=3)
-            #ax.hist(energies,bins=hist_edges[k],weights=model[k],
-            #        density=False,histtype='step',linewidth=3,zorder=3)
-            ax.stairs(model[k],hist_edges[k],baseline=None,
-                      linewidth=3,zorder=3)
-            ax.set_xscale("log",base=10)
-            ax.set_ylabel(labels[k])
-            if plot_data is False:
-                ax.set_xlabel("Energy (keV)")
- 
-        if (plot_components is True and units == "stokes"):
-            self._plot_stokes_components(top_axes[0],params=params)
- 
-        if units == "stokes":
-            top_axes[0].set_yscale("log",base=10)
- 
+        n_quant = len(model_vals)
+        
+        layout_kwargs = dict(figsize=(6.5*n_quant,4.5),ncols=n_quant)
         if plot_data is True:
-            for k, ax in enumerate(bottom_axes):
-                energies, xerror = grids[k]
-                ax.errorbar(energies,model_res[k],yerr=res_errors[k],
-                            xerr=xerror,linestyle='',marker='o')
-                if residuals == "chisq":
-                    ax.plot(energies,np.zeros(len(energies)),
-                            ls=":",lw=2,color='black')
-                elif residuals == "ratio":
-                    ax.plot(energies,np.ones(len(energies)),
-                            ls=":",lw=2,color='black')
-                ax.set_xlabel("Energy (keV)")
-                ax.set_ylabel(reslabel)
+            layout_kwargs = dict(nrows=2,ncols=n_quant,height_ratios=[2,1],
+                                 sharex=True,figsize=(6.5*n_quant,6.))  
+        if panels is None:
+            plot_layout = Plotting.make_layout(**layout_kwargs)
+            fig, panels = Plotting.make_panels(plot_layout,squeeze=False)
+        else:
+            #To lay out the panels correctly we need to reshape to a nrowsxncols
+            #grid layout
+            panels = np.reshape(np.asarray(panels,dtype=object),
+                                (layout_kwargs.get("nrows",1),n_quant))
+            fig = panels[0,0].get_figure()
  
-        plt.tight_layout()
- 
+        for k in range(n_quant):
+            x_axis, x_error, x_edges = grids[k]
+            #only Stokes I is positive definite
+            log_yaxis = (units == "stokes" and k == 0)
+            if units == "stokes" and k > 0:
+                panels[0,k].axhline(0,color='black',ls=':',zorder=3)
+            panel_data = Plotting.make_panel_data(x_points=x_axis,
+                                                  y_points=data[k],
+                                                  x_bars=x_error,
+                                                  y_bars=data_err[k],
+                                                  model_vals=model_vals[k],
+                                                  model_edges=x_edges,
+                                                  bkg_vals=None if bkg is None else bkg[k],
+                                                  component_vals=None if components is None else components[k],
+                                                  resid=resid[k],
+                                                  reserr=reserr[k],
+                                                  x_label="Energy (keV)",
+                                                  y_label=y_labels[k],
+                                                  res_label=res_label)
+            Plotting.draw_main_panel(panels[0,k],panel_data,draw_data=plot_data,
+                                     draw_bkg=plot_bkg,
+                                     draw_components=plot_components,
+                                     log_yaxis=log_yaxis,
+                                     data_kwargs=data_kwargs,
+                                     model_kwargs=model_kwargs,
+                                     bkg_kwargs=bkg_kwargs,
+                                     component_kwargs=component_kwargs)
+            if plot_data is True:
+                panels[0,k].set_xlabel("")
+                Plotting.draw_residual_panel(panels[1,k],panel_data,residuals,
+                                             resid_kwargs=resid_kwargs)
+        if plot_data is False:
+            panels = panels[0]
+        
         if return_plot is True:
-            return fig
+            return fig, panels
         else:
             return
-            
+
+
     def plot_polarization_slice(self,params=None,plot_data=True,
-                                plot_model=True,cmap='viridis',
+                                plot_model=True,cmap="viridis",
                                 angle_range=None,degree_range=None,
-                                model_size=0.05,
-                                return_plot=False):
+                                return_plot=False,data_kwargs=None,
+                                model_kwargs=None,track_kwargs=None):
         """
         This method plots the polarization degree and angle in polar
         coordinates, with each energy channel shown as an ellipse colored by
         the energy of the channel. The data is shown as its one sigma
         confidence region; the model is shown as a filled ellipse of variable 
         size. 
-
-        Due to the ambiguity in the IXPE X-ray polarimetry detectors, the
-        polarization angle is only defined modulo 180 degrees. By default the
-        full 0 to 180 degree range is shown, but users can restrict it with the
-        angle_range argument; this is useful when the polarization angle of the
-        source sits close to either bound, in which case the default range
-        would split each ellipse between the two ends of the axis. Any range
-        less than 180 degrees wide is supported, including ranges straddling
-        the origin, and every channel is wrapped into the range requested.
-
-        This visualization is only legible when the Stokes Q and U spectra are
-        binned very coarsely, and is intended for that case alone.
-
+ 
+        Due to the ambiguity in X-ray polarimeters, the polarization angle is 
+        only defined modulo 180 degrees. Users can choose any angle range (e.g 
+        -30 to 30 degrees), in which case the data and model are wrapped in the 
+        correct quadrant.
+ 
         Parameters:
         -----------
         params: lmfit.Parameters, default=None
-            The parameters to be used to evaluate the model. If None, the set
-            of parameters stored in the class is used.
-
-        plot_data: bool, default=True
-            If true, the one sigma confidence regions of the data are shown.
-
-        plot_model: bool, default=True
-            If true, the polarization degree and angle of the model are shown.
-
-        cmap: str, default='viridis'
-            Name of the colormap used to color each energy channel.
-
-        degree_range: list(float), default=None
-            The lower and upper bounds of the polarization degrees to show. The
-            lower bound must not be negative, since the polarization degree is
-            positive definite. If None, the bounds run from zero to slightly 
-            above the largest value plotted, including its error.
-
+            The parameters used to evaluate the model. If None, model_params 
+            is used.
+ 
+        plot_data, plot_model: bool, default=True
+            Booleans to choose whether the data and the model are shown.
+ 
+        cmap: str, default="viridis"
+            The colormap used to color each energy channel.
+ 
         angle_range: list(float), default=None
-            The lower and upper bounds of the polarization angles to show, in
-            degrees. Bounds outside the 0 to 180 degree range are supported,
-            and the two bounds can be passed in either order, so that a range
-            straddling the origin can be given either as (-30,30) or as
-            (30,-30). If None, the full 0 to 180 degree range is shown.
-
-        model_size: float, default=0.075
-            The size of the ellipse used to mark each channel of the model, as
-            a fraction of the ranges spanned by the radial and angular axes.
+            The lower and upper bounds of the polarization angles shown, in 
+            degrees, less than 180 degrees apart. Ranges straddling the origin 
+            can be given as (-30,30). If None, the full 0 to 180 degree range 
+            is shown.
+ 
+        degree_range: list(float), default=None
+            The lower and upper bounds of the polarization degrees shown. If 
+            None, the axis runs from zero to slightly above the largest value 
+            plotted.
             
         return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing
-            the plot or not.
-
+            A boolean to decide whether to return the figure and panel.
+            
+        data_kwargs, model_kwargs, track_kwargs: dict, default=None 
+            Keyword arguments for the data ellipses, model markers and track.
+ 
         Returns:
         --------
         fig: matplotlib.figure, optional
             The plot object produced by the method.
+            
+        panel: matplotlib.axes, optional 
+            The panel containing the plot produced by the method.
         """
-
-        if (plot_data is False and plot_model is False):
+ 
+        if plot_data is False and plot_model is False:
             raise ValueError("At least one of data or model must be plotted")
-
-        angle_lo, angle_hi = self._polarization_angle_bounds(angle_range)
-        energies, energy_errors = self._plot_grid(1)
-        norm = mcolors.Normalize(vmin=np.min(energies-energy_errors),
-                                 vmax=np.max(energies+energy_errors))
-        colormap = plt.colormaps[cmap]
-
+ 
+        degree, angle, degree_err, angle_err = None, None, None, None
+        model_degree, model_angle = None, None
         if plot_data is True:
-            pol_degree, pol_angle, pol_degree_err, pol_angle_err = \
-                self.get_data_polarization()
-            degree_lo, degree_hi = self._polarization_degree_bounds(
-                                   degree_range,pol_degree+pol_degree_err)
-        else:
-            pol_degree, pol_angle = self.derive_folded_polarization(params=params)
-            degree_lo, degree_hi = self._polarization_degree_bounds(
-                                   degree_range,pol_degree)
-
-        fig, ax = plt.subplots(
-                  figsize=self._polarization_figure_size(angle_lo,angle_hi,
-                                                         degree_lo,degree_hi),
-                  subplot_kw={'projection':'polar'})
-        ax.set_thetamin(np.degrees(angle_lo))
-        ax.set_thetamax(np.degrees(angle_hi))
-        ax.tick_params(labelsize=12)  
-
-        if plot_data is True:
-            wrapped_angle = self._wrap_polarization_angle(pol_angle,angle_lo)
-            for k in range(len(energies)):
-                color = colormap(norm(energies[k]))
-                angles, radii = self._polarization_ellipse(
-                                pol_degree[k],wrapped_angle[k],
-                                pol_degree_err[k],pol_angle_err[k])
-                self._draw_polarization_ellipse(ax,angles,radii,
-                                                facecolor=color,alpha=0.5,
-                                                edgecolor=color,linewidth=2.,
-                                                zorder=2)
-
+            degree, angle, degree_err, angle_err = self.get_data_polarization()
         if plot_model is True:
             model_degree, model_angle = self.derive_folded_polarization(params=params)
-            wrapped_model = self._wrap_polarization_angle(model_angle,angle_lo)
-            #the markers of neighbouring channels overlap as soon as the model
-            #varies by less than their size, so they are joined by a track to
-            #keep the shape of the model legible at any binning
-            self._draw_polarization_track(ax,wrapped_model,model_degree,
-                                          color='0.15',linewidth=1.6,zorder=3)
-            for k in range(len(energies)):
-                color = colormap(norm(energies[k]))
-                angles, radii = self._polarization_ellipse(
-                                model_degree[k],wrapped_model[k],
-                                model_size*(degree_hi-degree_lo),
-                                model_size*(angle_hi-angle_lo))
-                self._draw_polarization_ellipse(ax,angles,radii,
-                                                facecolor=color,
-                                                edgecolor='0.15',
-                                                linewidth=0.6,zorder=4)
-
-        ax.set_rlim(degree_lo,degree_hi)
-        ax.set_rorigin(0.)
-        ax.yaxis.set_major_locator(MaxNLocator(4,prune='lower'))
-        ax.tick_params(axis='y',labelsize=12)
-        ax.grid(color='0.85',linewidth=0.8)
-        #the angle label is set as a title rather than placed along the arc
-        ax.set_title("Polarization angle/degree$\\times\\mu(E)$",fontsize=16)
-
-        #colorbar for the energy axis 
-        mappable = ScalarMappable(norm=norm,cmap=colormap)
-        mappable.set_array([])
-        cbar = fig.colorbar(mappable,ax=ax,pad=0.09,shrink=0.75)
-        cbar.set_label("Energy (keV)", fontsize=14)
-        cbar.ax.tick_params(labelsize=12)  
-
-        #legend for the data+plot 
-        handles = []
-        if plot_data is True:
-            handles.append(Patch(facecolor='0.5',alpha=0.35,edgecolor='0.5',
-                                 label="Data ($1\\sigma$)"))
-        if plot_model is True:
-            handles.append(Patch(facecolor='0.5',edgecolor='0.15',
-                                 label="Model"))
-        #the legend is anchored to the figure rather than the axis, because the
-        #corner left free by the wedge depends on the range requested
-        fig.legend(handles=handles,loc='lower right',
-                   bbox_to_anchor=(0.99,0.02),frameon=False,fontsize=12)
-
-        plt.tight_layout()
-
+ 
+        plot_layout = Plotting.make_layout(figsize=(6.5,4.5),projections=["polar"])
+        fig, panel = Plotting.make_panels(plot_layout)
+        data = Plotting.make_polar_data(angle=angle,degree=degree,
+                                        angle_err=angle_err,
+                                        degree_err=degree_err,
+                                        model_angle=model_angle,
+                                        model_degree=model_degree,
+                                        color_values=self.pol_ebounds,
+                                        color_label="Energy (keV)",
+                                        title="Polarization angle/degree$\\times\\mu(E)$")
+        Plotting.draw_polar_panel(panel,data,cmap=cmap,draw_data=plot_data,
+                                  draw_model=plot_model,angle_range=angle_range,
+                                  degree_range=degree_range,
+                                  data_kwargs=data_kwargs,
+                                  model_kwargs=model_kwargs,
+                                  track_kwargs=track_kwargs)
+ 
         if return_plot is True:
-            return fig
+            return fig, panel
         else:
             return
-
-    def _polarization_figure_size(self,angle_lo,angle_hi,degree_lo,degree_hi):
-        """
-        This method returns the figure size to use for the plot produced by
-        plot_polarization_slice, given the range of polarization angles
-        requested. This is used to minimize the white space in the plot.
-
-        Parameters:
-        -----------
-        angle_lo, angle_hi: float
-            The lower and upper bounds of the angular axis, in radians.
-
-        degree_lo, degree_hi: float
-            The lower and upper bounds of the radial axis. They set the inner
-            radius of the wedge, which is zero unless the lower bound is.
-
-        Returns:
-        --------
-        fig_width: float
-            The width of the figure, in inches.
-
-        fig_height: float
-            The height of the figure, in inches.
-        """
-
-        #the bounding box of the wedge is set by its outer and inner arcs; the
-        #inner arc collapses onto the origin when the lower bound is zero
-        plot_size= 5.        
-        angles = np.linspace(angle_lo,angle_hi,721)
-        inner = degree_lo/degree_hi
-        x_bounds = np.append(np.cos(angles),inner*np.cos(angles))
-        y_bounds = np.append(np.sin(angles),inner*np.sin(angles))
-        wedge_width = np.max(x_bounds)-np.min(x_bounds)
-        wedge_height = np.max(y_bounds)-np.min(y_bounds)
-        if wedge_width >= wedge_height:
-            plot_width = plot_size
-            plot_height = plot_size*wedge_height/wedge_width
-        else:
-            plot_height = plot_size
-            plot_width = plot_size*wedge_width/wedge_height
-        #the constants below leave room for the colorbar, the axis labels and
-        #the title, none of which scale with the wedge
-        return plot_width+2.6, plot_height+1.4
-
-    def _draw_polarization_track(self,ax,angles,radii,**kwargs):
-        """
-        This method joins the polarization degree and angle of consecutive
-        energy channels with a line, on a polar axis. As in
-        _draw_polarization_ellipse the track is drawn three times, once per
-        period of the polarization angle; in addition, the segments that jump
-        from one end of the angular axis to the other are blanked, so that a
-        model crossing either bound is not joined across the entire plot.
-
-        Parameters:
-        -----------
-        ax: matplotlib.axes
-            The polar axis the track is drawn on.
-
-        angles: np.array(float)
-            The polarization angles, in radians, of each energy channel.
-
-        radii: np.array(float)
-            The polarization degrees of each energy channel.
-
-        kwargs: dict
-            Any additional keyword arguments to be passed to matplotlib.plot.
-        """
-
-        track_angles = np.array(angles,dtype=float)
-        track_radii = np.array(radii,dtype=float)
-        wraps = np.abs(np.diff(track_angles)) > 0.5*np.pi
-        track_angles[:-1][wraps] = np.nan
-        track_radii[:-1][wraps] = np.nan
-        for shift in (-np.pi,0.,np.pi):
-            ax.plot(track_angles+shift,track_radii,**kwargs)
-        return
-
-    def _polarization_angle_bounds(self,angle_range):
-        """
-        This method converts the range of polarization angles requested by the
-        user into the lower and upper bounds, in radians, of the angular axis
-        of the plot produced by plot_polarization_slice.
-
-        Because the polarization angle is only defined modulo pi, a range is
-        fully specified by any two bounds less than pi apart, regardless of
-        whether they fall inside the 0 to 180 degree range: for instance
-        (-30,30) and (150,210) describe the same range. The two bounds are
-        therefore sorted, so that a range straddling the origin can be passed
-        in either order, and are otherwise used as given.
-
-        Parameters:
-        -----------
-        angle_range: list(float) or None
-            The lower and upper bounds of the polarization angles to plot, in
-            degrees. If None, the full 0 to 180 degree range is used.
-
-        Returns:
-        --------
-        angle_lo: float
-            The lower bound of the angular axis, in radians.
-
-        angle_hi: float
-            The upper bound of the angular axis, in radians.
-        """
-
-        if angle_range is None:
-            return 0., np.pi
-        if len(angle_range) != 2:
-            raise ValueError("Polarization angle range must contain two bounds")
-        angle_lo = np.radians(np.min(angle_range))
-        angle_hi = np.radians(np.max(angle_range))
-        if np.isclose(angle_lo,angle_hi):
-            raise ValueError("Polarization angle range has zero width")
-        if (angle_hi-angle_lo) > (np.pi+1e-8):
-            raise ValueError(("Polarization angle range is wider than 180 "
-                              "degrees, which is the full range over which "
-                              "the polarization angle is defined"))
-        return angle_lo, angle_hi
-
-    def _polarization_degree_bounds(self,degree_range,degrees):
-        """
-        This method returns the lower and upper bounds of the radial axis of
-        the plot produced by plot_polarization_slice. Unlike the polarization
-        angle the polarization degree is not periodic, so the bounds are used
-        exactly as given, and only need to be positive definite.
-
-        Parameters:
-        -----------
-        degree_range: list(float) or None
-            The lower and upper bounds of the polarization degrees to plot. If
-            None, the bounds run from zero to slightly above the largest value
-            passed.
-
-        degrees: np.array(float)
-            The polarization degrees to be plotted, including their error if
-            the data is being shown. Only used when no bounds are provided.
-
-        Returns:
-        --------
-        degree_lo: float
-            The lower bound of the radial axis.
-
-        degree_hi: float
-            The upper bound of the radial axis.
-        """
-
-        if degree_range is None:
-            return 0., 1.08*np.max(degrees)
-        if len(degree_range) != 2:
-            raise ValueError(("Polarization degree range must contain two "
-                              "bounds"))
-        degree_lo = np.min(degree_range)
-        degree_hi = np.max(degree_range)
-        if degree_lo < 0.:
-            raise ValueError(("Polarization degree range can not be negative, "
-                              "as the polarization degree is positive "
-                              "definite"))
-        if np.isclose(degree_lo,degree_hi):
-            raise ValueError("Polarization degree range has zero width")
-        return degree_lo, degree_hi
-
-    def _wrap_polarization_angle(self,angles,angle_lo):
-        """
-        This method wraps polarization angles into the half-open range starting
-        at the lower bound of the angular axis and spanning pi radians. This
-        ensures that every channel is placed inside the range requested by the
-        user whenever it is defined there, rather than being drawn a period
-        away from it and clipped.
-
-        Parameters:
-        -----------
-        angles: float or np.array(float)
-            The polarization angles, in radians, to be wrapped.
-
-        angle_lo: float
-            The lower bound of the angular axis, in radians.
-
-        Returns:
-        --------
-        wrapped_angles: float or np.array(float)
-            The polarization angles, in radians, wrapped into the range between
-            angle_lo and angle_lo plus pi.
-        """
-
-        return angle_lo+np.mod(angles-angle_lo,np.pi)
-
-    def _polarization_ellipse(self,degree,angle,degree_err,angle_err,
-                              n_points=200):
-        """
-        This method returns the ellipse that marks a single energy channel in
-        the polar plot produced by plot_polarization_slice. When the errors
-        passed are those of the data, the ellipse is the one sigma confidence
-        region of that channel, under the same assumption of negligible
-        covariance between the Stokes parameters made in _polarization_errors.
-
-        Parameters:
-        -----------
-        degree: float
-            The polarization degree at the center of the ellipse.
-
-        angle: float
-            The polarization angle, in radians, at the center of the ellipse.
-
-        degree_err: float
-            The half extent of the ellipse along the radial axis.
-
-        angle_err: float
-            The half extent of the ellipse, in radians, along the angular axis.
-
-        n_points: int, default=200
-            The number of points used to sample the ellipse.
-
-        Returns:
-        --------
-        angles: np.array(float)
-            The polarization angles, in radians, along the ellipse.
-
-        radii: np.array(float)
-            The polarization degrees along the ellipse.
-        """
-
-        parameter = np.linspace(0.,2.*np.pi,n_points)
-        #the polarization degree is positive definite, so the ellipse is
-        #clipped at the origin rather than allowed to wrap through it
-        radii = np.clip(degree+degree_err*np.sin(parameter),0.,None)
-        angles = angle+angle_err*np.cos(parameter)
-        return angles, radii
-
-    def _draw_polarization_ellipse(self,ax,angles,radii,**kwargs):
-        """
-        This method draws a single ellipse returned by _polarization_ellipse on
-        a polar axis. Because the polarization angle is only defined modulo pi,
-        the ellipse is drawn three times, once shifted by -pi, once unshifted,
-        and once shifted by +pi; the axis bounds then clip whichever copies
-        fall outside the range requested by the user. This ensures that an
-        ellipse straddling either bound appears at both ends of the axis,
-        rather than being cut off at one of them.
-
-        Parameters:
-        -----------
-        ax: matplotlib.axes
-            The polar axis the ellipse is drawn on.
-
-        angles: np.array(float)
-            The polarization angles, in radians, along the ellipse.
-
-        radii: np.array(float)
-            The polarization degrees along the ellipse.
-
-        kwargs: dict
-            Any additional keyword arguments to be passed to matplotlib.fill.
-        """
-
-        for shift in (-np.pi,0.,np.pi):
-            ax.fill(angles+shift,radii,**kwargs)
-        return
- 
-    def _plot_grid(self,index):
-        """
-        This method returns the channel centers and half widths of the noticed
-        channels of a given Stokes parameter, which are used as the x axis (and
-        its error) of every plot produced by the class.
- 
-        Parameters:
-        -----------
-        index: int
-            The index of the Stokes parameter to be returned; 0 for Stokes I,
-            1 for Stokes Q, and 2 for Stokes U.
- 
-        Returns:
-        --------
-        energies: np.array(float)
-            The array of noticed energy channel centers.
- 
-        xerror: np.array(float)
-            The array of half widths of the noticed energy channels.
-        """
- 
-        if index == 0:
-            energies = np.extract(self.ebounds_mask,self._ebounds_unmasked)
-            xerror = 0.5*np.extract(self.ebounds_mask,self._ewidths_unmasked)
-        else:
-            energies = np.extract(self.pol_ebounds_mask,
-                                  self._pol_ebounds_unmasked)
-            xerror = 0.5*np.extract(self.pol_ebounds_mask,
-                                    self._pol_ewidths_unmasked)
-        return energies, xerror
-
-    def _plot_hist_edges(self,index):
-        """
-        This method returns the bin edges of the noticed channels of a given
-        Stokes parameter, used to draw the model as a step histogram in
-        plot_model.
-
-        Parameters:
-        -----------
-        index: int
-            The index of the Stokes parameter to be returned; 0 for Stokes I,
-            1 for Stokes Q, and 2 for Stokes U.
-
-        Returns:
-        --------
-        edges: np.array(float)
-            The array of widened energy channel bin edges of the noticed
-            channels.
-        """
-
-        if index == 0:
-            min_notice = np.extract(self.ebounds_mask,self.response.emin)
-            max_notice = np.extract(self.ebounds_mask,self.response.emax)
-        else:
-            min_notice = np.extract(self.pol_ebounds_mask,
-                                    self.response_pol.emin)
-            max_notice = np.extract(self.pol_ebounds_mask,
-                                    self.response_pol.emax)
-        edges = np.append(min_notice,max_notice[-1])
-        return edges
- 
-    def _stokes_label(self,index):
-        """
-        This method returns the y axis label of the panel of a given Stokes
-        parameter.
- 
-        Parameters:
-        -----------
-        index: int
-            The index of the Stokes parameter to be labelled; 0 for Stokes I,
-            1 for Stokes Q, and 2 for Stokes U.
- 
-        Returns:
-        --------
-        label: str
-            The label of the y axis of the corresponding panel.
-        """
- 
-        labels = ["Stokes I (counts/s/keV)",
-                  "Stokes Q (counts/s/keV)",
-                  "Stokes U (counts/s/keV)"]
-        label = labels[index]
-        return label
- 
-    def _plot_stokes_components(self,axis,params=None):
-        """
-        This method overplots the components of the model on a given set of
-        axes. Only the Stokes I component of each model component is shown, as
-        the polarization components of the model are multiplicative.
- 
-        Parameters:
-        -----------
-        axis: matplotlib.axes
-            The axes on which the model components are to be plotted.
- 
-        params: lmfit.Parameters, default=None
-            The parameters to be used to evaluate the model. If None, the set
-            of parameters stored in the class is used.
-        """
-
-        #will need some way to figure out how to plot in stokes U/Q, how to 
-        #remove the multiplicative components for spectra, and how to do the 
-        #same for lag plots.  
-        if params is None:
-            params = self.model_params
- 
-        #we need to allocate a ModelResult object in order to retrieve the components
-        comps = LM_result(model=self.model,
-                          params=params).eval_components(energ=self.energs,
-                                                         ear=self.ear)
-        energies, _ = self._plot_grid(0)
-        for key in comps.keys():
-            component = np.atleast_2d(comps[key])
-            #multiplicative polarization components have a Stokes I row which is
-            #identically one, and are therefore not worth plotting
-            if np.allclose(component[0],np.ones(len(self.energs))):
-                continue
-            comp_folded = self.response.convolve_response(component[0]*
-                                                          self.energ_bounds)
-            comp = np.extract(self.ebounds_mask,comp_folded)
-            axis.plot(energies,comp,label=key,lw=2)
-        axis.legend(loc='best')
-        return

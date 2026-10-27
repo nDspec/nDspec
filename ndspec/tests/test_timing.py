@@ -24,7 +24,7 @@ class TestTiming(object):
         cls.times_fft = np.linspace(1.,1.e3,cls.time_res_fft)
         time_bin = np.diff(cls.times_fft)[0]
         freqs_all = rfftfreq(cls.time_res_fft,time_bin)
-        cls.freqs_fft = freqs_all[freqs_all>0]
+        cls.freqs_fft = freqs_all[1:(cls.time_res_fft+1)//2]
  
         sinc_tstart = np.log10(cls.times_fft[0])
         sinc_tend = np.log10(cls.times_fft[-1])
