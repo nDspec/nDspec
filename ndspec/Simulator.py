@@ -84,7 +84,7 @@ def simulate_lightcurve(psd_obj,obs_time,dt,countrate,rms=None,
     if rms is None:
         # Calculate the rms from the power spectrum, integrating from 0
         bins = np.append(0,w)
-        rms = np.sqrt(np.sum(power_spectrum**2*np.diff(bins)))
+        rms = np.sqrt(np.sum(power_spectrum*np.diff(bins)))
 
     mean_flux = countrate * dt  # mean count rate per bin
     sim = simulator.Simulator(N=N, mean=mean_flux, dt=dt, rms=rms,poisson=True)
