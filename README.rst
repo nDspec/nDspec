@@ -51,7 +51,27 @@ If you would like to contribute a piece of code, you are welcome to do so either
 Citing
 ------
 
-The initial release paper is not released yet; until then, please refer to this repository if you make use of the software in your work.
+If you use nDspec in your work, please cite the following:
+
+.. code-block:: bibtex
+
+   @ARTICLE{2026A&A...712A.225L,
+          author = {{Lucchini}, Matteo and {Ricketts}, Benjamin and {Uttley}, Phil and {Huppenkothen}, Daniela},
+           title = "{nDspec: A new Python library for modelling multi-dimensional datasets in X-ray astronomy}",
+         journal = {\aap},
+        keywords = {methods: data analysis, X-rays: general, High Energy Astrophysical Phenomena, Instrumentation and Methods for Astrophysics},
+            year = 2026,
+           month = aug,
+          volume = {712},
+             eid = {A225},
+           pages = {A225},
+             doi = {10.1051/0004-6361/202558521},
+   archivePrefix = {arXiv},
+          eprint = {2512.10615},
+    primaryClass = {astro-ph.HE},
+          adsurl = {https://ui.adsabs.harvard.edu/abs/2026A&A...712A.225L},
+         adsnote = {Provided by the SAO/NASA Astrophysics Data System}
+   }
 
 License
 -------
