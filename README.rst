@@ -16,7 +16,7 @@ Currently, nDspec provides the following features:
 - Classes to handle standard spectro-polarimetric analysis. Models need to be defined by the user in units of Stokes I, Q and U parameters. 
 - A class to handle arbitrary two-dimensional data consisting of real numbers. The data may or may not be energy dependent.
 - A small library of phenomenological spectral-timing-polarimetric models, currently including a one dimensional power-law, black body and gaussian, as well as example impulse response and/or transfer functions that parametrize the time dependence of these components.
-- A complementary library, xspectrampoline (<https://github.com/nDspec/xspectrampoline>`_), which exposes the full library of compiled Xspec models without requiring a HEASOFT installation.
+- A complementary library, `xspectrampoline <https://github.com/nDspec/xspectrampoline>`_, which exposes the full library of compiled Xspec models without requiring a HEASOFT installation.
 
 The goal of the software is to provide users with a modular package that can move the community beyond simple one-dimensional spectral fitting. Being an open-source modular package, unlike legacy software nDspec allows users to interface with data science libraries for model handling or fitting. 
 
