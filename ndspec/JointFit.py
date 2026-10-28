@@ -7,20 +7,13 @@ from lmfit import Parameters
 from lmfit.printfuncs import gformat
 from scipy.interpolate import interp1d
 
-import matplotlib.pyplot as plt
-import matplotlib.pylab as pl
-import matplotlib.patheffects as path_effects
-
 from scipy.interpolate import interp1d, RegularGridInterpolator
-
-from lmfit import Model as LM_Model
-from lmfit import Parameters as LM_Parameters
 
 from .SimpleFit import SimpleFit, EnergyDependentFit, FrequencyDependentFit
 from .FitCrossSpectrum import FitCrossSpectrum
 from .FitPowerSpectrum import FitPowerSpectrum
 from .FitTimeAvgSpectrum import FitTimeAvgSpectrum
-from .Utils import get_plot_info, darken_colour
+from . import Plotting
 from .Likelihoods import cstat, chisq, ratio
 
 ndspec_oned_fit_types = (FitTimeAvgSpectrum, FitPowerSpectrum)
@@ -67,11 +60,6 @@ class JointFit():
         The model shared among all FitTimeAvgSpectrum objects to be evaluated on 
         the same energy grid. 
         
-    spec_renorm_model: lmfit.Model 
-        An optional lmfit model object used to include a constant component in 
-        a set of chosen fitters for time-averaged spectra. Used to account for 
-        instrument flux cross-calibration.
-        
     shared_keys: list 
         A list containing the keys (names) of the parameters that are identical 
         and therefore shared between the loaded fitter objects.
@@ -90,7 +78,6 @@ class JointFit():
         self.shared_energy_grid = False
         self.shared_model = None
         self.shared_keys = []
-        self.spec_renorm_model = None
         self.renorm_spectra = False 
         self.renorm_names = None
 
@@ -239,26 +226,18 @@ class JointFit():
                 raise AttributeError(f"{name} is not among the stored fitters")
             #retrieves model or models based on dictionary name
             fitobj = self.joint[name]     
-            #if we are evaluating a fit on a shared grid, interpolate, fold and mask
+            #if we are evaluating a fit on a shared grid, interpolate, fold, 
+            #correct for gain/cross calibration, and mask
             #otherwise evaluate normally      
             if (self.shared_energy_grid is True and type(fitobj)==FitTimeAvgSpectrum):
                 model_results = model_interp(fitobj.energs)*fitobj.energ_bounds
                 model_results = fitobj.response.convolve_response(model_results) 
+                model_results = fitobj._apply_calibration(model_results,params)
                 model_results = np.extract(fitobj.ebounds_mask,model_results) 
             else:
                 model_results = fitobj.eval_model(params)
-            #if the fitter is in the list of spectra to re-normalize for 
-            #cross calibration, do so now
-            if self.renorm_spectra is True:
-                if name in self.renorm_names:
-                    par_key = 'renorm_'+str(name)
-                    renorm_pars = LM_Parameters()
-                    renorm_pars.add('renorm',value=params[par_key].value,
-                                    min=params[par_key].min,max=params[par_key].max,
-                                    vary=params[par_key].vary)
-                    model_results = self.spec_renorm_model.eval(renorm_pars,array=model_results)      
             model_hierarchy[name] = model_results
-        
+
         if flatten == False:
             return model_hierarchy
         else:
@@ -438,8 +417,9 @@ class JointFit():
         -----------
         switch: bool 
             A boolean to track whether the spectra renormalization is enabled or 
-            not. If it is, the method modifies the defined model and its parameters 
-            automatically. 
+            not. If set to True, it lets the cross-calibration constants free 
+            and defines them if they were not already present. If set to False, 
+            it freezes them to the last value stored. 
             
         name: list(str) or str, default None
             A list of strings with the name of the fitter objects to which users 
@@ -461,39 +441,21 @@ class JointFit():
             for name in searched_names:
                 if type(self.joint[name]) == FitTimeAvgSpectrum:
                     self.renorm_names = np.append(self.renorm_names,name)        
-            #add constant models to the selected fitters 
-            self.spec_renorm_model = LM_Model(self._renorm_spectrum)
-            renorm_pars = LM_Parameters()
-            for name in self.renorm_names:       
-                renorm_pars.add('renorm_'+str(name),
-                                value=1,min=0.5,max=1.5,vary=True)
-            self.model_params = self.model_params + renorm_pars          
+            #add a renormalisation constant to each selected fitter, and add 
+            #the constants to the joint parameters. If the renormalisation was 
+            #already active, simply set it to be free to vary
+            for name in self.renorm_names:
+                key = "renorm_"+str(name)
+                if key in self.model_params:
+                    self.model_params[key].set(vary=True)
+                else:
+                    self.joint[name].set_renorm(label=name)
+                    self.model_params = self.model_params + self.joint[name].renorm_params
+        elif self.renorm_names is not None:
+            #disabling the renormalization fixes the constants to unity
+            for name in self.renorm_names:
+                self.model_params["renorm_"+str(name)].set(vary=False)
         return
-
-    def _renorm_spectrum(self,array,renorm):
-        """
-        This method contains a model function to renormalize an input array, 
-        assumed to be a model time averaged spectrum, by some constant number. 
-        This is to be used as a cross calibration constant for different 
-        instruments. 
-       
-        Parameters:
-        -----------
-        array: np.array(float)
-            The array of energy depdent time averaged spectrum to be 
-            renormalized 
-            
-        renorm: float 
-            The renormalization factor by which to multiply the model time 
-            averaged spectrum
-            
-        Returns:
-        --------
-        array*renorm 
-            The new, renormalized model array. 
-        """
-    
-        return renorm*array
 
     def set_params(self,params):
         """
@@ -584,8 +546,6 @@ class JointFit():
         for name in self.joint.keys():
             print(f"    Dataset: {name}")    
             model =  self.joint[name].eval_model(params=self.model_params)  
-            if (self.renorm_spectra is True and type(self.joint[name]) == FitTimeAvgSpectrum):
-                model = model*self.model_params['renorm_'+str(name)].value  
             res, _ = self.joint[name].get_residuals(self.joint[name].likelihood,model=model) 
             if self.joint[name].likelihood == "chisq":
                 fit_statistic = np.sum(res**2)
@@ -654,225 +614,237 @@ class JointFit():
         """
         return self.joint[key]
 
-    def joint_plot(self,units,residuals="chisq",plot_bkg=False,xrange=None,yrange=None,return_plot=False,names=None):
+    def _plot_groups(self,method_name,groups,plot_kwargs,kwargs):
         """
-        This method loops over all stored fitter objects and plots the data, 
-        model (given the parameters stored), and residuals for all the fits 
-        together. Note that this is useful only if the data you are trying to 
-        plot is of the same time (e.g. all time-averaged spectra).
-        
-        Parameters:
-        -----------
-        units: str
-            The units to use for the y axis. For more info, see the documentation 
-            of the individual fitter classes. 
-            
-        residuals: str, default="chisq"
-            The units to use for the residuals. If residuals="chisq", the plot 
-            shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model. For cross spectra this 
-            key word is ignored and only delta chi residuals can be shown.
-            
-        plot_bkg; str, default=False:
-            A boolean to choose whether you want to plot the background
-            
-        xrange, yrange: (float, float) 
-            The limits of the plot on the x and y axis 
-
-        return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
-            the plot or not.     
-            
-        names: list(str)
-            A list of the fitters to be included in the joint plot. By default, 
-            all the loaded fitters are included.        
-        """
-       
-        if names is None:
-            names = list(self.joint.keys())
-        elif type(names) is str: 
-            names = [names]
-
-        fig, (ax1,ax2) = plt.subplots(2,1,figsize=(6.,6.),sharex=True,
-                                      gridspec_kw={'height_ratios': [2, 1]})
-
-        if xrange is not None:
-            ax1.set_xlim(xrange)
-            ax2.set_xlim(xrange)
-        
-        if yrange is not None:
-            ax1.set_ylim(yrange)
-        
-        i=0
-        max_xrange = 0.
-        min_xrange = 1e30
-        
-        for key in names:
-            if key not in self.joint.keys():
-                raise AttributeError(f"{key} is not among the stored fitters")
-            if not isinstance(self.joint[key],ndspec_oned_fit_types):
-                raise TypeError("You can not display fits to 1d and 2d data on the same plot")
-            elif type(self.joint[key]) == FitTimeAvgSpectrum:
-                plot = self.joint[key].plot_model(residuals=residuals,
-                                                  units=units,
-                                                  plot_bkg=plot_bkg,
-                                                  return_plot=True,
-                                                  params=self.model_params)   
-            elif type(self.joint[key]) == FitPowerSpectrum:
-                plot = self.joint[key].plot_model(residuals=residuals,
-                                                  units=units,
-                                                  return_plot=True,
-                                                  params=self.model_params)
-            else:
-                raise TypeError(f"Fitter {key} plotter method not found")                                     
-            
-            plot_data = get_plot_info(plot,residuals=residuals)
-            
-            #sort the plot bounds 
-            if plot_data["x_points"][0] < min_xrange:
-                min_xrange = plot_data["x_points"][0]   
-            if plot_data["x_points"][-1] > max_xrange: 
-                max_xrange = plot_data["x_points"][-1]  
-
-            col="C"+str(i)
-            i = i+1
-            ax1.errorbar(plot_data["x_points"], plot_data["y_points"], 
-                         xerr=plot_data["x_bars"], yerr=plot_data["y_bars"], 
-                         fmt='o',alpha=0.35, color=col)
-            
-            model = plot_data["model_vals"] 
-                
-            #renormalize if necessary 
-            if (self.renorm_spectra is True):
-                model = model*self.model_params['renorm_'+str(key)].value            
-            
-            ax1.plot(plot_data["x_points"], model,
-                     linestyle=plot_data["linestyle"][0],
-                     linewidth= plot_data["linewidth"][0],
-                     color=darken_colour(col),zorder=10)
-            
-            ax1.set_xscale("log",base=10)
-            ax1.set_yscale("log",base=10)    
-            
-            y_res = plot_data["resid"]
-            y_reserr = plot_data["reserr"]
+        This helper method draws a plot through specified fitter objects,    
+        calling a plotting method specified by method_name ("plot_data" or 
+        "plot_model"). The fitters to be called can be divided into gropus, in 
+        which case each group will share a single plot (e.g. to make multiple
+        time-averaged spectra share a single plot). If one-d methods are not 
+        available, the  method defaults to calling plot_method_name_2d.
          
-            #if the spectra were renormalized, we have to over-write the residuals
-            if (self.renorm_spectra is True and residuals=="chisq"):
-                model_folded = self.eval_model(names=key,flatten=True)
-                y_res = chisq(self.joint[key].data,self.joint[key].data_err,
-                              model_folded,
-                              noise=self.joint[key].noise,
-                              noise_err=self.joint[key].noise_err,
-                              )
-                y_reserr = plot_data["reserr"]
-            elif (self.renorm_spectra is True and residuals=="ratio"):
-                model_folded = self.eval_model(names=key,flatten=True)
-                res, bars = ratio(self.joint[key].data,
-                                  self.joint[key].data_err,
-                                  model_folded,
-                                  noise=self.joint[key].noise,
-                                  noise_err=self.joint[key].noise_err,
-                                  summed=False,
-                                  bars=True)
-                y_res = res 
-                y_reserr = bars
-                                    
-            ax2.errorbar(plot_data["x_points"], y_res, 
-                         xerr=plot_data["x_bars"], yerr=y_reserr, 
-                         fmt='o',alpha=0.5, color=col)
-        
-        x_points = np.linspace(min_xrange,max_xrange,100)
-
-        if residuals == "chisq":
-            ax2.plot(x_points,np.zeros(len(x_points)),
-                     ls=":",lw=2,color='black',zorder=10)
-        elif residuals == "ratio":
-            ax2.plot(x_points,np.ones(len(x_points)),
-                     ls=":",lw=2,color='black',zorder=10)
-        ax2.set_xscale("log",base=10)
-        
-        ax1.set_xlabel(plot_data["ax1_data"].get_xlabel())
-        ax1.set_ylabel(plot_data["ax1_data"].get_ylabel())
-        ax2.set_xlabel(plot_data["ax2_data"].get_xlabel())
-        ax2.set_ylabel(plot_data["ax2_data"].get_ylabel())
-        
-        ax1.set_xlim([0.95*min_xrange,1.05*max_xrange])
-        ax2.set_xlim([0.95*min_xrange,1.05*max_xrange])
-
-        fig.tight_layout()
-
-        if return_plot is True:
-            return fig 
-        else:
-            return   
-        
-    def all_plots(self,units,residuals="chisq",plot_bkg=None,plot_components=False,
-                  return_plot=False):
-        """
-        This method loops over all stored fitter objects and plots the data, 
-        model (given the parameters stored), and residuals for all the fits 
-        separately. For two-dimensional fits (like a cross spectrum), the method 
-        still plots one-dimensional plots. This method is meant for quick-look 
-        analysis of a joint fit. 
-        
         Parameters:
         -----------
-        units: str
-            The units to use for the y axis. For more info, see the documentation 
-            of the individual fitter classes. Has no impact if the fitter being 
-            looked over is a cross spectrum. 
+        method_name: str
+            The name of the method to be called, either "plot_data" or 
+            "plot_model".
             
-        residuals: str, default="chisq"
-            The units to use for the residuals. If residuals="chisq", the plot 
-            shows the residuals in units of data-model/error; if residuals="ratio",
-            the plot instead uses units of data/model. For cross spectra this 
-            key word is ignored and only delta chi residuals can be shown.
+        groups: list(list(str))
+            One or more lists with the name of the groups that need to share a 
+            single figure; for example:
             
-        plot_bkg; str, default=False:
-            A boolean to choose whether you want to plot the background
+            .. code-block:: python
             
-        plot_components: bool, default=False 
-            If true, the model components are overplotted; if false, they are 
-            not. Only additive model components will display their values 
-            correctly. 
-
-        return_plot: bool, default=False
-            A boolean to decide whether to return the figure objected containing 
-            the plot or not.           
+                groups=[["fpma","fpmb"],["ixpe_du1","ixpe_du2","ixpe_du3"]]
+            
+            will plot the first two fitters in one figure, and the last three 
+            in another. 
+            
+        plot_kwargs: dict 
+            A dictionary containing the extra keywords to pass to the plotter
+            methods. It is meant to pass information for each individual fitter:
+            
+            .. code-block:: python
+            
+                plot_kwargs={"fpma": dict(units="eeunfold",
+                              data_kwargs=dict(marker="s"), 
+                              resid_kwargs=dict(alpha=0.5)),
+                             "fpmb": dict(units="eeunfold"),
+                             "nicer": dict(units="eeunfold",plot_components=True,
+                              component_kwargs={"ndspec_diskbb": {"label":"Disk"}})}
+                                        
+        kwargs: dict 
+            A dictionary containing keywords shared between all fitters that 
+            the plotter method will call. For example, if calling plot_model 
+            below, one might have:
+            
+            .. code-block:: python
+            
+                joint.plot_model(units="eeunfold",residuals="chisq")
+            
+            in which case "units" and "residuals" become kwargs passed to every 
+            plot. 
+            
+        Returns: 
+        --------
+        fig, panels: list(fig), list(np.array(axes))
+            Lists of figures and arrays of panels, each containing one entry 
+            per group as if it were called with return_plot=True.
         """
         
-        if self.renorm_spectra is True:
-            warnings.warn("Fit cross-calibration constants enabled! Models might be off!",
-                           UserWarning)   
+        if groups is None:
+            groups = [[name] for name in self.joint.keys()]
+        if plot_kwargs is None:
+            plot_kwargs = {}
+        model_args = {}
+        if method_name == "plot_model":
+            model_args = dict(params=self.model_params)
         
-        if return_plot is not False:
-            figs = []
-        
-        for key in self.joint:
-            if type(self.joint[key]) == FitCrossSpectrum:
-                plot = self.joint[key].plot_model_1d(return_plot=True)
-            elif type(self.joint[key]) == FitTimeAvgSpectrum:
-                plot = self.joint[key].plot_model(residuals=residuals,
-                                                  units=units,
-                                                  plot_bkg=plot_bkg,
-                                                  plot_components=plot_components,
-                                                  return_plot=True)
-            elif type(self.joint[key]) == FitPowerSpectrum:
-                plot = self.joint[key].plot_model(residuals=residuals,
-                                                  units=units,
-                                                  plot_components=plot_components,
-                                                  return_plot=True)
+        figures = []
+        for group in groups:
+            for name in group:
+                if name not in self.joint.keys():
+                    raise AttributeError(f"{name} is not among the stored fitters")
+            
+            #if a fitter has plot_data/plot_model call those, otherwise default 
+            #to plot_2d
+            if len(group) == 1:
+                fitobj = self.joint[group[0]]
+                plotter = getattr(fitobj,method_name,None)
+                if plotter is None:
+                    plotter = getattr(fitobj,method_name+"_2d")
+                #take all the kwargs, and add the appropriate ones for this 
+                #fitter from fitter_kwargs
+                fitter_kwargs = dict(kwargs)
+                fitter_kwargs.update(plot_kwargs.get(group[0],{}))
+                fig, panels = plotter(return_plot=True,**model_args,**fitter_kwargs)
+                panels[0].set_title(name)
+            #fitters in the same group are drawn on top of each other
             else:
-                #his is a gross way to catch every other case but wcyd
-                plot = self.joint[key].plot_model(return_plot=True)             
-          
-            plot.axes[0].set_title(str(key))
-            plot.tight_layout()
-            if return_plot is True:
-                figs = np.append(figs,plot)
+                panels = None
+                for i, name in enumerate(group):
+                    plotter = getattr(self.joint[name],method_name,None)
+                    if plotter is None:
+                        raise TypeError(f"{name} only has two-dimensional plots")
+                    #take all the kwargs, and add the appropriate ones for this 
+                    #fitter from fitter_kwargs
+                    fitter_kwargs = dict(kwargs)
+                    fitter_kwargs.update(plot_kwargs.get(name,{}))                    
+                    color = "C"+str(i)
+                    styles = dict(data_kwargs=dict(color=color,label=name))
+                    if method_name == "plot_model":
+                        styles["model_kwargs"] = dict(color=Plotting.darken_color(color))
+                        styles["resid_kwargs"] = dict(color=color)
+                    for key in styles.keys():
+                        styles[key].update(fitter_kwargs.pop(key,None) or {})
+                    fig, panels = plotter(panels=panels,return_plot=True,
+                                          **model_args,**styles,**fitter_kwargs)
+                np.ravel(panels)[0].legend(loc="best")
+            figures.append((fig,panels))
         
+        #return a list of figures/plots 
+        return [fig for fig, _ in figures], [panels for _, panels in figures]
+
+    def plot_data(self,groups=None,plot_kwargs=None,return_plot=False,**kwargs):
+        """
+        This method calls plot_data for all the specified fitter objects. The 
+        fitters to be called can be divided into groups, in which case each 
+        group will share a single plot (e.g. to make multiple time-averaged
+        spectra share a single plot). If one-d methods are not available, the 
+        method defaults to calling plot_data_2d.
+         
+        Parameters:
+        -----------
+        groups: list(list(str))
+            One or more lists with the name of the groups that need to share a 
+            single figure; for example:
+            
+            .. code-block:: python
+            
+                groups=[["fpma","fpmb"],["ixpe_du1","ixpe_du2","ixpe_du3"]]
+            
+            will plot the first two fitters in one figure, and the last three 
+            in another. 
+            
+        plot_kwargs: dict 
+            A dictionary containing the extra keywords to pass to the plotter
+            methods. It is meant to pass information for each individual fitter:
+            
+            .. code-block:: python
+            
+                plot_kwargs={"fpma": dict(units="eeunfold",
+                              data_kwargs=dict(marker="s"), 
+                              resid_kwargs=dict(alpha=0.5)),
+                             "fpmb": dict(units="eeunfold"),
+                             "nicer": dict(units="eeunfold",plot_components=True,
+                              component_kwargs={"ndspec_diskbb": {"label":"Disk"}})}
+                                        
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objects containing 
+            the plot or not.
+
+        kwargs: dict 
+            A dictionary containing keywords shared between all fitters that 
+            the plotter method will call. For example, if calling plot_model 
+            below, one might have:
+            
+            .. code-block:: python
+            
+                joint.plot_model(units="eeunfold",residuals="chisq")
+            
+            in which case "units" and "residuals" become kwargs passed to every 
+            plot. 
+            
+        Returns: 
+        --------
+        fig, panels: list(fig), list(np.array(axes))
+            Lists of figures and arrays of panels, each containing one entry 
+            per group as if it were called with return_plot=True.   
+        """ 
+        figs, panels = self._plot_groups("plot_data",groups,plot_kwargs,kwargs)
         if return_plot is True:
-            return figs 
+          return figs, panels
         else:
-            return            
+          return
+        
+    def plot_model(self,groups=None,plot_kwargs=None,return_plot=False,**kwargs):
+        """
+        This method calls plot_model for all the specified fitter objects. The 
+        fitters to be called can be divided into gropus, in which case each 
+        group will share a single plot (e.g. to make multiple time-averaged
+        spectra share a single plot). If one-d methods are not available, the 
+        method defaults to calling plot_model_2d.
+         
+        Parameters:
+        -----------
+        groups: list(list(str))
+            One or more lists with the name of the groups that need to share a 
+            single figure; for example:
+            
+            .. code-block:: python
+            
+                groups=[["fpma","fpmb"],["ixpe_du1","ixpe_du2","ixpe_du3"]]
+            
+            will plot the first two fitters in one figure, and the last three 
+            in another. 
+            
+        plot_kwargs: dict 
+            A dictionary containing the extra keywords to pass to the plotter
+            methods. It is meant to pass information for each individual fitter:
+            
+            .. code-block:: python
+            
+                plot_kwargs={"fpma": dict(units="eeunfold",
+                              data_kwargs=dict(marker="s"), 
+                              resid_kwargs=dict(alpha=0.5)),
+                             "fpmb": dict(units="eeunfold"),
+                             "nicer": dict(units="eeunfold",plot_components=True,
+                              component_kwargs={"ndspec_diskbb": {"label":"Disk"}})}
+                                        
+        return_plot: bool, default=False
+            A boolean to decide whether to return the figure objects containing 
+            the plot or not.
+
+        kwargs: dict 
+            A dictionary containing keywords shared between all fitters that 
+            the plotter method will call. For example, if calling plot_model 
+            below, one might have:
+            
+            .. code-block:: python
+            
+                joint.plot_model(units="eeunfold",residuals="chisq")
+            
+            in which case "units" and "residuals" become kwargs passed to every 
+            plot. 
+            
+        Returns: 
+        --------
+        fig, panels: list(fig), list(np.array(axes))
+            Lists of figures and arrays of panels, each containing one entry 
+            per group as if it were called with return_plot=True.   
+        """ 
+        figs, panels = self._plot_groups("plot_model",groups,plot_kwargs,kwargs)
+        if return_plot is True:
+          return figs, panels
+        else:
+          return

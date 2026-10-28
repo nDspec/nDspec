@@ -389,11 +389,11 @@ class priorNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
         The expectation of the distribution. 
+
+    sigma: float 
+        The standard deviation of the distribution.        
     """    
     
     def __init__(self,mu,sigma):
@@ -451,11 +451,11 @@ class priorLogNormal():
     
     Parameters:
     -----------
-    sigma: float 
-        The standard deviation of the distribution. 
-        
     mu: float 
-        The expectation of the distribution. 
+        The expectation of the distribution.     
+    
+    sigma: float 
+        The standard deviation of the distribution.       
     """    
     
     def __init__(self,mu,sigma):
@@ -905,6 +905,7 @@ def process_emcee(sampler,labels=None,discard=2000,thin=100,values=None,get_auto
         with np.printoptions(threshold=np.inf):
             print("Autocorrelation lengths: ",tau)
     
+    ndim = sampler.ndim
     #print trace plots
     ndim = sampler.ndim
     if labels is not None and len(labels) != ndim:
